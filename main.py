@@ -91,43 +91,77 @@ async def send_notify(message: types.Message):
 
 @dp.message_handler(content_types=['video'], state=states.notify)
 async def notify_load(message: types.Message, state: FSMContext):
+    msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
+    num = 0
     for x in users:
-        await message.answer_video(message.video.file_id, caption=message['caption'])
+        try:
+            await bot.send_video(x, message.video.file_id, caption=message['caption'])
+            num += 1
+        except:
+            pass
         sleep(0.1)
+    await msg.edit_text(f'Сообщение пришло {num} пользователям')
     await state.finish()
 
 @dp.message_handler(content_types=['photo'], state=states.notify)
 async def notify_load(message: types.Message, state: FSMContext):
+    msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
+    num = 0
     for x in users:
-        await message.answer_photo(message.photo[-1].file_id, caption=message['caption'])
+        try:
+            await bot.send_photo(x, message.photo[-1].file_id, caption=message['caption'])
+            num += 1
+        except:
+            pass
         sleep(0.1)
+    await msg.edit_text(f'Сообщение пришло {num} пользователям')
     await state.finish()
 
 @dp.message_handler(content_types=['animation'], state=states.notify)
 async def notify_load(message: types.Message, state: FSMContext):
+    msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
+    num = 0
     for x in users:
-        await message.answer_animation(message.animation.file_id, caption=message['caption'])
+        try:
+            await bot.send_animation(x, message.animation.file_id, caption=message['caption'])
+            num += 1
+        except:
+            pass
         sleep(0.1)
+    await msg.edit_text(f'Сообщение пришло {num} пользователям')
     await state.finish()
 
 @dp.message_handler(content_types=['text'], state=states.notify)
 async def notify_load(message: types.Message, state: FSMContext):
+    msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
+    num = 0
     for x in users:
-        await message.answer(message.text)
+        try:
+            await bot.send_message(x, message.text)
+            num += 1
+        except:
+            pass
         sleep(0.1)
+    await msg.edit_text(f'Сообщение пришло {num} пользователям')
     await state.finish()
 
 @dp.message_handler(content_types=['document'], state=states.notify)
 async def notify_load(message: types.Message, state: FSMContext):
+    msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
+    num = 0
     for x in users:
-        await message.answer_document(message.document.file_id, caption=message['caption'])
+        try:
+            await bot.send_document(x, message.document.file_id, caption=message['caption'])
+            num += 1
+        except:
+            pass
         sleep(0.1)
+    await msg.edit_text(f'Сообщение пришло {num} пользователям')
     await state.finish()
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
     await ttdownoad(message)
-    
 
 if __name__ == "__main__":
     sqlite = sqlite_init()
