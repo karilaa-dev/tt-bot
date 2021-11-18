@@ -13,6 +13,7 @@ config = configparser()
 config.read("config.ini")
 admin_id = int(config["bot"]["admin_id"])
 bot_token = config["bot"]["token"]
+logs = config["bot"]["logs"]
 
 #Инициализация либы aiogram
 bot = Bot(token=bot_token)
@@ -50,7 +51,8 @@ async def send_start(message: types.Message):
     if message.chat.id not in users:
         cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
-        print(message.chat.first_name, f'@{message.chat.last_name}', message.chat.username, message.chat.id)
+        text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
+        await bot.send_message(logs, text, parse_mode='HTML')
     await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <b><i>без водяного знака</i></b>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="HTML")
 
 @dp.message_handler(commands=["users", "len"])
