@@ -48,6 +48,7 @@ def load_list():
 @dp.message_handler(commands=['start'])
 async def send_start(message: types.Message):
     users = load_list()
+    print(message)
     if message.chat.id not in users:
         cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
@@ -158,12 +159,14 @@ async def send_ttdown(message: types.Message):
             if r != 'https://www.tiktok.com/':
                 tiktok_id = r.split('.html', 1)[0].split('/')[-1]
             else:
+                active.remove(message.chat.id)
                 return await message.answer('Недействительная ссылка!', parse_mode='HTML')
 
         elif web_pattern.search(url):
             tiktok_id = url.split('?', 1)[0].split('/')[-1]
 
         else:
+            active.remove(message.chat.id)
             return await message.answer('Некоректная ссылка!')
 
         msg = await message.answer('<code>Выполняеться запрос видео</code>', parse_mode='HTML')
@@ -176,7 +179,7 @@ async def send_ttdown(message: types.Message):
             playAddr = text['item']['video']['playAddr']
             await message.reply_video(playAddr[0])
             await msg.delete()
-            active.remove(message.chat.id)
+        active.remove(message.chat.id)
     else:
         await message.reply('Вы еще не скачали прошлое видео')
 
