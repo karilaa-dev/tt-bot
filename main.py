@@ -34,7 +34,7 @@ def sqlite_init():
 def tCurrent():
     return int(time())
 
-def load_list(cursor):
+def load_list():
     sqlite_select_query = "SELECT * from Users"
     cursor.execute(sqlite_select_query)
     data = cursor.fetchall()
@@ -46,16 +46,17 @@ def load_list(cursor):
 #Команда /start
 @dp.message_handler(commands=['start'])
 async def send_start(message: types.Message):
+    users = load_list()
     if message.chat.id not in users:
         cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
-        users.append(message.chat.id)
     await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <b><i>без водяного знака</i></b>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="HTML")
 
 @dp.message_handler(commands=["users", "len"])
 async def send_notify(message: types.Message):
     if message.chat.id == admin_id:
-        lenusr = len(users)
+        cursor.execute("select * from Users")
+        lenusr = len(cursor.fetchall())
         await message.answer(f'Пользователей в боте: <b>{lenusr}</b>', parse_mode='HTML')
 
 @dp.message_handler(commands=["notify"])
@@ -68,6 +69,7 @@ async def send_notify(message: types.Message):
 async def notify_video(message: types.Message, state: FSMContext):
     msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
     num = 0
+    users = load_list()
     for x in users:
         try:
             await bot.send_video(x, message.video.file_id, caption=message['caption'])
@@ -82,6 +84,7 @@ async def notify_video(message: types.Message, state: FSMContext):
 async def notify_photo(message: types.Message, state: FSMContext):
     msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
     num = 0
+    users = load_list()
     for x in users:
         try:
             await bot.send_photo(x, message.photo[-1].file_id, caption=message['caption'])
@@ -96,6 +99,7 @@ async def notify_photo(message: types.Message, state: FSMContext):
 async def notify_gif(message: types.Message, state: FSMContext):
     msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
     num = 0
+    users = load_list()
     for x in users:
         try:
             await bot.send_animation(x, message.animation.file_id, caption=message['caption'])
@@ -110,6 +114,7 @@ async def notify_gif(message: types.Message, state: FSMContext):
 async def notify_text(message: types.Message, state: FSMContext):
     msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
     num = 0
+    users = load_list()
     for x in users:
         try:
             await bot.send_message(x, message.text)
@@ -124,6 +129,7 @@ async def notify_text(message: types.Message, state: FSMContext):
 async def notify_doc(message: types.Message, state: FSMContext):
     msg = await message.answer('<code>Началась рассылка</code>', parse_mode='HTML')
     num = 0
+    users = load_list()
     for x in users:
         try:
             await bot.send_document(x, message.document.file_id, caption=message['caption'])
@@ -178,9 +184,7 @@ if __name__ == "__main__":
     #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
 
-    #Инициализация базы даних
     active = list()
-    users = load_list(cursor)
 
     executor.start_polling(dp, skip_updates=True)
     sqlite.close()
