@@ -50,6 +50,7 @@ async def send_start(message: types.Message):
     if message.chat.id not in users:
         cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
+        print(message.chat.first_name, f'@{message.chat.last_name}', message.chat.username, message.chat.id)
     await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <b><i>без водяного знака</i></b>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="HTML")
 
 @dp.message_handler(commands=["users", "len"])
