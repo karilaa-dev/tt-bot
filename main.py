@@ -8,6 +8,7 @@ import re
 from requests import get as rget
 import sqlite3
 from time import time, sleep
+from simplejson import loads as jloads
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
@@ -32,6 +33,7 @@ keyboardback.row('Назад')
 config = configparser()
 config.read("config.ini")
 admin_id = int(config["bot"]["admin_id"])
+second_id =  jloads(config["bot"]["second_id"])
 bot_token = config["bot"]["token"]
 logs = config["bot"]["logs"]
 
@@ -93,7 +95,7 @@ async def send_admin(message: types.Message):
 
 @dp.message_handler(commands=["users", "len"])
 async def send_notify(message: types.Message):
-    if message.chat.id == admin_id:
+    if message.chat.id == admin_id or message.chat.id in second_id:
         cursor.execute("select * from Users")
         lenusr = len(cursor.fetchall())
         await message.answer(f'Пользователей в боте: <b>{lenusr}</b>', parse_mode='HTML')
