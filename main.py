@@ -250,7 +250,7 @@ async def send_ttdown(message: types.Message):
             active.remove(message.chat.id)
             return await message.answer('Некоректная ссылка!')
 
-        msg = await message.answer('<code>Выполняеться запрос видео</code>', parse_mode='HTML')
+        msg = await message.answer('<code>Выполняется запрос видео</code>', parse_mode='HTML')
         r = rget(dl_url + tiktok_id)
         text = r.json()
         if 'status' in text and text['status'] == '1':
