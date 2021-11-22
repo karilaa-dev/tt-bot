@@ -230,6 +230,7 @@ async def send_ttdown(message: types.Message):
         active.append(message.chat.id)
         url = message.text
         dl_url = 'https://toolav.herokuapp.com/id/?video_id='
+        dl_url2 = 'https://tool-av.herokuapp.com/id/?video_id='
 
         mobile_pattern = re.compile(r'(https?://[^\s]+tiktok.com/[^\s@]+)') # re pattern for tiktok links from mobile, e.x. "vm.tiktok.com/"
         web_pattern = re.compile(r'(https?://www.tiktok.com/@[^\s]+/video/[0-9]+)') # re pattern for tiktok links from a web browser, e.x. "www.tiktok.com/@user"
@@ -252,14 +253,23 @@ async def send_ttdown(message: types.Message):
         msg = await message.answer('<code>Выполняеться запрос видео</code>', parse_mode='HTML')
         r = rget(dl_url + tiktok_id)
         text = r.json()
+        if 'status' in text and text['status'] == '1':
+            sleep(1)
+            r = rget(dl_url + tiktok_id)
+            text = r.json()
+            while text['status'] == '1':
+                sleep(1)
+                r = rget(dl_url2 + tiktok_id)
+                text = r.json()
+                print('sus')
         if 'status_code' in text:
             await msg.edit_text('Недействительная ссылка!', parse_mode='HTML')
         else:
+            active.remove(message.chat.id)
             await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
             playAddr = text['item']['video']['playAddr']
             await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
             await msg.delete()
-        active.remove(message.chat.id)
         print(f'{message.chat.id}: {url}')
     else:
         await message.reply('Вы еще не скачали прошлое видео')
