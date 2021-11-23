@@ -253,7 +253,10 @@ async def send_ttdown(message: types.Message):
         msg = await message.answer('<code>Выполняется запрос видео</code>', parse_mode='HTML')
         r = rget(dl_url + tiktok_id)
         text = r.json()
-        if 'status' in text and text['status'] == '1':
+        if 'status_code' in text:
+            active.remove(message.chat.id)
+            return await msg.edit_text('Недействительная ссылка!', parse_mode='HTML')
+        elif text['status'] == '1':
             sleep(1)
             r = rget(dl_url + tiktok_id)
             text = r.json()
@@ -262,21 +265,19 @@ async def send_ttdown(message: types.Message):
                 r = rget(dl_url2 + tiktok_id)
                 text = r.json()
                 print('sus')
-        if 'status_code' in text:
-            await msg.edit_text('Недействительная ссылка!', parse_mode='HTML')
-        else:
-            active.remove(message.chat.id)
-            await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
-            playAddr = text['item']['video']['playAddr']
-            await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
-            await msg.delete()
-            a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
-            res = a.fetchall()[0][0]
-            text = url
-            if res is not None:
-                text = res+f'\n{url}'
-            cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
-            sqlite.commit()
+        active.remove(message.chat.id)
+        await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
+        playAddr = text['item']['video']['playAddr']
+        await message.answer_chat_action('upload_video')
+        await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
+        await msg.delete()
+        a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
+        res = a.fetchall()[0][0]
+        text = url
+        if res is not None:
+            text = res+f'\n{url}'
+        cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
+        sqlite.commit()
         print(f'{message.chat.id}: {url}')
     else:
         await message.reply('Вы еще не скачали прошлое видео')
