@@ -257,7 +257,7 @@ async def send_ttdown(message: types.Message):
             sleep(1)
             r = rget(dl_url + tiktok_id)
             text = r.json()
-            while text['status'] == '1':
+            while text['status'] != '0':
                 sleep(1)
                 r = rget(dl_url2 + tiktok_id)
                 text = r.json()
