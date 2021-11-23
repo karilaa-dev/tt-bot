@@ -75,7 +75,7 @@ def load_list():
 async def send_start(message: types.Message):
     users = load_list()
     if message.chat.id not in users:
-        cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()})')
+        cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()}, NULL)')
         sqlite.commit()
         text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
         await bot.send_message(logs, text, parse_mode='HTML')
