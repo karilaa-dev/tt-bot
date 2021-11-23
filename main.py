@@ -9,6 +9,7 @@ from requests import get as rget
 import sqlite3
 from time import time, sleep
 from simplejson import loads as jloads
+import logging
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
@@ -288,6 +289,8 @@ if __name__ == "__main__":
     sqlite = sqlite_init()
     #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
+
+    logging.basicConfig(level=logging.INFO)
 
     adv_text = None
     active = list()
