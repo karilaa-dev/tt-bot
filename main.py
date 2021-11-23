@@ -270,6 +270,13 @@ async def send_ttdown(message: types.Message):
             playAddr = text['item']['video']['playAddr']
             await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
             await msg.delete()
+            a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
+            res = a.fetchall()[0][0]
+            text = url
+            if res is not None:
+                text = res+f'\n{url}'
+            cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
+            sqlite.commit()
         print(f'{message.chat.id}: {url}')
     else:
         await message.reply('Вы еще не скачали прошлое видео')
