@@ -251,12 +251,12 @@ async def send_ttdown(message: types.Message):
             active.remove(message.chat.id)
             return await message.answer('Некоректная ссылка!')
 
-        msg = await message.answer('<code>Выполняется запрос видео</code>', parse_mode='HTML')
+        msg = await message.answer('`Запрос видео...`', parse_mode='markdown')
         r = rget(dl_url + tiktok_id)
         text = r.json()
         if 'status_code' in text:
             active.remove(message.chat.id)
-            return await msg.edit_text('Недействительная ссылка!', parse_mode='HTML')
+            return await msg.edit_text('Недействительная ссылка!')
         elif text['status'] == '1':
             sleep(1)
             r = rget(dl_url + tiktok_id)
@@ -267,7 +267,7 @@ async def send_ttdown(message: types.Message):
                 text = r.json()
                 print('sus')
         active.remove(message.chat.id)
-        await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
+        #await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
         playAddr = text['item']['video']['playAddr']
         await message.answer_chat_action('upload_video')
         await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
