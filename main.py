@@ -10,6 +10,7 @@ import sqlite3
 from time import time, sleep
 from simplejson import loads as jloads
 import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
@@ -53,10 +54,10 @@ class podp(StatesGroup):
 def sqlite_init():
     try:
         sqlite = sqlite3.connect('sqlite.db', timeout=20)
-        print("Подключен к SQLite")
+        logging.info('SQLite connected')
         return sqlite
     except sqlite3.Error as error:
-        print("Ошибка при подключении к sqlite", error)
+        logging.error('Error while connecting to SQLite', error)
         return exit()
 
 def tCurrent():
@@ -261,13 +262,14 @@ async def send_ttdown(message: types.Message):
             sleep(1)
             r = rget(dl_url + tiktok_id)
             text = r.json()
+            num = 1
             while text['status'] != '0':
                 sleep(1)
                 r = rget(dl_url2 + tiktok_id)
                 text = r.json()
-                print('sus')
+                num += 1
+            logging.warning(f'{num} additional attemps to request')
         active.remove(message.chat.id)
-        #await msg.edit_text('<code>Отправка видео</code>', parse_mode='HTML')
         playAddr = text['item']['video']['playAddr']
         await message.answer_chat_action('upload_video')
         await message.reply_video(playAddr[0], caption=podp_text, parse_mode='markdown')
@@ -279,7 +281,7 @@ async def send_ttdown(message: types.Message):
             text = res+f'\n{url}'
         cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
         sqlite.commit()
-        print(f'{message.chat.id}: {url}')
+        logging.info(f'{message.chat.id}: {url}')
     else:
         await message.reply('Вы еще не скачали прошлое видео')
 
@@ -290,8 +292,6 @@ if __name__ == "__main__":
     #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
 
-    logging.basicConfig(level=logging.INFO)
-
     adv_text = None
     active = list()
     with open('podp.txt', 'r', encoding='utf-8') as f:
@@ -299,4 +299,4 @@ if __name__ == "__main__":
 
     executor.start_polling(dp, skip_updates=True)
     sqlite.close()
-    print("Соединение с SQLite закрыто")
+    logging.info("Соединение с SQLite закрыто")
