@@ -2,3 +2,5 @@
 /sqlite.db
 /*test*.py
 maybe/
+logs/
+/*.log

@@ -10,7 +10,8 @@ import sqlite3
 from time import time, sleep
 from simplejson import loads as jloads
 import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+
+logging.basicConfig(filename='bot.log', encoding='utf-8', level=logging.INFO, format='%(asctime)s %(message)s')
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
