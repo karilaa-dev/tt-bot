@@ -11,7 +11,7 @@ from time import time, sleep
 from simplejson import loads as jloads
 import logging
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+logging.basicConfig(encoding='utf-8', level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
