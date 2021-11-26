@@ -269,7 +269,7 @@ async def send_ttdown(message: types.Message):
     except:
         return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
     await message.answer_chat_action('upload_video')
-    await message.reply_video(video_url, caption=podp_text, parse_mode='markdown')
+    await message.reply_video(video_url, caption=podp_text, parse_mode='html')
     await msg.delete()
     a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
     res = a.fetchall()[0][0]
