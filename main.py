@@ -83,7 +83,8 @@ async def send_start(message: types.Message):
         text = f'*{message.chat.first_name} {message.chat.last_name}*\n@{message.chat.username}\n`{message.chat.id}`'
         await bot.send_message(logs, text, parse_mode='markdown')
         logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message.chat.id}')
-    await message.answer('Вы запуситили бота **No Watermark TikTok**\nЭтот бот позволяет скачивать видео из тиктока ***без водяного знака***.\n**Отправьте ссылку на видео чтобы начать**', parse_mode="Markdown")
+    #await message.answer('Вы запуситили бота **No Watermark TikTok**\nЭтот бот позволяет скачивать видео из тиктока ***без водяного знака***.\n**Отправьте ссылку на видео чтобы начать**', parse_mode="Markdown")
+    await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <i><b>без водяного знака</b></i>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="html")
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
@@ -238,13 +239,13 @@ async def send_ttdown(message: types.Message):
         if r != 'https://www.tiktok.com/':
             tiktok_id = r.split('.html', 1)[0].split('/')[-1]
         else:
-            return await message.answer('Недействительная ссылка!', parse_mode='HTML')
+            return await message.answer('Недействительная ссылка!')
     elif web_pattern.search(url):
         tiktok_id = url.split('?', 1)[0].split('/')[-1]
     else:
         return await message.answer('Некоректная ссылка!')
 
-    msg = await message.answer('`Запрос видео...`', parse_mode='markdown')
+    msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -266,7 +267,7 @@ async def send_ttdown(message: types.Message):
         else:
             return await msg.edit_text('Недействительная ссылка!')
     except:
-        return await msg.edit_text('*Произошла ошибка!*\nПопробуйте еще раз, если ошибка не пропадет то сообщите в [Поддержку](t.me/ttgrab_support_bot)', parse_mode='markdown')
+        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
     await message.answer_chat_action('upload_video')
     await message.reply_video(video_url, caption=podp_text, parse_mode='markdown')
     await msg.delete()
