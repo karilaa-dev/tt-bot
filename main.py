@@ -80,10 +80,9 @@ async def send_start(message: types.Message):
     if message.chat.id not in users:
         cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()}, NULL)')
         sqlite.commit()
-        text = f'*{message.chat.first_name} {message.chat.last_name}*\n@{message.chat.username}\n`{message.chat.id}`'
-        await bot.send_message(logs, text, parse_mode='markdown')
+        text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
+        await bot.send_message(logs, text, parse_mode='html')
         logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message.chat.id}')
-    #await message.answer('Вы запуситили бота **No Watermark TikTok**\nЭтот бот позволяет скачивать видео из тиктока ***без водяного знака***.\n**Отправьте ссылку на видео чтобы начать**', parse_mode="Markdown")
     await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <i><b>без водяного знака</b></i>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="html")
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
@@ -121,7 +120,7 @@ async def adv_menu(message: types.Message, state: FSMContext):
 async def podp_check(message: types.Message, state: FSMContext):
     with open('podp.txt', 'r', encoding='utf-8') as f:
         text = f.read()
-    await message.answer(text, parse_mode='markdown', disable_web_page_preview=True)
+    await message.answer(text, parse_mode='html', disable_web_page_preview=True)
 
 @dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
 async def adb_check(message: types.Message, state: FSMContext):
@@ -132,15 +131,15 @@ async def adb_check(message: types.Message, state: FSMContext):
         markup = adv_text[2]
         file_id = adv_text[3]
         if mtype == 'text':
-            await message.answer(text, reply_markup=markup,  parse_mode='markdown', disable_web_page_preview=True)
+            await message.answer(text, reply_markup=markup,  parse_mode='html', disable_web_page_preview=True)
         elif mtype == 'photo':
-            await message.answer_photo(file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+            await message.answer_photo(file_id, caption=text, reply_markup=markup,  parse_mode='html')
         elif mtype == 'video':
-            await message.answer_video(file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+            await message.answer_video(file_id, caption=text, reply_markup=markup,  parse_mode='html')
         elif mtype == 'animation':
-            await message.answer_animation(file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+            await message.answer_animation(file_id, caption=text, reply_markup=markup,  parse_mode='html')
         elif mtype == 'doc':
-            await message.answer_document(file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+            await message.answer_document(file_id, caption=text, reply_markup=markup,  parse_mode='html')
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -148,7 +147,7 @@ async def adb_check(message: types.Message, state: FSMContext):
 async def adv_go(message: types.Message, state: FSMContext):
     global adv_text
     if adv_text != None:
-        msg = await message.answer('`Началась рассылка`', parse_mode='markdown')
+        msg = await message.answer('<code>Началась рассылка</code>', parse_mode='html')
         num = 0
         users = load_list()
         mtype = adv_text[0]
@@ -158,26 +157,26 @@ async def adv_go(message: types.Message, state: FSMContext):
         for x in users:
             try:
                 if mtype == 'text':
-                    await bot.send_message(x, text, reply_markup=markup,  parse_mode='markdown', disable_web_page_preview=True)
+                    await bot.send_message(x, text, reply_markup=markup,  parse_mode='html', disable_web_page_preview=True)
                 elif mtype == 'photo':
-                    await bot.send_photo(x, file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+                    await bot.send_photo(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
                 elif mtype == 'video':
-                    await bot.send_video(x, file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+                    await bot.send_video(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
                 elif mtype == 'animation':
-                    await bot.send_animation(x, file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+                    await bot.send_animation(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
                 elif mtype == 'doc':
-                    await bot.send_document(x, file_id, caption=text, reply_markup=markup,  parse_mode='markdown')
+                    await bot.send_document(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
                 num += 1
             except:
                 pass
             sleep(0.1)
-        await msg.edit_text(f'Сообщение пришло {num} пользователям')
+        await msg.edit_text(f'Сообщение пришло <b>{num}</b> пользователям', parse_mode='html')
     else:
         await message.answer('Вы не добавили сообщение')
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=podp.menu)
 async def podp_change(message: types.Message, state: FSMContext):
-    await message.answer('Введите новое сообщение используя mardown', reply_markup=keyboardback)
+    await message.answer('Введите новое сообщение используя html разметку', reply_markup=keyboardback)
     await podp.add.set()
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=adv.menu)
