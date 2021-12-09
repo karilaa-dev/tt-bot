@@ -38,6 +38,7 @@ config.read("config.ini")
 admin_id = int(config["bot"]["admin_id"])
 second_id =  jloads(config["bot"]["second_id"])
 bot_token = config["bot"]["token"]
+api_key = config["bot"]["api_key"]
 logs = config["bot"]["logs"]
 
 #Инициализация либы aiogram
@@ -230,54 +231,37 @@ async def notify_doc(message: types.Message, state: FSMContext):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    url = message.text
-    mobile_pattern = re.compile(r'(https?://[^\s]+tiktok.com/[^\s@]+)') # re pattern for tiktok links from mobile, e.x. "vm.tiktok.com/"
-    web_pattern = re.compile(r'(https?://www.tiktok.com/@[^\s]+/video/[0-9]+)') # re pattern for tiktok links from a web browser, e.x. "www.tiktok.com/@user"
-    if mobile_pattern.search(url):
-        r = rget(url).url # GET request to get the ID of the tiktok
-        if r != 'https://www.tiktok.com/':
-            tiktok_id = r.split('.html', 1)[0].split('/')[-1]
-        else:
-            return await message.answer('Недействительная ссылка!')
-    elif web_pattern.search(url):
-        tiktok_id = url.split('?', 1)[0].split('/')[-1]
-    else:
-        return await message.answer('Некоректная ссылка!')
+    if message.chat.id not in active:
+        active.append(message.chat.id)
+        url = "https://video-nwm.p.rapidapi.com/url/"
+        querystring = {"url":f"{message.text}"}
 
-    msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'id,en-US;q=0.7,en;q=0.3',
-        'Alt-Used': 'savetiktok.cc',
-        'Connection': 'keep-alive',
-        'Referer': 'https://savetiktok.cc/en/download?url=https%3A%2F%2Fwww.tiktok.com%2F%40ni94%2Fvideo%2F69996',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Fetch-User': '?1',
-    }
-    try:
-        response = rget('https://savetiktok.cc/en/download?url='+url, headers=headers).text
-        rex = re.findall('<option value="(.*?)"', response)
-        if rex != []:
-            video_url = re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|)+', rex[0])[0].replace("&amp;", "&")
-        else:
-            return await msg.edit_text('Недействительная ссылка!')
-    except:
-        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
-    await message.answer_chat_action('upload_video')
-    await message.reply_video(video_url, caption=podp_text, parse_mode='html')
-    await msg.delete()
-    a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
-    res = a.fetchall()[0][0]
-    text = url
-    if res is not None:
-        text = res+f'\n{url}'
-    cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
-    sqlite.commit()
-    logging.info(f'{message.chat.id}: {url}')
+        headers = {
+            'x-rapidapi-host': "video-nwm.p.rapidapi.com",
+            'x-rapidapi-key': api_key
+            }
+
+        msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
+        try:
+            text = rget(url, headers=headers, params=querystring).json()
+            if 'status' == '2':
+                active.remove(message.chat.id)
+                return await msg.edit_text('Недействительная ссылка!')
+            active.remove(message.chat.id)
+            playAddr = text['item']['video']['playAddr']
+            await message.answer_chat_action('upload_video')
+            await message.reply_video(playAddr[0], caption=podp_text, parse_mode='html')
+            await msg.delete()
+            a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
+            res = a.fetchall()[0][0]
+            text = message.text
+            if res is not None:
+                text = res+f'\n{message.text}'
+            cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
+            sqlite.commit()
+            logging.info(f'{message.chat.id}: {message.text}')
+        except:
+            return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
 
 if __name__ == "__main__":
 
@@ -285,7 +269,7 @@ if __name__ == "__main__":
     sqlite = sqlite_init()
     #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
-
+    active = list()
     adv_text = None
     with open('podp.txt', 'r', encoding='utf-8') as f:
         podp_text = f.read()
