@@ -10,6 +10,23 @@ import sqlite3
 from time import time, sleep
 from simplejson import loads as jloads
 import logging
+import aiohttp
+
+class ttapi:
+    def __init__(self):
+        self.session = aiohttp.ClientSession()
+
+    async def url(self, text):
+        url = f'https://api.reiyuura.me/api/dl/tiktokv2?url={text}'
+        try:
+            async with self.session.get(url) as req:
+                try: res = await req.json()
+                except: return 'connerror'
+                return res['result']['Video_URL']['WithoutWM']
+        except:
+            return 'error'
+
+api = ttapi()
 
 logging.basicConfig(encoding='utf-8', level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
 
@@ -231,37 +248,46 @@ async def notify_doc(message: types.Message, state: FSMContext):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    if message.chat.id not in active:
-        active.append(message.chat.id)
-        url = "https://video-nwm.p.rapidapi.com/url/"
-        querystring = {"url":f"{message.text}"}
+    if message.chat.id in active:
+        return await message.reply('Вы еще не скачали прошлое видео', parse_mode='html')
+    active.append(message.chat.id)
+    url = "https://video-nwm.p.rapidapi.com/url/"
+    url2 = f'https://api.reiyuura.me/api/dl/tiktokv2?url={message.text}'
+    querystring = {"url":f"{message.text}"}
 
-        headers = {
-            'x-rapidapi-host': "video-nwm.p.rapidapi.com",
-            'x-rapidapi-key': api_key
-            }
+    headers = {
+        'x-rapidapi-host': "video-nwm.p.rapidapi.com",  
+        'x-rapidapi-key': api_key
+        }
 
-        msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
-        try:
-            text = rget(url, headers=headers, params=querystring).json()
-            if 'status' == '2':
-                active.remove(message.chat.id)
-                return await msg.edit_text('Недействительная ссылка!')
-            active.remove(message.chat.id)
-            playAddr = text['item']['video']['playAddr']
-            await message.answer_chat_action('upload_video')
-            await message.reply_video(playAddr[0], caption=podp_text, parse_mode='html')
-            await msg.delete()
-            a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
-            res = a.fetchall()[0][0]
-            text = message.text
-            if res is not None:
-                text = res+f'\n{message.text}'
-            cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
-            sqlite.commit()
-            logging.info(f'{message.chat.id}: {message.text}')
-        except:
-            return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
+    msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
+    try:
+        #text = rget(url, headers=headers, params=querystring).json()
+        #if 'status' == '2':
+            #try: active.remove(message.chat.id)
+            #except: pass
+            #return await msg.edit_text('Недействительная ссылка!')
+        playAddr = await api.url(message.text)
+        try: active.remove(message.chat.id)
+        except: pass
+        if playAddr == 'error':
+            return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+        #playAddr = text['item']['video']['playAddr'][0]
+        await message.answer_chat_action('upload_video')
+        await message.reply_video(playAddr, caption=podp_text, parse_mode='html')
+        await msg.delete()
+        a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
+        res = a.fetchall()[0][0]
+        text = message.text
+        if res is not None:
+            text = res+f'\n{message.text}'
+        cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
+        sqlite.commit()
+        logging.info(f'{message.chat.id}: {message.text}')
+    except:
+        try: active.remove(message.chat.id)
+        except: pass
+        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
 
 if __name__ == "__main__":
 
