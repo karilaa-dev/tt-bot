@@ -26,6 +26,17 @@ class ttapi:
         except:
             return 'error'
 
+    async def url_paid(self, text):
+        url = "https://video-nwm.p.rapidapi.com/url/"
+        querystring = {"url":f"{text}"}
+        headers = {
+            'x-rapidapi-host': "video-nwm.p.rapidapi.com",  
+            'x-rapidapi-key': api_key}
+        text = rget(url, headers=headers, params=querystring).json()
+        if text['status'] == '2':
+            return 'error'
+        return text['item']['video']['playAddr'][0]
+
 api = ttapi()
 
 logging.basicConfig(encoding='utf-8', level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
@@ -83,7 +94,7 @@ def tCurrent():
     return int(time())
 
 def load_list():
-    sqlite_select_query = "SELECT * from Users"
+    sqlite_select_query = "SELECT * from users"
     cursor.execute(sqlite_select_query)
     data = cursor.fetchall()
     res = list()
@@ -96,7 +107,7 @@ def load_list():
 async def send_start(message: types.Message):
     users = load_list()
     if message.chat.id not in users:
-        cursor.execute(f'INSERT INTO Users VALUES ({message.chat.id}, {tCurrent()}, NULL)')
+        cursor.execute(f'INSERT INTO users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
         text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
         await bot.send_message(logs, text, parse_mode='html')
@@ -118,7 +129,7 @@ async def send_admin(message: types.Message):
 @dp.message_handler(commands=["users", "len"])
 async def send_notify(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
-        cursor.execute("select * from Users")
+        cursor.execute("select * from users")
         lenusr = len(cursor.fetchall())
         await message.answer(f'Пользователей в боте: <b>{lenusr}</b>', parse_mode='HTML')
 
@@ -248,45 +259,25 @@ async def notify_doc(message: types.Message, state: FSMContext):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    if message.chat.id in active:
-        return await message.reply('Вы еще не скачали прошлое видео', parse_mode='html')
-    active.append(message.chat.id)
-    url = "https://video-nwm.p.rapidapi.com/url/"
-    url2 = f'https://api.reiyuura.me/api/dl/tiktokv2?url={message.text}'
-    querystring = {"url":f"{message.text}"}
-
-    headers = {
-        'x-rapidapi-host': "video-nwm.p.rapidapi.com",  
-        'x-rapidapi-key': api_key
-        }
-
+    #if message.chat.id in active:
+        #return await message.reply('Вы еще не скачали прошлое видео', parse_mode='html')
+    #active.append(message.chat.id)
     msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
     try:
-        #text = rget(url, headers=headers, params=querystring).json()
-        #if 'status' == '2':
-            #try: active.remove(message.chat.id)
-            #except: pass
-            #return await msg.edit_text('Недействительная ссылка!')
         playAddr = await api.url(message.text)
-        try: active.remove(message.chat.id)
-        except: pass
+        #try: active.remove(message.chat.id)
+        #except: pass
         if playAddr == 'error':
             return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
-        #playAddr = text['item']['video']['playAddr'][0]
         await message.answer_chat_action('upload_video')
         await message.reply_video(playAddr, caption=podp_text, parse_mode='html')
         await msg.delete()
-        a = cursor.execute(f'SELECT videos FROM Users WHERE id = {message.chat.id};')
-        res = a.fetchall()[0][0]
-        text = message.text
-        if res is not None:
-            text = res+f'\n{message.text}'
-        cursor.execute(f'UPDATE Users SET videos = \'{text}\' WHERE id = {message.chat.id};')
+        cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
         sqlite.commit()
         logging.info(f'{message.chat.id}: {message.text}')
     except:
-        try: active.remove(message.chat.id)
-        except: pass
+        #try: active.remove(message.chat.id)
+        #except: pass
         return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
 
 if __name__ == "__main__":
@@ -295,7 +286,7 @@ if __name__ == "__main__":
     sqlite = sqlite_init()
     #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
-    active = list()
+    #active = list()
     adv_text = None
     with open('podp.txt', 'r', encoding='utf-8') as f:
         podp_text = f.read()
