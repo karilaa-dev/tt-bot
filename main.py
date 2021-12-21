@@ -126,6 +126,17 @@ async def send_admin(message: types.Message):
     if message.chat.id == admin_id:
         await message.answer('Вы открыли админ меню', reply_markup=keyboard)
 
+@dp.message_handler(commands=['reset'], state='*')
+async def send_reset_ad(message: types.Message):
+    if message.chat.id == admin_id:
+        with open('podp.txt', 'w', encoding='utf-8') as f:
+            with open('original.txt', 'r', encoding='utf-8') as r:
+                text = r.read()
+                f.write(text)
+        global podp_text
+        podp_text = text
+        await message.answer('Вы успешно сбросили сообщение')
+
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:

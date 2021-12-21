@@ -1,5 +1,5 @@
 /config.ini
-/sqlite.db
+*.db
 /*test*.py
 maybe/
 logs/
