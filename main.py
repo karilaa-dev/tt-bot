@@ -137,6 +137,15 @@ async def send_reset_ad(message: types.Message):
         podp_text = text
         await message.answer('Вы успешно сбросили сообщение')
 
+@dp.message_handler(commands=["export"], state='*')
+async def send_stats(message: types.Message):
+    if message.chat.id == admin_id:
+        users = cursor.execute('SELECT id FROM users').fetchall()
+        with open('users.txt', 'w') as f:
+            for x in users:
+                f.write(str(x[0])+'\n')
+        await message.answer_document(open('users.txt', 'rb'), caption='Список пользоватлей бота')
+
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
