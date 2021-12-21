@@ -126,12 +126,14 @@ async def send_admin(message: types.Message):
     if message.chat.id == admin_id:
         await message.answer('Вы открыли админ меню', reply_markup=keyboard)
 
-@dp.message_handler(commands=["users", "len"])
-async def send_notify(message: types.Message):
+@dp.message_handler(commands=["stats"])
+async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
-        cursor.execute("select * from users")
-        lenusr = len(cursor.fetchall())
-        await message.answer(f'Пользователей в боте: <b>{lenusr}</b>', parse_mode='HTML')
+        users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
+        videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
+        users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+        videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+        await message.answer(f'Пользователей: <b>{users}</b>\nСкачано видео: <b>{videos}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nСкачано видео: <b>{videos24}</b>', parse_mode='HTML')
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message, state: FSMContext):
