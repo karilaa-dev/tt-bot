@@ -32,10 +32,15 @@ class ttapi:
         headers = {
             'x-rapidapi-host': "video-nwm.p.rapidapi.com",  
             'x-rapidapi-key': api_key}
-        text = rget(url, headers=headers, params=querystring).json()
-        if text['status'] == '2':
+        try:
+            async with self.session.get(url, headers=headers, params=querystring) as req:
+            #text = rget(url, headers=headers, params=querystring).json()
+                try: res = await req.json()
+                except: return 'connerror'
+                if res['status'] == '2': return 'error'
+                return res['item']['video']['playAddr'][0]
+        except:
             return 'error'
-        return text['item']['video']['playAddr'][0]
 
 api = ttapi()
 
@@ -285,22 +290,22 @@ async def send_ttdown(message: types.Message):
         #return await message.reply('Вы еще не скачали прошлое видео', parse_mode='html')
     #active.append(message.chat.id)
     msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
-    try:
-        playAddr = await api.url(message.text)
+    #try:
+    playAddr = await api.url_paid(message.text)
+    #try: active.remove(message.chat.id)
+    #except: pass
+    if playAddr == 'error':
+        return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+    await message.answer_chat_action('upload_video')
+    await message.reply_video(playAddr, caption=podp_text, parse_mode='html')
+    await msg.delete()
+    cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
+    sqlite.commit()
+    logging.info(f'{message.chat.id}: {message.text}')
+    #except:
         #try: active.remove(message.chat.id)
         #except: pass
-        if playAddr == 'error':
-            return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
-        await message.answer_chat_action('upload_video')
-        await message.reply_video(playAddr, caption=podp_text, parse_mode='html')
-        await msg.delete()
-        cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
-        sqlite.commit()
-        logging.info(f'{message.chat.id}: {message.text}')
-    except:
-        #try: active.remove(message.chat.id)
-        #except: pass
-        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
+        #return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
 
 if __name__ == "__main__":
 
