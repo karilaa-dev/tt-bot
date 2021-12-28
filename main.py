@@ -302,14 +302,15 @@ async def notify_doc(message: types.Message, state: FSMContext):
 async def send_ttdown(message: types.Message):
     msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
     try:
-        playAddr = await api.url_paid(message.text)
+        playAddr = await api.url_paid2(message.text)
         if playAddr == 'errorlink':
             return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
         elif playAddr in ['error', 'connerror']: raise
         await message.answer_chat_action('upload_video')
         button = InlineKeyboardMarkup().add(InlineKeyboardButton('Ссылка на оригинал', url=message.text))
-        await message.reply_video(playAddr, caption=podp_text, reply_markup=button, parse_mode='html')
+        await message.answer_video(playAddr, caption=podp_text, reply_markup=button, parse_mode='html')
         await msg.delete()
+        await message.delete()
         cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
         sqlite.commit()
         logging.info(f'{message.chat.id}: {message.text}')
