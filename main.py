@@ -34,11 +34,25 @@ class ttapi:
             'x-rapidapi-key': api_key}
         try:
             async with self.session.get(url, headers=headers, params=querystring) as req:
-            #text = rget(url, headers=headers, params=querystring).json()
                 try: res = await req.json()
                 except: return 'connerror'
-                if res['status'] == '2': return 'error'
+                if res['status'] == '1': return 'errorlink'
                 return res['item']['video']['playAddr'][0]
+        except:
+            return 'error'
+
+    async def url_paid2(self, text):
+        url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
+        querystring = {"url":f"{text}","hd":"0"}
+        headers = {
+            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
+            'x-rapidapi-key': api_key}
+        try:
+            async with self.session.post(url, headers=headers, params=querystring) as req:
+                try: res = await req.json()
+                except: return 'connerror'
+                if res['msg'] != 'success': return 'errorlink'
+                return res['data']['play']
         except:
             return 'error'
 
@@ -286,26 +300,21 @@ async def notify_doc(message: types.Message, state: FSMContext):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    #if message.chat.id in active:
-        #return await message.reply('Вы еще не скачали прошлое видео', parse_mode='html')
-    #active.append(message.chat.id)
     msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
-    #try:
-    playAddr = await api.url_paid(message.text)
-    #try: active.remove(message.chat.id)
-    #except: pass
-    if playAddr == 'error':
-        return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
-    await message.answer_chat_action('upload_video')
-    await message.reply_video(playAddr, caption=podp_text, parse_mode='html')
-    await msg.delete()
-    cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
-    sqlite.commit()
-    logging.info(f'{message.chat.id}: {message.text}')
-    #except:
-        #try: active.remove(message.chat.id)
-        #except: pass
-        #return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
+    try:
+        playAddr = await api.url_paid(message.text)
+        if playAddr == 'errorlink':
+            return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+        elif playAddr in ['error', 'connerror']: raise
+        await message.answer_chat_action('upload_video')
+        button = InlineKeyboardMarkup().add(InlineKeyboardButton('Ссылка на оригинал', url=message.text))
+        await message.reply_video(playAddr, caption=podp_text, reply_markup=button, parse_mode='html')
+        await msg.delete()
+        cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
+        sqlite.commit()
+        logging.info(f'{message.chat.id}: {message.text}')
+    except:
+        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
 
 if __name__ == "__main__":
 
