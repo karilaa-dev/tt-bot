@@ -107,7 +107,7 @@ upd_chat = config["bot"]["upd_chat"]
 upd_id = config["bot"]["upd_id"]
 
 #Инициализация либы aiogram
-bot = Bot(token=bot_token)
+bot = Bot(token=bot_token, parse_mode='html')
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 class adv(StatesGroup):
