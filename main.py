@@ -8,7 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import re
 from requests import get as rget
 import sqlite3
-from time import time, sleep
+from time import time, sleep, ctime
 from simplejson import loads as jloads
 import logging
 import aiohttp
@@ -140,19 +140,20 @@ def load_list():
     return res
 
 async def bot_stats():
+    tnow = tCurrent()
     users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
     videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
     music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
     downl = videos + music
-    users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-    videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-    music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+    users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tnow-86400}").fetchall()[0][0]
+    videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tnow-86400}").fetchall()[0][0]
+    music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tnow-86400}").fetchall()[0][0]
     downl24 = videos24 + music24
     return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>'
 
 async def stats_log():
-    await bot.edit_message_text(chat_id=-1001685448409, message_id=2, text='<code>Обновление</code>', parse_mode='html')
     text = await bot_stats()
+    text += f'\n\n{ctime(tCurrent())[:-5]}'
     await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text, parse_mode='html')
 
 #Команда /start
