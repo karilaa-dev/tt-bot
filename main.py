@@ -4,6 +4,7 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from configparser import ConfigParser as configparser
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import re
 from requests import get as rget
 import sqlite3
@@ -102,6 +103,8 @@ second_id =  jloads(config["bot"]["second_id"])
 bot_token = config["bot"]["token"]
 api_key = config["bot"]["api_key"]
 logs = config["bot"]["logs"]
+upd_chat = config["bot"]["upd_chat"]
+upd_id = config["bot"]["upd_id"]
 
 #Инициализация либы aiogram
 bot = Bot(token=bot_token)
@@ -135,6 +138,22 @@ def load_list():
     for x in data:
         res.append(x[0])
     return res
+
+async def bot_stats():
+    users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
+    videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
+    music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
+    downl = videos + music
+    users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+    videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+    music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+    downl24 = videos24 + music24
+    return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>'
+
+async def stats_log():
+    await bot.edit_message_text(chat_id=-1001685448409, message_id=2, text='<code>Обновление</code>', parse_mode='html')
+    text = await bot_stats()
+    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text, parse_mode='html')
 
 #Команда /start
 @dp.message_handler(commands=['start'])
@@ -183,15 +202,8 @@ async def send_stats(message: types.Message):
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
-        users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
-        videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
-        music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
-        downl = videos + music
-        users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-        videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-        music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-        downl24 = videos24 + music24
-        await message.answer(f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>', parse_mode='HTML')
+        text = await bot_stats()
+        await message.answer(text, parse_mode='HTML')
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message, state: FSMContext):
@@ -359,6 +371,11 @@ if __name__ == "__main__":
     adv_text = None
     with open('podp.txt', 'r', encoding='utf-8') as f:
         podp_text = f.read()
+
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(stats_log)
+    scheduler.add_job(stats_log, "interval", seconds=300)
+    scheduler.start()
 
     executor.start_polling(dp, skip_updates=True)
     sqlite.close()
