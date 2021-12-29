@@ -153,8 +153,8 @@ async def bot_stats():
 
 async def stats_log():
     text = await bot_stats()
-    text += f'\n\n{ctime(tCurrent())[:-5]}'
-    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text, parse_mode='html')
+    text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
+    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
 
 #Команда /start
 @dp.message_handler(commands=['start'])
@@ -164,9 +164,9 @@ async def send_start(message: types.Message):
         cursor.execute(f'INSERT INTO users VALUES ({message.chat.id}, {tCurrent()})')
         sqlite.commit()
         text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
-        await bot.send_message(logs, text, parse_mode='html')
+        await bot.send_message(logs, text)
         logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message.chat.id}')
-    await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать видео из тиктока <i><b>без водяного знака</b></i>.\n<b>Отправьте ссылку на видео чтобы начать</b>', parse_mode="html")
+    await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать <b>видео/аудио</b> из тиктока <i><b>без водяного знака</b></i>.\nОтправьте ссылку на видео/аудио чтобы начать', parse_mode="html")
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
@@ -204,7 +204,7 @@ async def send_stats(message: types.Message):
 async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
         text = await bot_stats()
-        await message.answer(text, parse_mode='HTML')
+        await message.answer(text)
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message, state: FSMContext):
@@ -222,7 +222,7 @@ async def adv_menu(message: types.Message, state: FSMContext):
 async def podp_check(message: types.Message, state: FSMContext):
     with open('podp.txt', 'r', encoding='utf-8') as f:
         text = f.read()
-    await message.answer(text, parse_mode='html', disable_web_page_preview=True)
+    await message.answer(text, disable_web_page_preview=True)
 
 @dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
 async def adb_check(message: types.Message, state: FSMContext):
@@ -233,15 +233,15 @@ async def adb_check(message: types.Message, state: FSMContext):
         markup = adv_text[2]
         file_id = adv_text[3]
         if mtype == 'text':
-            await message.answer(text, reply_markup=markup,  parse_mode='html', disable_web_page_preview=True)
+            await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
         elif mtype == 'photo':
-            await message.answer_photo(file_id, caption=text, reply_markup=markup,  parse_mode='html')
+            await message.answer_photo(file_id, caption=text, reply_markup=markup)
         elif mtype == 'video':
-            await message.answer_video(file_id, caption=text, reply_markup=markup,  parse_mode='html')
+            await message.answer_video(file_id, caption=text, reply_markup=markup)
         elif mtype == 'animation':
-            await message.answer_animation(file_id, caption=text, reply_markup=markup,  parse_mode='html')
+            await message.answer_animation(file_id, caption=text, reply_markup=markup)
         elif mtype == 'doc':
-            await message.answer_document(file_id, caption=text, reply_markup=markup,  parse_mode='html')
+            await message.answer_document(file_id, caption=text, reply_markup=markup)
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -249,7 +249,7 @@ async def adb_check(message: types.Message, state: FSMContext):
 async def adv_go(message: types.Message, state: FSMContext):
     global adv_text
     if adv_text != None:
-        msg = await message.answer('<code>Началась рассылка</code>', parse_mode='html')
+        msg = await message.answer('<code>Началась рассылка</code>')
         num = 0
         users = load_list()
         mtype = adv_text[0]
@@ -259,20 +259,20 @@ async def adv_go(message: types.Message, state: FSMContext):
         for x in users:
             try:
                 if mtype == 'text':
-                    await bot.send_message(x, text, reply_markup=markup,  parse_mode='html', disable_web_page_preview=True)
+                    await bot.send_message(x, text, reply_markup=markup, disable_web_page_preview=True)
                 elif mtype == 'photo':
-                    await bot.send_photo(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
+                    await bot.send_photo(x, file_id, caption=text, reply_markup=markup)
                 elif mtype == 'video':
-                    await bot.send_video(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
+                    await bot.send_video(x, file_id, caption=text, reply_markup=markup)
                 elif mtype == 'animation':
-                    await bot.send_animation(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
+                    await bot.send_animation(x, file_id, caption=text, reply_markup=markup)
                 elif mtype == 'doc':
-                    await bot.send_document(x, file_id, caption=text, reply_markup=markup,  parse_mode='html')
+                    await bot.send_document(x, file_id, caption=text, reply_markup=markup)
                 num += 1
             except:
                 pass
             sleep(0.1)
-        await msg.edit_text(f'Сообщение пришло <b>{num}</b> пользователям', parse_mode='html')
+        await msg.edit_text(f'Сообщение пришло <b>{num}</b> пользователям')
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -332,19 +332,19 @@ async def notify_doc(message: types.Message, state: FSMContext):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
+    msg = await message.answer('<code>Запрос видео...</code>')
     try:
         button = InlineKeyboardMarkup().add(InlineKeyboardButton('Ссылка на оригинал', url=message.text))
         playAddr = await api.url_paid2(message.text)
         if playAddr == 'errorlink':
             playAddr = await api.url_music(message.text)
             if playAddr == 'errorlink':
-                return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+                return await msg.edit_text('Недействительная ссылка!')
             elif playAddr in ['error', 'connerror']: raise
             else:
                 await message.answer_chat_action('upload_audio')
                 res = f'<b>{playAddr[2]}</b> - {playAddr[1]}\n{podp_text}'
-                await message.answer_audio(playAddr[0], caption=res, performer=playAddr[2], title=playAddr[1], reply_markup=button, parse_mode='html')
+                await message.answer_audio(playAddr[0], caption=res, performer=playAddr[2], title=playAddr[1], reply_markup=button)
                 await msg.delete()
                 await message.delete()
                 cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr[0]))
@@ -353,14 +353,14 @@ async def send_ttdown(message: types.Message):
                 return
         elif playAddr in ['error', 'connerror']: raise
         await message.answer_chat_action('upload_video')
-        await message.answer_video(playAddr, caption=podp_text, reply_markup=button, parse_mode='html')
+        await message.answer_video(playAddr, caption=podp_text, reply_markup=button)
         await msg.delete()
         await message.delete()
         cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr))
         sqlite.commit()
         logging.info(f'{message.chat.id}: {message.text}')
     except:
-        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>', parse_mode='html')
+        return await msg.edit_text('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>')
 
 if __name__ == "__main__":
 
