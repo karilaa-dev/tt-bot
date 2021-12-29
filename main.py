@@ -185,9 +185,13 @@ async def send_stats(message: types.Message):
     if message.chat.id == admin_id or message.chat.id in second_id:
         users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
         videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
+        music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
+        downl = videos + music
         users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
         videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
-        await message.answer(f'Пользователей: <b>{users}</b>\nСкачано видео: <b>{videos}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nСкачано видео: <b>{videos24}</b>', parse_mode='HTML')
+        music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tCurrent()-86400}").fetchall()[0][0]
+        downl24 = videos24 + music24
+        await message.answer(f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>', parse_mode='HTML')
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message, state: FSMContext):
