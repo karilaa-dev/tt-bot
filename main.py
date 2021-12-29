@@ -51,8 +51,23 @@ class ttapi:
             async with self.session.post(url, headers=headers, params=querystring) as req:
                 try: res = await req.json()
                 except: return 'connerror'
-                if res['msg'] != 'success': return 'errorlink'
+                if res['code'] == -1: return 'errorlink'
                 return res['data']['play']
+        except:
+            return 'error'
+        
+    async def url_music(self, text):
+        url = "https://tiktok-video-no-watermark2.p.rapidapi.com/music/info"
+        querystring = {"url":f"{text}"}
+        headers = {
+            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
+            'x-rapidapi-key': api_key}
+        try:
+            async with self.session.post(url, headers=headers, params=querystring) as req:
+                try: res = await req.json()
+                except: return 'connerror'
+                if res['code'] == -1: return 'errorlink'
+                return res['data']['play'], res['data']['title'], res['data']['author']
         except:
             return 'error'
 
@@ -302,12 +317,25 @@ async def notify_doc(message: types.Message, state: FSMContext):
 async def send_ttdown(message: types.Message):
     msg = await message.answer('<code>Запрос видео...</code>', parse_mode='html')
     try:
+        button = InlineKeyboardMarkup().add(InlineKeyboardButton('Ссылка на оригинал', url=message.text))
         playAddr = await api.url_paid2(message.text)
         if playAddr == 'errorlink':
-            return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+            playAddr = await api.url_music(message.text)
+            if playAddr == 'errorlink':
+                return await msg.edit_text('Недействительная ссылка!', parse_mode='html')
+            elif playAddr in ['error', 'connerror']: raise
+            else:
+                await message.answer_chat_action('upload_audio')
+                res = f'<b>{playAddr[2]}</b> - {playAddr[1]}\n{podp_text}'
+                await message.answer_audio(playAddr[0], caption=res, performer=playAddr[2], title=playAddr[1], reply_markup=button, parse_mode='html')
+                await msg.delete()
+                await message.delete()
+                cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), message.text, playAddr[0]))
+                sqlite.commit()
+                logging.info(f'{message.chat.id}: Music - {message.text}')
+                return
         elif playAddr in ['error', 'connerror']: raise
         await message.answer_chat_action('upload_video')
-        button = InlineKeyboardMarkup().add(InlineKeyboardButton('Ссылка на оригинал', url=message.text))
         await message.answer_video(playAddr, caption=podp_text, reply_markup=button, parse_mode='html')
         await msg.delete()
         await message.delete()
