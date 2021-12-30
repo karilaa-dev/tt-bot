@@ -175,11 +175,9 @@ async def send_admin(message: types.Message):
 async def send_reset_ad(message: types.Message):
     if message.chat.id == admin_id:
         with open('podp.txt', 'w', encoding='utf-8') as f:
-            with open('original.txt', 'r', encoding='utf-8') as r:
-                text = r.read()
-                f.write(text)
+            f.write('')
         global podp_text
-        podp_text = text
+        podp_text = ''
         await message.answer('Вы успешно сбросили сообщение')
 
 @dp.message_handler(commands=["export"], state='*')
@@ -353,27 +351,25 @@ async def send_ttdown(message: types.Message):
         if urltype == 'video':
             await msg.delete()
             await message.answer_chat_action('upload_video')
-            res = f'<a href="{link}">Оригинал</a>\n\n<b>{podp_text}</b>'
+            res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             await message.answer_video(playAddr, caption=res)
-            await message.delete()
             cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr))
             sqlite.commit()
             logging.info(f'{message.chat.id}: {link}')
-            return
         elif urltype == 'music':
             await msg.delete()
             await message.answer_photo(playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
             await message.answer_chat_action('upload_document')
-            res = f'<a href="{link}">Оригинал</a>\n\n<b>{podp_text}</b>'
+            res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             aud = InputFile.from_url(url=playAddr['url'])
             await message.answer_audio(aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
-            await message.delete()
             cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr['url']))
             sqlite.commit()
             logging.info(f'{message.chat.id}: Music - {link}')
-            return
         else:
             return await msg.edit_text('Недействительная ссылка!')
+        if podp_text != '':
+           await message.answer(podp_text)
     except:
         return await message.answer('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>')
 
@@ -389,6 +385,8 @@ if __name__ == "__main__":
     cursor = sqlite.cursor()
     #active = list()
     adv_text = None
+    with open('bot_tag.txt', 'r', encoding='utf-8') as f:
+        bot_tag = f.read()
     with open('podp.txt', 'r', encoding='utf-8') as f:
         podp_text = f.read()
 
