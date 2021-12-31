@@ -67,6 +67,7 @@ class ttapi:
 api = ttapi()
 
 logging.basicConfig(encoding='utf-8', level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
+logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
