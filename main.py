@@ -353,9 +353,12 @@ async def send_ttdown(message: types.Message):
             res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             await message.answer_video(playAddr, caption=res)
             await msg.delete()
-            cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr))
-            sqlite.commit()
-            logging.info(f'{message.chat.id}: {link}')
+            try:
+                cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr))
+                sqlite.commit()
+                logging.info(f'{message.chat.id}: {link}')
+            except:
+                logging.error(f'Неудалось записать в бд')
         elif urltype == 'music':
             await message.answer_photo(playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
             await msg.delete()
@@ -363,9 +366,12 @@ async def send_ttdown(message: types.Message):
             res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             aud = InputFile.from_url(url=playAddr['url'])
             await message.answer_audio(aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
-            cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr['url']))
-            sqlite.commit()
-            logging.info(f'{message.chat.id}: Music - {link}')
+            try:
+                cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr['url']))
+                sqlite.commit()
+                logging.info(f'{message.chat.id}: Music - {link}')
+            except:
+                logging.error(f'Неудалось записать в бд')
         else:
             return await msg.edit_text('Недействительная ссылка!')
         if podp_text != '':
