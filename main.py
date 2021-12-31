@@ -339,26 +339,26 @@ async def send_ttdown(message: types.Message):
         elif mob_re.match(message.text) is not None:
             link = mob_re.findall(message.text)[0]
             playAddr = await api.url_paid(link)
+            urltype = 'video'
             if playAddr == 'errorlink':
                 playAddr = await api.url_music(link)
                 if playAddr == 'errorlink': urltype = 'error'
                 elif playAddr in ['error', 'connerror']: raise
                 urltype = 'music'
             elif playAddr in ['error', 'connerror']: raise
-            urltype = 'video'
         else:
             urltype = 'error'
         if urltype == 'video':
-            await msg.delete()
             await message.answer_chat_action('upload_video')
             res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             await message.answer_video(playAddr, caption=res)
+            await msg.delete()
             cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr))
             sqlite.commit()
             logging.info(f'{message.chat.id}: {link}')
         elif urltype == 'music':
-            await msg.delete()
             await message.answer_photo(playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
+            await msg.delete()
             await message.answer_chat_action('upload_document')
             res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
             aud = InputFile.from_url(url=playAddr['url'])
