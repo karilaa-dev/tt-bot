@@ -6,7 +6,6 @@ from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeybo
 from configparser import ConfigParser as configparser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import re
-from requests import get as rget
 import sqlite3
 from time import time, sleep, ctime
 from simplejson import loads as jloads
