@@ -139,8 +139,11 @@ async def bot_stats():
     users24 = cursor.execute(f"SELECT COUNT(id) FROM users WHERE time >= {tnow-86400}").fetchall()[0][0]
     videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tnow-86400}").fetchall()[0][0]
     music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tnow-86400}").fetchall()[0][0]
+    videos24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos where time >= {tnow-86400}").fetchall()[0][0]
+    music24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music where time >= {tnow-86400}").fetchall()[0][0]
     downl24 = videos24 + music24
-    return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>'
+    unique24 = videos24u + music24u
+    return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nСкачано: <b>{downl}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nСкачано: <b>{downl24}</b>\nУникальных: <b>{unique24}</b>'
 
 async def stats_log():
     text = await bot_stats()
