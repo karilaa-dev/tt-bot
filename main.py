@@ -211,7 +211,10 @@ async def adv_menu(message: types.Message, state: FSMContext):
 async def podp_check(message: types.Message, state: FSMContext):
     with open('podp.txt', 'r', encoding='utf-8') as f:
         text = f.read()
-    await message.answer(text, disable_web_page_preview=True)
+    if text != '':
+        await message.answer(text, disable_web_page_preview=True)
+    else:
+        await message.answer('Вы не добавили сообщение подписи', disable_web_page_preview=True)
 
 @dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
 async def adb_check(message: types.Message, state: FSMContext):

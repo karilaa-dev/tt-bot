@@ -1,7 +1,7 @@
 #folders
 maybe/
 logs/
-.venv/
+venv/
 #files
 /config.ini
 #extensions
