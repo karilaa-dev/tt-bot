@@ -2,7 +2,7 @@ from aiogram import Bot, Dispatcher, executor, types
 from aiogram.dispatcher import FSMContext, filters
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, ReplyKeyboardRemove
 from configparser import ConfigParser as configparser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import re
@@ -10,57 +10,56 @@ import sqlite3
 from time import time, sleep, ctime
 from simplejson import loads as jloads
 import logging
-import aiohttp
+import aiosonic
 
 class ttapi:
-    def __init__(self):
-        self.session = aiohttp.ClientSession()
+    def __init__(self, api_key):
+        self.url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
+        self.headers = {
+            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
+            'x-rapidapi-key': api_key
+            }
 
     async def url_paid(self, text):
-        url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
         querystring = {"url":f"{text}","hd":"0"}
-        headers = {
-            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
-            'x-rapidapi-key': api_key}
         try:
-            async with self.session.post(url, headers=headers, params=querystring) as req:
-                try: res = await req.json()
-                except: return 'connerror'
-                if res['code'] == -1: return 'errorlink'
-                return res['data']['play']
+            client = aiosonic.HTTPClient()
+            req = await client.post(self.url, headers=self.headers, data=querystring)
+            try: res = jloads(await req.content())
+            except: return 'connerror'
+            if res['code'] == -1: return 'errorlink'
+            return {
+                    'url': res['data']['play'],
+                    'music': res['data']['music_info']['id']
+                }
         except:
             return 'error'
         
     async def url_music(self, text):
-        url = "https://tiktok-video-no-watermark2.p.rapidapi.com/music/info"
         querystring = {"url":f"{text}"}
-        headers = {
-            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
-            'x-rapidapi-key': api_key}
         try:
-            async with self.session.post(url, headers=headers, params=querystring) as req:
-                try: res = await req.json()
-                except: return 'connerror'
-                if res['code'] == -1: return 'errorlink'
-                return {
-                    'url': res['data']['play'],
-                    'title': res['data']['title'],
-                    'author': res['data']['author'],
-                    'duration': res['data']['duration'],
-                    'cover': res['data']['cover']
-                    }
-
+            client = aiosonic.HTTPClient()
+            req = await client.post(self.url+'music/info', headers=self.headers, data=querystring)
+            try: res = jloads(await req.content())
+            except: return 'connerror'
+            if res['code'] == -1: return 'errorlink'
+            return {
+                'url': res['data']['play'],
+                'title': res['data']['title'],
+                'author': res['data']['author'],
+                'duration': res['data']['duration'],
+                'cover': res['data']['cover']
+                }
         except:
             return 'error'
 
-api = ttapi()
-
-logging.basicConfig(encoding='utf-8', level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s", handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
 keyboard = ReplyKeyboardMarkup(True)
 keyboard.row('Сообщение подписи')
 keyboard.row('Глобальное сообщение')
+keyboard.row('Скрыть клавиатуру')
 
 keyboardmenu = ReplyKeyboardMarkup(True)
 keyboardmenu.row('Проверить сообщение')
@@ -140,29 +139,34 @@ async def stats_log():
 @dp.message_handler(commands=['start'])
 async def send_start(message: types.Message):
     users = load_list()
-    if message.chat.id not in users:
-        cursor.execute(f'INSERT INTO users VALUES ({message.chat.id}, {tCurrent()})')
+    if message["from"]["id"] not in users:
+        cursor.execute(f'INSERT INTO users VALUES ({message["from"]["id"]}, {tCurrent()})')
         sqlite.commit()
-        text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message.chat.id}</code>'
+        text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message["from"]["id"]}</code>'
         await bot.send_message(logs, text)
-        logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message.chat.id}')
+        logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message["from"]["id"]}')
     await message.answer('Вы запуситили бота <b>No Watermark TikTok</b>\nЭтот бот позволяет скачивать <b>видео/аудио</b> из тиктока <i><b>без водяного знака</b></i>.\nОтправьте ссылку на видео/аудио чтобы начать', parse_mode="html")
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
 async def cancel(message: types.Message, state: FSMContext):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         await message.answer('Вы вернулись назад', reply_markup=keyboard)
         await state.finish()
 
+@dp.message_handler(filters.Text(equals=["Скрыть клавиатуру"], ignore_case=True))
+async def send_clear_keyb(message: types.Message):
+    if message["from"]["id"] == admin_id:
+        await message.answer('Вы успешно скрыли клавиатуру', reply_markup=ReplyKeyboardRemove())
+
 @dp.message_handler(commands=['admin'])
 async def send_admin(message: types.Message):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         await message.answer('Вы открыли админ меню', reply_markup=keyboard)
 
 @dp.message_handler(commands=['reset'], state='*')
 async def send_reset_ad(message: types.Message):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         with open('podp.txt', 'w', encoding='utf-8') as f:
             f.write('')
         global podp_text
@@ -171,7 +175,7 @@ async def send_reset_ad(message: types.Message):
 
 @dp.message_handler(commands=["export"], state='*')
 async def send_stats(message: types.Message):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         users = cursor.execute('SELECT id FROM users').fetchall()
         with open('users.txt', 'w') as f:
             for x in users:
@@ -180,19 +184,19 @@ async def send_stats(message: types.Message):
 
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
-    if message.chat.id == admin_id or message.chat.id in second_id:
+    if message["from"]["id"] == admin_id or message["from"]["id"] in second_id:
         text = await bot_stats()
         await message.answer(text)
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message, state: FSMContext):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         await message.answer('Сообщение подписи', reply_markup=keyboardmenupodp)
         await podp.menu.set()
 
 @dp.message_handler(filters.Text(equals=["Глобальное сообщение"], ignore_case=True))
 async def adv_menu(message: types.Message, state: FSMContext):
-    if message.chat.id == admin_id:
+    if message["from"]["id"] == admin_id:
         await message.answer('Глобальное сообщение', reply_markup=keyboardmenu)
         await adv.menu.set()
 
@@ -277,71 +281,120 @@ async def notify_photo(message: types.Message, state: FSMContext):
     adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id]
     await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
     await adv.menu.set()
+@dp.callback_query_handler(lambda call: call.data.startswith('music'), state='*')
+async def inline_music(callback_query: types.CallbackQuery):
+    cht_type = callback_query.message.chat.type
+    cht_id = callback_query['message']['chat']['id']
+    msg_id = callback_query['message']['message_id']
+    url = callback_query.data.lstrip('music/')
+    msg = await bot.send_message(cht_id, '⏳')
+    playAddr = await api.url_music(url)
+    if playAddr in ['error', 'connerror', 'errorlink']: raise
+    await bot.send_photo(cht_id, playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
+    await bot.send_chat_action(cht_id, 'upload_document')
+    await msg.delete()
+    res = f'<b>{bot_tag}</b>'
+    aud = InputFile.from_url(url=playAddr['url'])
+    await bot.send_audio(cht_id, aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
+    try:
+        cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (callback_query["from"]["id"], tCurrent(), url, playAddr['url']))
+        sqlite.commit()
+        logging.info(f'{callback_query["from"]["id"]}: Music - {url}')
+    except:
+        logging.error(f'Неудалось записать в бд')
+    await callback_query.answer()
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    msg = await message.answer('⏳')
     try:
         if web_re.match(message.text) is not None:
+            if message.chat.type == 'private':
+                msg = await message.answer('⏳')
+            else:
+                msg = await message.reply('⏳')
             link = web_re.findall(message.text)[0]
             playAddr = await api.url_paid(link)
+            urltype = 'video'
             if playAddr == 'errorlink': urltype = 'error'
             elif playAddr in ['error', 'connerror']: raise
-            urltype = 'video'
         elif mus_re.match(message.text) is not None:
+            if message.chat.type == 'private':
+                msg = await message.answer('⏳')
+            else:
+                msg = await message.reply('⏳')
             link = mus_re.findall(message.text)[0]
             playAddr = await api.url_music(link)
+            urltype = 'music'
             if playAddr == 'errorlink': urltype = 'error'
             elif playAddr in ['error', 'connerror']: raise
-            urltype = 'music'
         elif mob_re.match(message.text) is not None:
+            if message.chat.type == 'private':
+                msg = await message.answer('⏳')
+            else:
+                msg = await message.reply('⏳')
             link = mob_re.findall(message.text)[0]
             playAddr = await api.url_paid(link)
             urltype = 'video'
             if playAddr == 'errorlink':
                 playAddr = await api.url_music(link)
+                urltype = 'music'
                 if playAddr == 'errorlink': urltype = 'error'
                 elif playAddr in ['error', 'connerror']: raise
-                urltype = 'music'
             elif playAddr in ['error', 'connerror']: raise
-        else:
-            urltype = 'error'
         if urltype == 'video':
             await message.answer_chat_action('upload_video')
-            res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
-            await message.answer_video(playAddr, caption=res)
+            music = InlineKeyboardMarkup().add(InlineKeyboardButton('Скачать звук', callback_data=f'music/{playAddr["music"]}'))
+            res = f'<b>{bot_tag}</b>\n\n<a href="{link}">Оригинал</a>'
+            if message.chat.type == 'private':
+                await message.answer_video(playAddr['url'], caption=res, reply_markup=music)
+            else:
+                await message.reply_video(playAddr['url'], caption=res, reply_markup=music)
             await msg.delete()
             try:
-                cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr))
+                if message.chat.type == 'private':
+                    cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message["from"]["id"], tCurrent(), link, playAddr['url']))
+                else:
+                    cursor.execute(f'INSERT INTO groups VALUES (?,?,?,?)', (message["chat"]["id"], tCurrent(), link, playAddr['url']))
                 sqlite.commit()
-                logging.info(f'{message.chat.id}: {link}')
+                logging.info(f'{message["from"]["id"]}: {link}')
             except:
                 logging.error(f'Неудалось записать в бд')
         elif urltype == 'music':
-            await message.answer_photo(playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
-            await msg.delete()
+            if message.chat.type == 'private':
+                await message.answer_photo(playAddr['cover'], caption=f'<b>{playAddr["author"]}</b> - {playAddr["title"]}')
             await message.answer_chat_action('upload_document')
-            res = f'<a href="{link}">Оригинал</a>\n\n<b>{bot_tag}</b>'
+            await msg.delete()
+            res = f'<b>{bot_tag}</b>\n\n<a href="{link}">Оригинал</a>'
             aud = InputFile.from_url(url=playAddr['url'])
-            await message.answer_audio(aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
+            if message.chat.type == 'private':
+                await message.answer_audio(aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
+            else:
+                await message.reply_audio(aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
             try:
-                cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message.chat.id, tCurrent(), link, playAddr['url']))
+                cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (message["from"]["id"], tCurrent(), link, playAddr['url']))
                 sqlite.commit()
-                logging.info(f'{message.chat.id}: Music - {link}')
+                logging.info(f'{message["from"]["id"]}: Music - {link}')
             except:
                 logging.error(f'Неудалось записать в бд')
         else:
-            return await msg.edit_text('Недействительная ссылка!')
-        if podp_text != '':
+            if message.chat.type == 'private':
+                await msg.edit_text('Недействительная ссылка!')
+            return
+        if message.chat.type == 'private' and podp_text != '':
            await message.answer(podp_text)
     except:
-        return await message.answer('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>')
+        await msg.delete()
+        if message.chat.type == 'private':
+            await message.answer('<b>Произошла ошибка!</b>\nПопробуйте еще раз, если ошибка не пропадет то сообщите в <a href=\'t.me/ttgrab_support_bot\'>Поддержку</a>')
+        return
 
 if __name__ == "__main__":
 
     web_re = re.compile(r'https?://www.tiktok.com/@[^\s]+?/video/[0-9]+')
     mus_re = re.compile(r'https?://www.tiktok.com/music/[^\s]+')
     mob_re = re.compile(r'https?://[^\s]+tiktok.com/[^\s]+')
+
+    api = ttapi(api_key)
 
     #Подключение sqlite
     sqlite = sqlite_init()
