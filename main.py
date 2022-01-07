@@ -16,16 +16,6 @@ class ttapi:
     def __init__(self):
         self.session = aiohttp.ClientSession()
 
-    async def url(self, text):
-        url = f'https://api.reiyuura.me/api/dl/tiktokv2?url={text}'
-        try:
-            async with self.session.get(url) as req:
-                try: res = await req.json()
-                except: return 'connerror'
-                return res['result']['Video_URL']['WithoutWM']
-        except:
-            return 'error'
-
     async def url_paid(self, text):
         url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
         querystring = {"url":f"{text}","hd":"0"}
@@ -139,7 +129,6 @@ async def bot_stats():
     videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= {tnow-86400}").fetchall()[0][0]
     music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tnow-86400}").fetchall()[0][0]
     videos24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos where time >= {tnow-86400}").fetchall()[0][0]
-    #music24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music where time >= {tnow-86400}").fetchall()[0][0]
     return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nВидео: <b>{videos}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nВидео: <b>{videos24}</b>\nУникальных: <b>{videos24u}</b>'
 
 async def stats_log():
@@ -228,12 +217,6 @@ async def adb_check(message: types.Message, state: FSMContext):
             await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
         elif mtype == 'photo':
             await message.answer_photo(file_id, caption=text, reply_markup=markup)
-        elif mtype == 'video':
-            await message.answer_video(file_id, caption=text, reply_markup=markup)
-        elif mtype == 'animation':
-            await message.answer_animation(file_id, caption=text, reply_markup=markup)
-        elif mtype == 'doc':
-            await message.answer_document(file_id, caption=text, reply_markup=markup)
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -254,12 +237,6 @@ async def adv_go(message: types.Message, state: FSMContext):
                     await bot.send_message(x, text, reply_markup=markup, disable_web_page_preview=True)
                 elif mtype == 'photo':
                     await bot.send_photo(x, file_id, caption=text, reply_markup=markup)
-                elif mtype == 'video':
-                    await bot.send_video(x, file_id, caption=text, reply_markup=markup)
-                elif mtype == 'animation':
-                    await bot.send_animation(x, file_id, caption=text, reply_markup=markup)
-                elif mtype == 'doc':
-                    await bot.send_document(x, file_id, caption=text, reply_markup=markup)
                 num += 1
             except:
                 pass
@@ -275,7 +252,7 @@ async def podp_change(message: types.Message, state: FSMContext):
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=adv.menu)
 async def podp_change(message: types.Message, state: FSMContext):
-    await message.answer('Введите новое сообщение', reply_markup=keyboardback)
+    await message.answer('Введите новое сообщение используя html разметку', reply_markup=keyboardback)
     await adv.add.set()
 
 @dp.message_handler(state=podp.add)
@@ -301,30 +278,8 @@ async def notify_photo(message: types.Message, state: FSMContext):
     await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
     await adv.menu.set()
 
-@dp.message_handler(content_types=['video'], state=adv.add)
-async def notify_video(message: types.Message, state: FSMContext):
-    global adv_text
-    adv_text = ['video', message['caption'], message.reply_markup, message.video.file_id]
-    await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
-    await adv.menu.set()
-
-@dp.message_handler(content_types=['animation'], state=adv.add)
-async def notify_gif(message: types.Message, state: FSMContext):
-    global adv_text
-    adv_text = ['gif', message['caption'], message.reply_markup, message.animation.file_id]
-    await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
-    await adv.menu.set()
-
-@dp.message_handler(content_types=['document'], state=adv.add)
-async def notify_doc(message: types.Message, state: FSMContext):
-    global adv_text
-    adv_text = ['doc', message['caption'], message.reply_markup, message.document.file_id]
-    await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
-    await adv.menu.set()
-
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    #msg = await message.answer('<code>Запрос аудио...</code>')
     msg = await message.answer('⏳')
     try:
         if web_re.match(message.text) is not None:
@@ -390,9 +345,7 @@ if __name__ == "__main__":
 
     #Подключение sqlite
     sqlite = sqlite_init()
-    #sqlite.row_factory = lambda cursor, row: row[0]
     cursor = sqlite.cursor()
-    #active = list()
     adv_text = None
     with open('bot_tag.txt', 'r', encoding='utf-8') as f:
         bot_tag = f.read()
