@@ -1,6 +1,10 @@
-/config.ini
-*.db
-/*test*.py
+#folders
 maybe/
 logs/
+.venv/
+#files
+/config.ini
+#extensions
+*.db
+/*test*.py
 /*.log
