@@ -136,9 +136,8 @@ keyboardback = ReplyKeyboardMarkup(True)
 keyboardback.row('Назад')
 
 inlinelang = InlineKeyboardMarkup()
-inlinelang.add(InlineKeyboardButton('English🇺🇸', callback_data='lang/en'))
-inlinelang.add(InlineKeyboardButton('Русский🇷🇺', callback_data='lang/ru'))
-inlinelang.add(InlineKeyboardButton('O’zbek🇺🇿', callback_data='lang/uz'))
+for x in locale['langs']:
+    inlinelang.add(InlineKeyboardButton(locale[x]['lang_name'], callback_data=f'lang/{x}'))
 
 #Загрузка конфига
 config = configparser()
