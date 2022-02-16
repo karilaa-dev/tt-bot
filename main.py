@@ -3,6 +3,7 @@ from aiogram.dispatcher import FSMContext, filters
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, ReplyKeyboardRemove
+from aiogram.bot.api import TelegramAPIServer
 from configparser import ConfigParser as configparser
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import re
@@ -11,10 +12,30 @@ from time import time, sleep, ctime
 from simplejson import loads as jloads
 import logging
 import aiosonic
+from locale import locale
+from truechecker import TrueChecker
+
+def lang_func(message):
+    try:
+        try:
+            lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {message['from']['id']}").fetchone()[0]
+        except:
+            lang_req = None
+        if lang_req is not None:
+            lang = lang_req
+        else:
+            lang = message['from']['language_code']
+            if lang not in locale['langs']: raise
+            cursor.execute(f'UPDATE users SET lang = "{lang}" WHERE id = {message["from"]["id"]}')
+            sqlite.commit()
+        return lang
+    except:
+         return 'en'
 
 class ttapi:
     def __init__(self, api_key):
         self.url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
+        self.free_url = "https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{}]"
         self.headers = {
             'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
             'x-rapidapi-key': api_key
@@ -22,15 +43,18 @@ class ttapi:
 
     async def url_free(self, id):
         try:
-            client = aiosonic.HTTPClient()
-            url = f'https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{id}]'
-            req = await client.post(url)
+            async with aiosonic.HTTPClient() as client:
+                req = await client.post(self.free_url.format(id))
             try: res = jloads(await req.content())
             except: return 'connerror'
             if res['status_code'] != 0: return 'errorlink'
             return {
                     'url': res['aweme_details'][0]['video']['play_addr']['url_list'][0],
                     'id': id,
+                    'cover': res['aweme_details'][0]['video']['origin_cover']['url_list'][0],
+                    'width': res['aweme_details'][0]['video']['play_addr']['width'],
+                    'height': res['aweme_details'][0]['video']['play_addr']['height'],
+                    'duration': res['aweme_details'][0]['video']['duration']
                 }
         except:
             return 'error'
@@ -46,15 +70,18 @@ class ttapi:
             return {
                     'url': res['data']['play'],
                     'id': res['data']['music_info']['id'],
+                    'cover': res['data']['origin_cover'],
+                    'width': 720,
+                    'height': 1280,
+                    'duration': 0
                 }
         except:
             return 'error'
         
     async def url_free_music(self, id):
         try:
-            client = aiosonic.HTTPClient()
-            url = f'https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{id}]'
-            req = await client.post(url)
+            async with aiosonic.HTTPClient() as client:
+                req = await client.post(self.free_url.format(id))
             try: res = jloads(await req.content())
             except: return 'connerror'
             if res['status_code'] != 0: return 'errorlink'
@@ -111,7 +138,7 @@ keyboardback.row('Назад')
 inlinelang = InlineKeyboardMarkup()
 inlinelang.add(InlineKeyboardButton('English🇺🇸', callback_data='lang/en'))
 inlinelang.add(InlineKeyboardButton('Русский🇷🇺', callback_data='lang/ru'))
-inlinelang.add(InlineKeyboardButton('O\'zbekiston🇺🇿', callback_data='lang/uz'))
+inlinelang.add(InlineKeyboardButton('O’zbek🇺🇿', callback_data='lang/uz'))
 
 #Загрузка конфига
 config = configparser()
@@ -123,9 +150,10 @@ api_key = config["bot"]["api_key"]
 logs = config["bot"]["logs"]
 upd_chat = config["bot"]["upd_chat"]
 upd_id = config["bot"]["upd_id"]
+local_server = TelegramAPIServer.from_base(config["bot"]["tg_server"])
 
 #Инициализация либы aiogram
-bot = Bot(token=bot_token, parse_mode='html')
+bot = Bot(token=bot_token, server=local_server, parse_mode='html')
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 class adv(StatesGroup):
@@ -168,7 +196,7 @@ async def bot_stats():
     music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= {tnow-86400}").fetchall()[0][0]
     groups24 = cursor.execute(f"SELECT COUNT(id) FROM groups WHERE time >= {tnow-86400}").fetchall()[0][0]
     videos24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos where time >= {tnow-86400}").fetchall()[0][0]    
-    return f'Пользователей: <b>{users}</b>\nМузыки: <b>{music}</b>\nВидео: <b>{videos}</b>\nВ групах: <b>{groups}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{users24}</b>\nМузыки: <b>{music24}</b>\nВидео: <b>{videos24}</b>\nУникальных: <b>{videos24u}</b>\nВ групах: <b>{groups24}</b>'
+    return locale['stats'].format(users, music, videos, users24, music24, videos24, videos24u, groups, groups24)
 
 async def stats_log():
     text = await bot_stats()
@@ -176,36 +204,18 @@ async def stats_log():
     await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
 
 #Команда /start
-@dp.message_handler(commands=['start'])
+@dp.message_handler(commands=['start'], chat_type=types.ChatType.PRIVATE)
 async def send_start(message: types.Message):
-    users = load_list()
-    first_start = False
-    if message["from"]["id"] not in users:
-        first_start = True
-        lang = message['from']['language_code']
-        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?)', (message["from"]["id"], tCurrent(), message["from"]["language_code"]))
+    req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
+    lang = lang_func(message)
+    if req == 0:
+        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?)', (message["from"]["id"], tCurrent(), lang))
         sqlite.commit()
         text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message["from"]["id"]}</code>'
         await bot.send_message(logs, text)
         logging.info(f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message["from"]["id"]}')
-    else:
-        lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {message['from']['id']}").fetchone()[0]
-        if lang_req is None:
-            lang = message['from']['language_code']
-        else:
-            lang = lang_req[0]
-    if lang in ['ru', 'ua']:
-        start_text = start_texts[0]
-        lang_text = lang_texts[0]
-    elif lang == 'uz':
-        start_text = start_texts[2]
-        lang_text = lang_texts[2]
-    else:
-        start_text = start_texts[1]
-        lang_text = lang_texts[1]
-    await message.answer(start_text)
-    if first_start is True:
-        await message.answer(lang_text)
+    await message.answer(locale[lang]['start'])
+    await message.answer(locale[lang]['lang_start'])
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
@@ -224,6 +234,30 @@ async def send_admin(message: types.Message):
     if message["from"]["id"] in admin_ids:
         await message.answer('Вы открыли админ меню', reply_markup=keyboard)
 
+@dp.message_handler(commands=['truecheck'])
+async def truecheck(message: types.Message):
+    if message["from"]["id"] in admin_ids:
+        users = cursor.execute('SELECT id FROM users').fetchall()
+        with open('users.txt', 'w') as f:
+            for x in users:
+                f.write(str(x[0])+'\n')
+        checker = TrueChecker(bot_token)
+        job = await checker.check_profile("users.txt")
+        msg = await message.answer('Проверка запущена')
+        progress = 0
+        while int(progress) != 100:
+            job = await checker.get_job_status(job.id)
+            if job.progress != progress:
+                await msg.edit_text(f'Проверено <b>{job.progress}%</b>')
+            progress = job.progress
+            sleep(3)
+        username = (await dp.bot.me)['username']
+        profile = await checker.get_profile(username)
+        res = f'Пользователи\n - живы: {profile.users.active}\n - остановлены: {profile.users.stopped}\n - удалены: {profile.users.deleted}\n - отсутствуют: {profile.users.not_found}'
+        await msg.delete()
+        await message.answer(res)
+        await checker.close()
+
 @dp.message_handler(commands=['reset'], state='*')
 async def send_reset_ad(message: types.Message):
     if message["from"]["id"] in admin_ids:
@@ -233,7 +267,7 @@ async def send_reset_ad(message: types.Message):
         podp_text = ''
         await message.answer('Вы успешно сбросили сообщение')
 
-@dp.message_handler(commands=['lang'], state='*')
+@dp.message_handler(commands=['lang'], chat_type=types.ChatType.PRIVATE, state='*')
 async def send_reset_ad(message: types.Message):
     if message.chat.type == 'private':
         await message.answer('Select language:', reply_markup=inlinelang)
@@ -290,14 +324,12 @@ async def podp_check(message: types.Message, state: FSMContext):
 async def adb_check(message: types.Message, state: FSMContext):
     global adv_text 
     if adv_text != None:
-        mtype = adv_text[0]
-        text = adv_text[1]
-        markup = adv_text[2]
-        file_id = adv_text[3]
-        if mtype == 'text':
-            await message.answer(text, reply_markup=markup, disable_web_page_preview=True)
-        elif mtype == 'photo':
-            await message.answer_photo(file_id, caption=text, reply_markup=markup)
+        if adv_text[0] == 'text':
+            await message.answer(adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True, entities=adv_text[4])
+        elif adv_text[0] == 'photo':
+            await message.answer_photo(adv_text[3], caption=adv_text[1], reply_markup=adv_text[2], caption_entities=adv_text[4])
+        elif adv_text[0] == 'gif':
+            await message.answer_animation(adv_text[3], message.reply_markup, message.animation.file_id, caption_entities=adv_text[4])
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -306,23 +338,22 @@ async def adv_go(message: types.Message, state: FSMContext):
     global adv_text
     if adv_text != None:
         msg = await message.answer('<code>Началась рассылка</code>')
+        users = cursor.execute("SELECT id from users").fetchall()
         num = 0
-        users = load_list()
-        mtype = adv_text[0]
-        text = adv_text[1]
-        markup = adv_text[2]
-        file_id = adv_text[3]
         for x in users:
             try:
-                if mtype == 'text':
-                    await bot.send_message(x, text, reply_markup=markup, disable_web_page_preview=True)
-                elif mtype == 'photo':
-                    await bot.send_photo(x, file_id, caption=text, reply_markup=markup)
+                if adv_text[0] == 'text':
+                    await bot.send_message(x[0], adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True, entities=adv_text[4])
+                elif adv_text[0] == 'photo':
+                    await bot.send_photo(x[0], adv_text[3], caption=adv_text[1], reply_markup=adv_text[2], caption_entities=adv_text[4])
+                elif adv_text[0] == 'gif':
+                    await bot.send_animation(x[0], adv_text[3], caption=adv_text[1], reply_markup=adv_text[2], caption_entities=adv_text[4])
                 num += 1
             except:
                 pass
             sleep(0.1)
-        await msg.edit_text(f'Сообщение пришло <b>{num}</b> пользователям')
+        await msg.delete()
+        await message.answer(f'Сообщение пришло <b>{num}</b> пользователям')
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -333,7 +364,7 @@ async def podp_change(message: types.Message, state: FSMContext):
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=adv.menu)
 async def podp_change(message: types.Message, state: FSMContext):
-    await message.answer('Введите новое сообщение используя html разметку', reply_markup=keyboardback)
+    await message.answer('Введите новое сообщение', reply_markup=keyboardback)
     await adv.add.set()
 
 @dp.message_handler(state=podp.add)
@@ -345,19 +376,33 @@ async def podp_change_set(message: types.Message, state: FSMContext):
     await message.answer('Вы успешно изменили сообщение', reply_markup=keyboardmenupodp)
     await podp.menu.set()
 
-@dp.message_handler(content_types=['text'], state=adv.add)
+@dp.message_handler(content_types=['text', 'photo', 'animation'], state=adv.add)
 async def notify_text(message: types.Message, state: FSMContext):
     global adv_text
-    adv_text = ['text', message['text'], message.reply_markup, None]
+    if 'photo' in message:
+        adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id, message.caption_entities]
+    elif 'animation' in message:
+        adv_text = ['gif', message['caption'], message.reply_markup, message.animation.file_id, message.caption_entities]
+    else:
+        adv_text = ['text', message['text'], message.reply_markup, None, message.entities]
     await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
     await adv.menu.set()
 
-@dp.message_handler(content_types=['photo'], state=adv.add)
-async def notify_photo(message: types.Message, state: FSMContext):
-    global adv_text
-    adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id]
-    await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
-    await adv.menu.set()
+
+@dp.callback_query_handler(lambda call: call.data.startswith('lang'), state='*')
+async def inline_lang(callback_query: types.CallbackQuery):
+    cht_id = callback_query['message']['chat']['id']
+    from_id = callback_query['from']['id']
+    msg_id = callback_query['message']['message_id']
+    cdata = callback_query.data
+    lang = cdata.lstrip('lang/')
+    try:
+        cursor.execute(f'UPDATE users SET lang = "{lang}" WHERE id = {from_id}')
+        sqlite.commit()
+        await bot.edit_message_text(locale[lang]['lang'], cht_id, msg_id)
+    except:
+        pass
+    return await callback_query.answer()
 
 @dp.callback_query_handler(lambda call: call.data.startswith('id') or call.data.startswith('music'), state='*')
 async def inline_music(callback_query: types.CallbackQuery):
@@ -366,11 +411,7 @@ async def inline_music(callback_query: types.CallbackQuery):
     from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
     cdata = callback_query.data
-    lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {from_id}").fetchone()
-    if lang_req is None:
-        lang = callback_query['from']['language_code']
-    else:
-        lang = lang_req[0]
+    lang = lang_func(callback_query)
     msg = await bot.send_message(cht_id, '⏳')
     try:
         if cdata.startswith('id'):
@@ -380,15 +421,10 @@ async def inline_music(callback_query: types.CallbackQuery):
             url = callback_query.data.lstrip('music/')
             playAddr = await api.url_paid_music(url)
         if playAddr in ['error', 'connerror', 'errorlink']: raise
-        await bot.send_chat_action(cht_id, 'upload_document')
-        if lang in ['ru', 'ua']:
-            res = f'<b>{bot_tag}</b>\n\n<a href="{playAddr["cover"]}">Обложка</a>'
-        elif lang == 'uz':
-            res = f'<b>{bot_tag}</b>\n\n<a href="{playAddr["cover"]}">Rasmi</a>'
-        else:
-            res = f'<b>{bot_tag}</b>\n\n<a href="{playAddr["cover"]}">Song cover</a>'
-        aud = InputFile.from_url(url=playAddr['url'])
-        await bot.send_audio(cht_id, aud, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
+        res = locale[lang]['result_song'].format(locale[lang]['bot_tag'], playAddr['cover'])
+        audio = InputFile.from_url(url=playAddr['url'])
+        await bot.send_chat_action(cht_id, 'upload_audio')
+        await bot.send_audio(cht_id, audio, caption=res, title=playAddr['title'], performer=playAddr['author'], duration=playAddr['duration'], thumb=playAddr['cover'])
         await msg.delete()
         try:
             cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)', (callback_query["from"]["id"], tCurrent(), url, playAddr['url']))
@@ -400,157 +436,79 @@ async def inline_music(callback_query: types.CallbackQuery):
         try: await msg.delete()
         except: pass
         if cht_type == 'private':
-            if lang in ['ru', 'ua']:
-                error_msg = error_msgs[0]
-            elif lang == 'uz':
-                error_msg = error_msgs[2]
-            else:
-                error_msg = error_msgs[1]
-            await bot.send_message(cht_id, error_msg)
-    return await callback_query.answer()
-
-@dp.callback_query_handler(lambda call: call.data.startswith('lang'), state='*')
-async def inline_lang(callback_query: types.CallbackQuery):
-    cht_id = callback_query['message']['chat']['id']
-    from_id = callback_query['from']['id']
-    msg_id = callback_query['message']['message_id']
-    cdata = callback_query.data
-    lang = cdata.lstrip('lang/')
-    lang_texts = ['Установлен язык Русский🇷🇺',
-                'The language is set to English🇺🇸',
-                'Õzbek🇺🇿 tilli o’rnatildi'
-                ]
-    try:
-        cursor.execute(f'UPDATE users SET lang = "{lang}" WHERE id = {from_id}')
-        sqlite.commit()
-        if lang == 'ru':
-            text = lang_texts[0]
-        elif lang == 'uz':
-            text = lang_texts[2]
-        else:
-            text = lang_texts[1]
-        await bot.delete_message(cht_id, msg_id)
-        await bot.send_message(from_id, text)
-    except:
-        pass
+            await bot.send_message(cht_id, locale[lang]['error'])
     return await callback_query.answer()
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
     try:
-        lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {message['from']['id']}").fetchone()
-        if lang_req is None:
-            lang = message['from']['language_code']
-        else:
-            lang = lang_req[0]
-        if web_re.match(message.text) is not None:
-            if message.chat.type == 'private':
+        lang = lang_func(message)
+        try:
+            if web_re.match(message.text) is not None:
                 msg = await message.answer('⏳')
-            else:
-                msg = await message.reply('⏳')
-            link = web_re.findall(message.text)[0]
-            if api_type == 'free':
-                id = red_re.findall(message.text)[0]
-                playAddr = await api.url_free(id)
-                url_type = 'free'
-            else:
-                playAddr = await api.url_paid(link)
-                url_type = 'paid'
-            urltype = 'video'
-            if playAddr == 'errorlink': urltype = 'error'
-            elif playAddr in ['error', 'connerror']: raise
-        elif mob_re.match(message.text) is not None:
-            if message.chat.type == 'private':
-                msg = await message.answer('⏳')
-            else:
-                msg = await message.reply('⏳')
-            link = mob_re.findall(message.text)[0]
-            if api_type == 'free':
-                client = aiosonic.HTTPClient()
-                req = await client.get(message.text)
-                res = await req.text()
-                url_id = red_re.findall(res)[0]
-                playAddr = await api.url_free(url_id)
-                url_type = 'free'
-            else:
-                playAddr = await api.url_paid(link)
-                url_type = 'paid'
-            urltype = 'video'
-            if playAddr == 'errorlink':
-                playAddr = await api.url_music(link)
-                urltype = 'music'
-                if playAddr == 'errorlink': urltype = 'error'
+                link = web_re.findall(message.text)[0]
+                if api_type == 'free':
+                    id = red_re.findall(message.text)[0]
+                    playAddr = await api.url_free(id)
+                else:
+                    playAddr = await api.url_paid(link)
+                status = True
+                if playAddr == 'errorlink': status = False
                 elif playAddr in ['error', 'connerror']: raise
-            elif playAddr in ['error', 'connerror']: raise
-        else:
-            urltype = 'none'
-        if urltype == 'video':
-            await message.answer_chat_action('upload_video')
-            if url_type == 'paid':
+            elif mob_re.match(message.text) is not None:
+                msg = await message.answer('⏳')
+                link = mob_re.findall(message.text)[0]
+                if api_type == 'free':
+                    client = aiosonic.HTTPClient()
+                    req = await client.get(message.text)
+                    res = await req.text()
+                    url_id = red_re.findall(res)[0]
+                    playAddr = await api.url_free(url_id)
+                else:
+                    playAddr = await api.url_paid(link)
+                status = True
+                if playAddr == 'errorlink': status = False
+                elif playAddr in ['error', 'connerror']: raise
+        except:
+            status = False
+
+
+        if status is True:
+            if api_type == 'paid':
                 button_id = f'music/{playAddr["id"]}'
             else:
                 button_id = f'id/{playAddr["id"]}'
-            if lang in ['ru', 'ua']:
-                res = f'<b>{bot_tag}</b>\n\n<a href="{link}">Оригинал</a>'
-                button_text = 'Скачать звук'
-            elif lang == 'uz':
-                res = f'<b>{bot_tag}</b>\n\n<a href="{link}">Original</a>'
-                button_text = 'Товушни йозиб олиш'
-            else:
-                res = f'<b>{bot_tag}</b>\n\n<a href="{link}">Source</a>'
-                button_text = 'Get Sound'
+                res = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
+                button_text = locale[lang]['get_sound']
             music = InlineKeyboardMarkup().add(InlineKeyboardButton(button_text, callback_data=button_id))
-            if message.chat.type == 'private':
-                await message.answer_video(playAddr['url'], caption=res, reply_markup=music)
-            else:
-                await message.reply_video(playAddr['url'], caption=res, reply_markup=music)
+            await message.answer_chat_action('upload_video')
+            vid = InputFile.from_url(url=playAddr['url'])
+            cover = InputFile.from_url(url=playAddr['cover'])
+            await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'], width=playAddr['width'], duration=playAddr['duration']//1000, reply_markup=music)
             await msg.delete()
             try:
                 if message.chat.type == 'private':
-                    cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)', (message["from"]["id"], tCurrent(), link, playAddr['url']))
+                    ltype = 'videos'
                 else:
-                    cursor.execute(f'INSERT INTO groups VALUES (?,?,?,?)', (message["chat"]["id"], tCurrent(), link, playAddr['url']))
+                    ltype = 'groups'
+                cursor.execute(f'INSERT INTO {ltype} VALUES (?,?,?,?)', (message["chat"]["id"], tCurrent(), link, playAddr['url']))
                 sqlite.commit()
                 logging.info(f'{message["from"]["id"]}: {link}')
             except:
                 logging.error(f'Неудалось записать в бд')
-        elif urltype == 'error':
+            if message.chat.type == 'private' and podp_text != '':
+                await message.answer(podp_text)
+        else:
             if message.chat.type == 'private':
-                if lang in ['ru', 'ua']:
-                    error_link = 'Возможно что-то не так с вашей ссылкой🥲'
-                elif lang == 'uz':
-                    error_link = 'Sizning silkangiz bilan qandaydur hato hato bo’r🥲'
-                else:
-                    error_link = 'Probably something wrong with your link🥲'
-                await msg.edit_text(error_link)
+                await msg.edit_text(locale[lang]['link_error'])
             else:
                 await msg.delete()
             return
-        elif urltype == 'none':
-            if message.chat.type == 'private':
-                if lang in ['ru', 'ua']:
-                    error_link = 'Возможно что-то не так с вашей ссылкой🥲'
-                elif lang == 'uz':
-                    error_link = 'Sizning silkangiz bilan qandaydur hato hato bo’r🥲'
-                else:
-                    error_link = 'Probably something wrong with your link🥲'
-                await message.answer(error_link)
-            return
-        else:
-            return
-        if message.chat.type == 'private' and podp_text != '':
-           await message.answer(podp_text)
     except:
         try: await msg.delete()
         except: pass
         if message.chat.type == 'private':
-            if lang in ['ru', 'ua']:
-                error_msg = error_msgs[0]
-            elif lang == 'uz':
-                error_msg = error_msgs[2]
-            else:
-                error_msg = error_msgs[1]
-            await message.answer(error_msg)
+            await message.answer(locale[lang]['error'])
         return
 
 if __name__ == "__main__":
@@ -562,29 +520,13 @@ if __name__ == "__main__":
 
     api = ttapi(api_key)
 
-    error_msgs = ['<b>Что-то пошло не так🥲</b>\nНе могли бы вы попробовать еще раз?…',
-                '<b>Something went wrong🥲</b>\nCould you please try again?…',
-                '<b>Nimadur hato ketdi🥲</b>\nYana bir marta harakat qila olasizmi?…'
-                ]
-
-    lang_texts = ['Установлен язык Русский🇷🇺.\nЕго можно изменить командой /lang',
-                'The language is set to English🇺🇸.\nIt can be changed with the /lang command',
-                'Õzbek🇺🇿 tilli o’rnatildi.\nTilni almashtirish uchun /lang'
-                ]
-
-    start_texts = ['Привет, это бот для скачивания\nвидео и прочего из тиктока🎧\nФункции\n-Отправьте ссылку на видео, звук и получите результат через 2-3 секунды\n-Бот работает в группах💪(чтобы использовать его там добавьте его в группу и дайте ему права администратора) не волнуйтесь, бот никогда не будет спамить рекламой😉\n\nС наилучшими пожеланиями команда @unusone🦈',
-                'Hi there, that’s bot for downloading\nvideos and other staff from tiktok🎧\nFeatures\n-Send link to video, sound and get result in 2-3 seconds\n-Bot works in groups💪(to use it there add it to group and give him admin rights)don’t worry bot will never spam advertisement😉\n\nWith best regards @unusone🦈team',
-                'Ассаламу алейкум, bu bot TikTokdan🎧 harhil kontent yozib olish uchun.\nFunkcialari:\n-Botga videoni,tovushni silkasini tashlang va tayyor jovobni 1-2 sekundda oling.\n-Grupalarda ishlash💪(botga admin status berish kerak boladi)\nVa havotir olmang bot hech qayerga reklama tashamaydi.😉\n\nEng zo’r niyatlar bilan @unusone komandasi.🦈'
-                ]
-
     #Подключение sqlite
     sqlite = sqlite_init()
     cursor = sqlite.cursor()
     adv_text = None
+
     with open('api.txt', 'r', encoding='utf-8') as f:
             api_type = f.read()
-    with open('bot_tag.txt', 'r', encoding='utf-8') as f:
-        bot_tag = f.read()
     with open('podp.txt', 'r', encoding='utf-8') as f:
         podp_text = f.read()
 
@@ -592,7 +534,6 @@ if __name__ == "__main__":
     scheduler.add_job(stats_log)
     scheduler.add_job(stats_log, "interval", seconds=300)
     scheduler.start()
-
     executor.start_polling(dp, skip_updates=True)
     sqlite.close()
     logging.info("Соединение с SQLite закрыто")
