@@ -157,8 +157,8 @@ for x in locale['langs']:
 # Загрузка конфига
 config = configparser()
 config.read("config.ini")
-admin_ids = jloads(config["bot"]["admin_id"])
-second_id = jloads(config["bot"]["second_id"])
+admin_ids = jloads(config["bot"]["admin_ids"])
+second_ids = jloads(config["bot"]["second_ids"])
 bot_token = config["bot"]["token"]
 api_key = config["bot"]["api_key"]
 logs = config["bot"]["logs"]
@@ -264,7 +264,7 @@ async def send_admin(message: types.Message):
 
 @dp.message_handler(commands=['truecheck'])
 async def truecheck(message: types.Message):
-    if message["from"]["id"] in admin_ids:
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
         with open('users.txt', 'w') as f:
             for x in users:
@@ -328,7 +328,7 @@ async def send_stats(message: types.Message):
 
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_id:
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         text = await bot_stats()
         await message.answer(text)
 
