@@ -22,6 +22,11 @@ from locale import locale
 def lang_func(message):
     try:
         try:
+            if message.chat.type == 'group':
+                if message['from']['id'] in locale['langs']:
+                    return message['from']['id']
+                else:
+                    return 'en'
             lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {message['from']['id']}").fetchone()[0]
         except:
             lang_req = None
