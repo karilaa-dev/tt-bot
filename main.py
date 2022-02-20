@@ -246,6 +246,16 @@ async def send_start(message: types.Message):
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
 
+@dp.message_handler(commands=['msg', 'tell', 'say', 'send'], chat_type=types.ChatType.PRIVATE)
+async def send_start(message: types.Message):
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+        text = message.text.split(' ', 2)
+        try:
+            await bot.send_message(text[1], text[2])
+            await message.answer('done')
+        except:
+            await message.answer('ops')
+
 
 @dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
