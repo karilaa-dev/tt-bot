@@ -2,7 +2,7 @@ import logging
 import re
 import sqlite3
 from configparser import ConfigParser as configparser
-from time import time, sleep, ctime
+from time import sleep, ctime
 
 import aiosonic
 from aiogram import Bot, Dispatcher, executor, types
@@ -16,7 +16,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from simplejson import loads as jloads
 from truechecker import TrueChecker
 
-from locale import locale
+from utils import ttapi, tCurrent
+
+with open('locale.json', 'r', encoding='utf-8') as f:
+    locale = jloads(f.read())
 
 
 def lang_func(message):
@@ -40,96 +43,6 @@ def lang_func(message):
         return lang
     except:
         return 'en'
-
-
-class ttapi:
-    def __init__(self, api_key):
-        self.url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
-        self.free_url = "https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{}]"
-        self.headers = {
-            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
-            'x-rapidapi-key': api_key
-        }
-
-    async def url_free(self, id):
-        try:
-            async with aiosonic.HTTPClient() as client:
-                req = await client.post(self.free_url.format(id))
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['status_code'] != 0: return 'errorlink'
-            return {
-                'url': res['aweme_details'][0]['video']['play_addr']['url_list'][0],
-                'id': id,
-                'cover': res['aweme_details'][0]['video']['origin_cover']['url_list'][0],
-                'width': res['aweme_details'][0]['video']['play_addr']['width'],
-                'height': res['aweme_details'][0]['video']['play_addr']['height'],
-                'duration': res['aweme_details'][0]['video']['duration']
-            }
-        except:
-            return 'error'
-
-    async def url_paid(self, text):
-        querystring = {"url": f"{text}", "hd": "0"}
-        try:
-            client = aiosonic.HTTPClient()
-            req = await client.post(self.url, headers=self.headers, data=querystring)
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['code'] == -1: return 'errorlink'
-            return {
-                'url': res['data']['play'],
-                'id': res['data']['music_info']['id'],
-                'cover': res['data']['origin_cover'],
-                'width': 720,
-                'height': 1280,
-                'duration': 0
-            }
-        except:
-            return 'error'
-
-    async def url_free_music(self, id):
-        try:
-            async with aiosonic.HTTPClient() as client:
-                req = await client.post(self.free_url.format(id))
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['status_code'] != 0: return 'errorlink'
-            return {
-                'url': res['aweme_details'][0]['music']['play_url']['uri'],
-                'title': res['aweme_details'][0]['music']['title'],
-                'author': res['aweme_details'][0]['music']['author'],
-                'duration': res['aweme_details'][0]['music']['duration'],
-                'cover': res['aweme_details'][0]['music']['cover_large']['url_list'][0]
-            }
-        except:
-            return 'error'
-
-    async def url_paid_music(self, text):
-        querystring = {"url": f"{text}"}
-        try:
-            client = aiosonic.HTTPClient()
-            req = await client.post(self.url + 'music/info', headers=self.headers, data=querystring)
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['code'] == -1: return 'errorlink'
-            return {
-                'url': res['data']['play'],
-                'title': res['data']['title'],
-                'author': res['data']['author'],
-                'duration': res['data']['duration'],
-                'cover': res['data']['cover']
-            }
-        except:
-            return 'error'
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
@@ -196,20 +109,6 @@ def sqlite_init():
         return exit()
 
 
-def tCurrent():
-    return int(time())
-
-
-def load_list():
-    sqlite_select_query = "SELECT * from users"
-    cursor.execute(sqlite_select_query)
-    data = cursor.fetchall()
-    res = list()
-    for x in data:
-        res.append(x[0])
-    return res
-
-
 async def bot_stats():
     tnow = tCurrent()
     users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
@@ -245,6 +144,7 @@ async def send_start(message: types.Message):
             f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message["from"]["id"]}')
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
+
 
 @dp.message_handler(commands=['msg', 'tell', 'say', 'send'], chat_type=types.ChatType.PRIVATE)
 async def send_start(message: types.Message):
@@ -545,6 +445,8 @@ async def send_ttdown(message: types.Message):
                     status = False
                 elif playAddr in ['error', 'connerror']:
                     raise
+            else:
+                return await message.answer(locale[lang]['link_error'])
         except:
             status = False
 
