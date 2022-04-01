@@ -22,23 +22,23 @@ with open('locale.json', 'r', encoding='utf-8') as f:
     locale = jloads(f.read())
 
 
-def lang_func(message):
+def lang_func(usrid: int, usrlang: str, chat_type: str):
     try:
         try:
-            if message.chat.type == 'group':
-                if message['from']['id'] in locale['langs']:
-                    return message['from']['id']
+            if chat_type == 'group':
+                if usrlang in locale['langs']:
+                    return usrlang
                 else:
                     return 'en'
-            lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {message['from']['id']}").fetchone()[0]
+            lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {usrid}").fetchone()[0]
         except:
             lang_req = None
         if lang_req is not None:
             lang = lang_req
         else:
-            lang = message['from']['language_code']
+            lang = usrlang
             if lang not in locale['langs']: raise
-            cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, message["from"]["id"]))
+            cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, usrid))
             sqlite.commit()
         return lang
     except:
@@ -134,20 +134,24 @@ async def stats_log():
 @dp.message_handler(commands=['start'], chat_type=types.ChatType.PRIVATE)
 async def send_start(message: types.Message):
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
-    lang = lang_func(message)
+    lang = lang_func(message.chat.id, message['from']['language_code'], message.chat.type)
     if req == 0:
-        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?)', (message["from"]["id"], tCurrent(), lang))
+        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?)', (message.chat.id, tCurrent(), lang))
         sqlite.commit()
-        text = f'<b>{message.chat.first_name} {message.chat.last_name}</b>\n@{message.chat.username}\n<code>{message["from"]["id"]}</code>'
+        if message.chat.last_name is not None:
+            last_name = message.chat.last_name + ''
+        else:
+            last_name = ''
+        text = f'<b>{message.chat.first_name} {last_name}</b>\n@{message.chat.username}\n<code>{message["from"]["id"]}</code>'
         await bot.send_message(logs, text)
         logging.info(
-            f'{message.chat.first_name} {message.chat.last_name} @{message.chat.username} {message["from"]["id"]}')
+            f'{message.chat.first_name} {last_name}@{message.chat.username} {message["from"]["id"]}')
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
 
 
 @dp.message_handler(commands=['msg', 'tell', 'say', 'send'], chat_type=types.ChatType.PRIVATE)
-async def send_start(message: types.Message):
+async def send_hi(message: types.Message):
     if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         text = message.text.split(' ', 2)
         try:
@@ -372,13 +376,13 @@ async def inline_lang(callback_query: types.CallbackQuery):
 
 @dp.callback_query_handler(lambda call: call.data.startswith('id') or call.data.startswith('music'), state='*')
 async def inline_music(callback_query: types.CallbackQuery):
-    cht_type = callback_query.message.chat.type
-    cht_id = callback_query['message']['chat']['id']
+    chat_type = callback_query.message.chat.type
+    chat_id = callback_query['message']['chat']['id']
     from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
     cdata = callback_query.data
-    lang = lang_func(callback_query)
-    msg = await bot.send_message(cht_id, '⏳')
+    lang = lang_func(from_id, callback_query['from']['language_code'], chat_type)
+    msg = await bot.send_message(chat_id, '⏳')
     try:
         if cdata.startswith('music'):
             url = callback_query.data.lstrip('music/')
@@ -390,8 +394,8 @@ async def inline_music(callback_query: types.CallbackQuery):
         if playAddr in ['error', 'connerror', 'errorlink']: raise
         res = locale[lang]['result_song'].format(locale[lang]['bot_tag'], playAddr['cover'])
         audio = InputFile.from_url(url=playAddr['url'])
-        await bot.send_chat_action(cht_id, 'upload_audio')
-        await bot.send_audio(cht_id, audio, caption=res, title=playAddr['title'], performer=playAddr['author'],
+        await bot.send_chat_action(chat_id, 'upload_audio')
+        await bot.send_audio(chat_id, audio, caption=res, title=playAddr['title'], performer=playAddr['author'],
                              duration=playAddr['duration'], thumb=playAddr['cover'])
         await msg.delete()
         try:
@@ -406,15 +410,15 @@ async def inline_music(callback_query: types.CallbackQuery):
             await msg.delete()
         except:
             pass
-        if cht_type == 'private':
-            await bot.send_message(cht_id, locale[lang]['error'])
+        if chat_type == 'private':
+            await bot.send_message(chat_id, locale[lang]['error'])
     return await callback_query.answer()
 
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
     try:
-        lang = lang_func(message)
+        lang = lang_func(message['from']['id'], message['from']['language_code'], message.chat.type)
         try:
             if web_re.match(message.text) is not None:
                 msg = await message.answer('⏳')
@@ -446,7 +450,9 @@ async def send_ttdown(message: types.Message):
                 elif playAddr in ['error', 'connerror']:
                     raise
             else:
-                return await message.answer(locale[lang]['link_error'])
+                if message.chat.type == 'private':
+                    await message.answer(locale[lang]['link_error'])
+                return
         except:
             status = False
 

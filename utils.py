@@ -9,7 +9,7 @@ def tCurrent():
 
 
 class ttapi:
-    def __init__(self, api_key):
+    def __init__(self, api_key: str):
         self.url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
         self.free_url = "https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{}]"
         self.headers = {
@@ -17,7 +17,7 @@ class ttapi:
             'x-rapidapi-key': api_key
         }
 
-    async def url_free(self, id):
+    async def url_free(self, id: int):
         try:
             async with aiosonic.HTTPClient() as client:
                 req = await client.post(self.free_url.format(id))
@@ -37,8 +37,8 @@ class ttapi:
         except:
             return 'error'
 
-    async def url_paid(self, text):
-        querystring = {"url": f"{text}", "hd": "0"}
+    async def url_paid(self, link: str):
+        querystring = {"url": f"{link}", "hd": "0"}
         try:
             client = aiosonic.HTTPClient()
             req = await client.post(self.url, headers=self.headers, data=querystring)
@@ -58,7 +58,7 @@ class ttapi:
         except:
             return 'error'
 
-    async def url_free_music(self, id):
+    async def url_free_music(self, id: int):
         try:
             async with aiosonic.HTTPClient() as client:
                 req = await client.post(self.free_url.format(id))
@@ -77,8 +77,8 @@ class ttapi:
         except:
             return 'error'
 
-    async def url_paid_music(self, text):
-        querystring = {"url": f"{text}"}
+    async def url_paid_music(self, link: str):
+        querystring = {"url": f"{link}"}
         try:
             client = aiosonic.HTTPClient()
             req = await client.post(self.url + 'music/info', headers=self.headers, data=querystring)
