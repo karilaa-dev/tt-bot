@@ -3,7 +3,7 @@ maybe/
 logs/
 venv/
 #files
-/config.ini
+config.ini
 #extensions
 *.db
 /*test*.py
