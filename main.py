@@ -133,10 +133,13 @@ async def stats_log():
 # Команда /start
 @dp.message_handler(commands=['start'], chat_type=types.ChatType.PRIVATE)
 async def send_start(message: types.Message):
+    args = message.get_args().lower()
+    if args == '':
+        args = None
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
     lang = lang_func(message.chat.id, message['from']['language_code'], message.chat.type)
     if req == 0:
-        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?)', (message.chat.id, tCurrent(), lang))
+        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args))
         sqlite.commit()
         if message.chat.last_name is not None:
             full_name = f'{message.chat.first_name} {message.chat.last_name}'
@@ -146,11 +149,15 @@ async def send_start(message: types.Message):
             username = f'@{message.chat.username}\n'
         else:
             username = ''
-        text = f'<b>{full_name}</b>\n{username}<code>{message.chat.id}</code>'
+        if args is None:
+            deeplink = ''
+        else:
+            deeplink = args
+        text = f'<b>{full_name}</b>\n{username}<code>{message.chat.id}</code>\n<i>{deeplink}</i>'
         await bot.send_message(logs, text)
         username = username.replace('\n', ' ')
         logging.info(
-            f'{full_name} {username}{message.chat.id}')
+            f'{full_name} {username}{message.chat.id} {deeplink}')
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
 
@@ -253,8 +260,16 @@ async def send_stats(message: types.Message):
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
     if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
-        text = await bot_stats()
-        await message.answer(text)
+        text = message.text.split(' ')
+        if len(text) > 1:
+            try:
+                req = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?', [text[1].lower()]).fetchone()[0]
+                await message.answer(f'По этой ссылке пришло <b>{req}</b> пользователей')
+            except:
+                await message.answer('Произошла ошибка')
+        else:
+            text = await bot_stats()
+            await message.answer(text)
 
 
 @dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
