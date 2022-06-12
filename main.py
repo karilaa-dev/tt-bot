@@ -396,7 +396,6 @@ async def inline_music(callback_query: types.CallbackQuery):
     msg_id = callback_query['message']['message_id']
     cdata = callback_query.data
     lang = lang_func(from_id, callback_query['from']['language_code'], chat_type)
-    print(callback_query)
     msg = await bot.send_message(chat_id, '⏳', disable_notification=disnotify)
     try:
         url = callback_query.data.lstrip('id/')
