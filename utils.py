@@ -9,18 +9,13 @@ def tCurrent():
 
 
 class ttapi:
-    def __init__(self, api_key: str):
-        self.url = "https://tiktok-video-no-watermark2.p.rapidapi.com/"
-        self.free_url = "https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{}]"
-        self.headers = {
-            'x-rapidapi-host': "tiktok-video-no-watermark2.p.rapidapi.com",
-            'x-rapidapi-key': api_key
-        }
+    def __init__(self):
+        self.url = "https://api-va.tiktokv.com/aweme/v1/multi/aweme/detail/?aweme_ids=[{}]"
 
-    async def url_free(self, id: int):
+    async def video(self, id: int):
         try:
             async with aiosonic.HTTPClient() as client:
-                req = await client.post(self.free_url.format(id))
+                req = await client.post(self.url.format(id))
             try:
                 res = jloads(await req.content())
             except:
@@ -37,31 +32,10 @@ class ttapi:
         except:
             return 'error'
 
-    async def url_paid(self, link: str):
-        querystring = {"url": f"{link}", "hd": "0"}
-        try:
-            client = aiosonic.HTTPClient()
-            req = await client.post(self.url, headers=self.headers, data=querystring)
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['code'] == -1: return 'errorlink'
-            return {
-                'url': res['data']['play'],
-                'id': res['data']['music_info']['id'],
-                'cover': res['data']['origin_cover'],
-                'width': 720,
-                'height': 1280,
-                'duration': 0
-            }
-        except:
-            return 'error'
-
-    async def url_free_music(self, id: int):
+    async def music(self, id: int):
         try:
             async with aiosonic.HTTPClient() as client:
-                req = await client.post(self.free_url.format(id))
+                req = await client.post(self.url.format(id))
             try:
                 res = jloads(await req.content())
             except:
@@ -73,26 +47,6 @@ class ttapi:
                 'author': res['aweme_details'][0]['music']['author'],
                 'duration': res['aweme_details'][0]['music']['duration'],
                 'cover': res['aweme_details'][0]['music']['cover_large']['url_list'][0]
-            }
-        except:
-            return 'error'
-
-    async def url_paid_music(self, link: str):
-        querystring = {"url": f"{link}"}
-        try:
-            client = aiosonic.HTTPClient()
-            req = await client.post(self.url + 'music/info', headers=self.headers, data=querystring)
-            try:
-                res = jloads(await req.content())
-            except:
-                return 'connerror'
-            if res['code'] == -1: return 'errorlink'
-            return {
-                'url': res['data']['play'],
-                'title': res['data']['title'],
-                'author': res['data']['author'],
-                'duration': res['data']['duration'],
-                'cover': res['data']['cover']
             }
         except:
             return 'error'
