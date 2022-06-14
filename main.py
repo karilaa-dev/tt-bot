@@ -138,7 +138,7 @@ async def send_start(message: types.Message):
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
     lang = lang_func(message.chat.id, message['from']['language_code'], message.chat.type)
     if req == 0:
-        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args))
+        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args, 0))
         sqlite.commit()
         if message.chat.last_name is not None:
             full_name = f'{message.chat.first_name} {message.chat.last_name}'
@@ -344,7 +344,7 @@ async def podp_change(message: types.Message, state: FSMContext):
 
 
 @dp.message_handler(state=podp.add)
-async def podp_change_set(message: types.Message, state: FSMContext):
+async def podp_change_set(message: types.Message):
     with open('podp.txt', 'w', encoding='utf-8') as f:
         f.write(message.text)
     global podp_text
@@ -354,7 +354,7 @@ async def podp_change_set(message: types.Message, state: FSMContext):
 
 
 @dp.message_handler(content_types=['text', 'photo', 'animation'], state=adv.add)
-async def notify_text(message: types.Message, state: FSMContext):
+async def notify_text(message: types.Message):
     global adv_text
     if 'photo' in message:
         adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id,
@@ -382,6 +382,22 @@ async def inline_lang(callback_query: types.CallbackQuery):
     except:
         pass
     return await callback_query.answer()
+
+@dp.message_handler(commands=['mode'], chat_type=types.ChatType.PRIVATE, state='*')
+async def change_mode(message: types.message):
+    lang = lang_func(message['from']['id'], message['from']['language_code'], message.chat.type)
+    try:
+        file_mode = bool(cursor.execute(f"SELECT file_mode FROM users WHERE id = {message.chat.id}").fetchone()[0])
+    except:
+        file_mode = False
+    if file_mode is True:
+        cursor.execute(f"UPDATE users SET file_mode = 0 WHERE id = {message.chat.id}")
+        sqlite.commit()
+        await message.answer(locale[lang]['file_mode_off'])
+    else:
+        cursor.execute(f"UPDATE users SET file_mode = 1 WHERE id = {message.chat.id}")
+        sqlite.commit()
+        await message.answer(locale[lang]['file_mode_on'])
 
 
 @dp.callback_query_handler(lambda call: call.data.startswith('id') or call.data.startswith('music'), state='*')
@@ -411,8 +427,8 @@ async def inline_music(callback_query: types.CallbackQuery):
         await callback_query.message.edit_reply_markup()
         await msg.delete()
         try:
-            cursor.execute(f'INSERT INTO music VALUES (?,?,?,?)',
-                           (callback_query["from"]["id"], tCurrent(), url, playAddr['url']))
+            cursor.execute(f'INSERT INTO music VALUES (?,?,?)',
+                           (callback_query["from"]["id"], tCurrent(), url))
             sqlite.commit()
             logging.info(f'{callback_query["from"]["id"]}: Music - {url}')
         except:
@@ -441,8 +457,8 @@ async def send_ttdown(message: types.Message):
             if web_re.match(message.text) is not None:
                 msg = await message.answer('⏳', disable_notification=disnotify)
                 link = web_re.findall(message.text)[0]
-                id = red_re.findall(message.text)[0]
-                playAddr = await api.video(id)
+                vid_id = red_re.findall(message.text)[0]
+                playAddr = await api.video(vid_id)
                 status = True
                 if playAddr == 'errorlink':
                     status = False
@@ -454,8 +470,8 @@ async def send_ttdown(message: types.Message):
                 client = aiosonic.HTTPClient()
                 req = await client.get(message.text)
                 res = await req.text()
-                url_id = red_re.findall(res)[0]
-                playAddr = await api.video(url_id)
+                vid_id = red_re.findall(res)[0]
+                playAddr = await api.video(vid_id)
                 status = True
                 if playAddr == 'errorlink':
                     status = False
@@ -474,15 +490,25 @@ async def send_ttdown(message: types.Message):
             button_text = locale[lang]['get_sound']
             music = InlineKeyboardMarkup().add(InlineKeyboardButton(button_text, callback_data=button_id))
             await message.answer_chat_action('upload_video')
-            vid = InputFile.from_url(url=playAddr['url'])
+            vid = InputFile.from_url(url=playAddr['url'], filename=f'{vid_id}.mp4')
             cover = InputFile.from_url(url=playAddr['cover'])
-            await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'],
-                                       width=playAddr['width'], duration=playAddr['duration'] // 1000,
-                                       reply_markup=music, disable_notification=disnotify)
+            if message.chat.type == 'private':
+                try:
+                    file_mode = bool(cursor.execute(f"SELECT file_mode FROM users WHERE id = {message.chat.id}").fetchone()[0])
+                except:
+                    file_mode = False
+            else:
+                file_mode = False
+            if file_mode == False:
+                await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'],
+                                           width=playAddr['width'], duration=playAddr['duration'] // 1000,
+                                           reply_markup=music, disable_notification=disnotify)
+            else:
+                await message.answer_document(vid, caption=res, reply_markup=music, disable_content_type_detection=True, disable_notification=disnotify)
             await msg.delete()
             try:
-                cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?,?)',
-                               (message["chat"]["id"], tCurrent(), link, playAddr['url']))
+                cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?)',
+                               (message["chat"]["id"], tCurrent(), link))
                 sqlite.commit()
                 logging.info(f'{message["from"]["id"]}: {link}')
             except:

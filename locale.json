@@ -10,7 +10,9 @@
         "get_sound": "Get Sound",
         "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
         "result": "<a href='{1}'>Source</a>\n\n<b>{0}</b>",
-        "result_song": "<a href='{1}'>Song cover</a>\n\n<b>{0}</b>"
+        "result_song": "<a href='{1}'>Song cover</a>\n\n<b>{0}</b>",
+        "file_mode_off": "<b>File mode is off</b>",
+        "file_mode_on": "<b>File mode is on</b>"
         },
 
     "ru": {
@@ -23,7 +25,9 @@
         "get_sound": "Скачать звук",
         "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
         "result": "<a href='{1}'>Оригинал</a>\n\n<b>{0}</b>",
-        "result_song": "<a href='{1}'>Обложка</a>\n\n<b>{0}</b>"
+        "result_song": "<a href='{1}'>Обложка</a>\n\n<b>{0}</b>",
+        "file_mode_off": "<b>Файловый режим отключен</b>",
+        "file_mode_on": "<b>Файловый режим включен</b>"
         },
 
     "ua": {
@@ -36,7 +40,9 @@
         "get_sound": "Завантажити звук",
         "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
         "result": "<a href='{1}'>Оригінал</a>\n\n<b>{0}</b>",
-        "result_song": "<a href='{1}'>Обкладинка</a>\n\n<b>{0}</b>"
+        "result_song": "<a href='{1}'>Обкладинка</a>\n\n<b>{0}</b>",
+        "file_mode_off": "<b>Файловий режим вимкнено</b>",
+        "file_mode_on": "<b>Файловий режим увімкнено</b>"
         },
 
     "hi": {
@@ -49,7 +55,9 @@
         "get_sound": "आवाज़ डाउनलोड करें",
         "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
         "result": "<a href='{1}'>ओरिजिनल</a>\n\n<b>{0}</b>",
-        "result_song": "<a href='{1}'>कवर</a>\n\n<b>{0}</b>"
+        "result_song": "<a href='{1}'>कवर</a>\n\n<b>{0}</b>",
+        "file_mode_off": "<b>फ़ाइल मोड बंद है</b>",
+        "file_mode_on": "<b>फ़ाइल मोड चालू है</b>"
     },
     "stats": "Пользователей: <b>{0}</b>\nМузыки: <b>{1}</b>\nВидео: <b>{2}</b>\n\n<b>За 24 часа</b>:\nНовых пользователей: <b>{3}</b>\nМузыки: <b>{4}</b>\nВидео: <b>{5}</b>\nУникальных: <b>{6}</b>"
 }
