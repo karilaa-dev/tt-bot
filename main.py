@@ -209,8 +209,7 @@ async def truecheck(message: types.Message):
             if job.progress != progress:
                 await msg.edit_text(f'Проверено <b>{job.progress}%</b>')
             progress = job.progress
-            while True:
-                await sleep(3)
+            await sleep(3)
         username = (await dp.bot.me)['username']
         profile = await checker.get_profile(username)
         res = f'Пользователи\n - живы: {profile.users.active}\n - остановлены: {profile.users.stopped}\n - удалены: {profile.users.deleted}\n - отсутствуют: {profile.users.not_found}'
