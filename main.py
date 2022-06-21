@@ -2,7 +2,8 @@ import logging
 import re
 import sqlite3
 from configparser import ConfigParser as configparser
-from time import sleep, ctime
+from time import ctime
+from asyncio import sleep
 
 import aiosonic
 from aiogram import Bot, Dispatcher, executor, types
@@ -208,7 +209,8 @@ async def truecheck(message: types.Message):
             if job.progress != progress:
                 await msg.edit_text(f'Проверено <b>{job.progress}%</b>')
             progress = job.progress
-            sleep(3)
+            while True:
+                await sleep(3)
         username = (await dp.bot.me)['username']
         profile = await checker.get_profile(username)
         res = f'Пользователи\n - живы: {profile.users.active}\n - остановлены: {profile.users.stopped}\n - удалены: {profile.users.deleted}\n - отсутствуют: {profile.users.not_found}'
