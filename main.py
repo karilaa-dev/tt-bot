@@ -129,10 +129,8 @@ async def bot_stats():
                              [tnow - 86400]).fetchall()[0][0]
     groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?",
                               [tnow - 86400]).fetchall()[0][0]
-    videos24u = \
-    cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?",
-                   [tnow - 86400]).fetchall()[0][
-        0]
+    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?",
+                       [tnow - 86400]).fetchall()[0][0]
     return locale['stats'].format(users, music, videos, users24, music24,
                                   videos24,
                                   videos24u, groups, groups24)
@@ -276,9 +274,8 @@ async def send_stats(message: types.Message):
         if len(text) > 1:
             try:
                 tnow = tCurrent()
-                total = \
-                cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
-                               [text[1].lower()]).fetchone()[0]
+                total = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
+                                   [text[1].lower()]).fetchone()[0]
                 total24h = cursor.execute(
                     'SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
                     (text[1].lower(), tnow - 86400)).fetchone()[0]
