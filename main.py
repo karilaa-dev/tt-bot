@@ -1,9 +1,9 @@
 import logging
 import re
 import sqlite3
+from asyncio import sleep
 from configparser import ConfigParser as configparser
 from time import ctime
-from asyncio import sleep
 
 import aiosonic
 from aiogram import Bot, Dispatcher, executor, types
@@ -11,7 +11,8 @@ from aiogram.bot.api import TelegramAPIServer
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext, filters
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, \
+from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, \
+    InlineKeyboardMarkup, InputFile, \
     ReplyKeyboardRemove
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from simplejson import loads as jloads
@@ -30,7 +31,8 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
                 if usrlang in locale['langs']:
                     return usrlang
                 return 'en'
-            lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?", [usrid]).fetchone()[0]
+            lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?",
+                                      [usrid]).fetchone()[0]
         except:
             lang_req = None
         if lang_req is not None:
@@ -39,15 +41,18 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
             lang = usrlang
             if lang not in locale['langs']:
                 return 'en'
-            cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, usrid))
+            cursor.execute('UPDATE users SET lang = ? WHERE id = ?',
+                           (lang, usrid))
             sqlite.commit()
         return lang
     except:
         return 'en'
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
-                    handlers=[logging.FileHandler("bot.log"), logging.StreamHandler()])
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
+                    handlers=[logging.FileHandler("bot.log"),
+                              logging.StreamHandler()])
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
 keyboard = ReplyKeyboardMarkup(True)
@@ -71,7 +76,8 @@ keyboardback.row('Назад')
 
 inlinelang = InlineKeyboardMarkup()
 for lang_name in locale['langs']:
-    inlinelang.add(InlineKeyboardButton(locale[lang_name]['lang_name'], callback_data=f'lang/{lang_name}'))
+    inlinelang.add(InlineKeyboardButton(locale[lang_name]['lang_name'],
+                                        callback_data=f'lang/{lang_name}'))
 
 # Загрузка конфига
 config = configparser()
@@ -115,13 +121,21 @@ async def bot_stats():
     videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
     music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
     groups = cursor.execute("SELECT COUNT(id) FROM groups").fetchall()[0][0]
-    users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    music24 = cursor.execute("SELECT COUNT(id) FROM music WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?", [tnow - 86400]).fetchall()[0][
+    users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ?",
+                             [tnow - 86400]).fetchall()[0][0]
+    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ?",
+                              [tnow - 86400]).fetchall()[0][0]
+    music24 = cursor.execute("SELECT COUNT(id) FROM music WHERE time >= ?",
+                             [tnow - 86400]).fetchall()[0][0]
+    groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?",
+                              [tnow - 86400]).fetchall()[0][0]
+    videos24u = \
+    cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?",
+                   [tnow - 86400]).fetchall()[0][
         0]
-    return locale['stats'].format(users, music, videos, users24, music24, videos24, videos24u, groups, groups24)
+    return locale['stats'].format(users, music, videos, users24, music24,
+                                  videos24,
+                                  videos24u, groups, groups24)
 
 
 async def stats_log():
@@ -136,10 +150,13 @@ async def send_start(message: types.Message):
     args = message.get_args().lower()
     if args == '':
         args = None
-    req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
-    lang = lang_func(message.chat.id, message['from']['language_code'], message.chat.type)
+    req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
+                         [message.chat.id]).fetchone()[0]
+    lang = lang_func(message.chat.id, message['from']['language_code'],
+                     message.chat.type)
     if req == 0:
-        cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args, 0))
+        cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)',
+                       (message.chat.id, tCurrent(), lang, args, 0))
         sqlite.commit()
         if message.chat.last_name is not None:
             full_name = f'{message.chat.first_name} {message.chat.last_name}'
@@ -162,9 +179,11 @@ async def send_start(message: types.Message):
     await message.answer(locale[lang]['lang_start'])
 
 
-@dp.message_handler(commands=['msg', 'tell', 'say', 'send'], chat_type=types.ChatType.PRIVATE)
+@dp.message_handler(commands=['msg', 'tell', 'say', 'send'],
+                    chat_type=types.ChatType.PRIVATE)
 async def send_hi(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"][
+        "id"] in second_ids:
         text = message.text.split(' ', 2)
         try:
             await bot.send_message(text[1], text[2])
@@ -181,10 +200,12 @@ async def cancel(message: types.Message, state: FSMContext):
         await state.finish()
 
 
-@dp.message_handler(filters.Text(equals=["Скрыть клавиатуру"], ignore_case=True))
+@dp.message_handler(
+    filters.Text(equals=["Скрыть клавиатуру"], ignore_case=True))
 async def send_clear_keyb(message: types.Message):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Вы успешно скрыли клавиатуру', reply_markup=ReplyKeyboardRemove())
+        await message.answer('Вы успешно скрыли клавиатуру',
+                             reply_markup=ReplyKeyboardRemove())
 
 
 @dp.message_handler(commands=['admin'])
@@ -195,7 +216,8 @@ async def send_admin(message: types.Message):
 
 @dp.message_handler(commands=['truecheck'])
 async def truecheck(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"][
+        "id"] in second_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
         with open('users.txt', 'w') as f:
             for x in users:
@@ -228,7 +250,8 @@ async def send_reset_ad(message: types.Message):
         await message.answer('Вы успешно сбросили сообщение')
 
 
-@dp.message_handler(commands=['lang'], chat_type=types.ChatType.PRIVATE, state='*')
+@dp.message_handler(commands=['lang'], chat_type=types.ChatType.PRIVATE,
+                    state='*')
 async def lang_change(message: types.Message):
     if message.chat.type == 'private':
         await message.answer('Select language:', reply_markup=inlinelang)
@@ -241,19 +264,24 @@ async def export_users(message: types.Message):
         with open('users.txt', 'w') as f:
             for x in users:
                 f.write(str(x[0]) + '\n')
-        await message.answer_document(open('users.txt', 'rb'), caption='Список пользоватлей бота')
+        await message.answer_document(open('users.txt', 'rb'),
+                                      caption='Список пользоватлей бота')
 
 
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"][
+        "id"] in second_ids:
         text = message.text.split(' ')
         if len(text) > 1:
             try:
                 tnow = tCurrent()
-                total = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?', [text[1].lower()]).fetchone()[0]
-                total24h = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
-                                          (text[1].lower(), tnow - 86400)).fetchone()[0]
+                total = \
+                cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
+                               [text[1].lower()]).fetchone()[0]
+                total24h = cursor.execute(
+                    'SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
+                    (text[1].lower(), tnow - 86400)).fetchone()[0]
                 await message.answer(
                     f'По этой ссылке пришло <b>{total}</b> пользователей\nЗа 24 часа: <b>{total24h}</b>')
             except:
@@ -263,47 +291,59 @@ async def send_stats(message: types.Message):
             await message.answer(text)
 
 
-@dp.message_handler(filters.Text(equals=["Сообщение подписи"], ignore_case=True))
+@dp.message_handler(
+    filters.Text(equals=["Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message):
     if message["from"]["id"] in admin_ids:
         await message.answer('Сообщение подписи', reply_markup=keyboardmenupodp)
         await podp.menu.set()
 
 
-@dp.message_handler(filters.Text(equals=["Глобальное сообщение"], ignore_case=True))
+@dp.message_handler(
+    filters.Text(equals=["Глобальное сообщение"], ignore_case=True))
 async def adv_menu(message: types.Message):
     if message["from"]["id"] in admin_ids:
         await message.answer('Глобальное сообщение', reply_markup=keyboardmenu)
         await adv.menu.set()
 
 
-@dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=podp.menu)
+@dp.message_handler(
+    filters.Text(equals=["Проверить сообщение"], ignore_case=True),
+    state=podp.menu)
 async def podp_check(message: types.Message):
     with open('podp.txt', 'r', encoding='utf-8') as f:
         text = f.read()
     if text != '':
         await message.answer(text, disable_web_page_preview=True)
     else:
-        await message.answer('Вы не добавили сообщение подписи', disable_web_page_preview=True)
+        await message.answer('Вы не добавили сообщение подписи',
+                             disable_web_page_preview=True)
 
 
-@dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
+@dp.message_handler(
+    filters.Text(equals=["Проверить сообщение"], ignore_case=True),
+    state=adv.menu)
 async def adb_check(message: types.Message):
     if adv_text is not None:
         if adv_text[0] == 'text':
-            await message.answer(adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True,
+            await message.answer(adv_text[1], reply_markup=adv_text[2],
+                                 disable_web_page_preview=True,
                                  entities=adv_text[4])
         elif adv_text[0] == 'photo':
-            await message.answer_photo(adv_text[3], caption=adv_text[1], reply_markup=adv_text[2],
+            await message.answer_photo(adv_text[3], caption=adv_text[1],
+                                       reply_markup=adv_text[2],
                                        caption_entities=adv_text[4])
         elif adv_text[0] == 'gif':
-            await message.answer_animation(adv_text[3], message.reply_markup, message.animation.file_id,
+            await message.answer_animation(adv_text[3], message.reply_markup,
+                                           message.animation.file_id,
                                            caption_entities=adv_text[4])
     else:
         await message.answer('Вы не добавили сообщение')
 
 
-@dp.message_handler(filters.Text(equals=["Отправить сообщение"], ignore_case=True), state=adv.menu)
+@dp.message_handler(
+    filters.Text(equals=["Отправить сообщение"], ignore_case=True),
+    state=adv.menu)
 async def adv_go(message: types.Message):
     if adv_text is not None:
         msg = await message.answer('<code>Началась рассылка</code>')
@@ -312,13 +352,18 @@ async def adv_go(message: types.Message):
         for x in users:
             try:
                 if adv_text[0] == 'text':
-                    await bot.send_message(x[0], adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True,
+                    await bot.send_message(x[0], adv_text[1],
+                                           reply_markup=adv_text[2],
+                                           disable_web_page_preview=True,
                                            entities=adv_text[4])
                 elif adv_text[0] == 'photo':
-                    await bot.send_photo(x[0], adv_text[3], caption=adv_text[1], reply_markup=adv_text[2],
+                    await bot.send_photo(x[0], adv_text[3], caption=adv_text[1],
+                                         reply_markup=adv_text[2],
                                          caption_entities=adv_text[4])
                 elif adv_text[0] == 'gif':
-                    await bot.send_animation(x[0], adv_text[3], caption=adv_text[1], reply_markup=adv_text[2],
+                    await bot.send_animation(x[0], adv_text[3],
+                                             caption=adv_text[1],
+                                             reply_markup=adv_text[2],
                                              caption_entities=adv_text[4])
                 num += 1
             except:
@@ -330,13 +375,18 @@ async def adv_go(message: types.Message):
         await message.answer('Вы не добавили сообщение')
 
 
-@dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=podp.menu)
+@dp.message_handler(
+    filters.Text(equals=["Изменить сообщение"], ignore_case=True),
+    state=podp.menu)
 async def podp_change(message: types.Message):
-    await message.answer('Введите новое сообщение используя html разметку', reply_markup=keyboardback)
+    await message.answer('Введите новое сообщение используя html разметку',
+                         reply_markup=keyboardback)
     await podp.add.set()
 
 
-@dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=adv.menu)
+@dp.message_handler(
+    filters.Text(equals=["Изменить сообщение"], ignore_case=True),
+    state=adv.menu)
 async def adv_change(message: types.Message):
     await message.answer('Введите новое сообщение', reply_markup=keyboardback)
     await adv.add.set()
@@ -348,7 +398,8 @@ async def podp_change_set(message: types.Message):
         f.write(message.text)
     global podp_text
     podp_text = message.text
-    await message.answer('Вы успешно изменили сообщение', reply_markup=keyboardmenupodp)
+    await message.answer('Вы успешно изменили сообщение',
+                         reply_markup=keyboardmenupodp)
     await podp.menu.set()
 
 
@@ -356,13 +407,16 @@ async def podp_change_set(message: types.Message):
 async def notify_text(message: types.Message):
     global adv_text
     if 'photo' in message:
-        adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id,
+        adv_text = ['photo', message['caption'], message.reply_markup,
+                    message.photo[-1].file_id,
                     message.caption_entities]
     elif 'animation' in message:
-        adv_text = ['gif', message['caption'], message.reply_markup, message.animation.file_id,
+        adv_text = ['gif', message['caption'], message.reply_markup,
+                    message.animation.file_id,
                     message.caption_entities]
     else:
-        adv_text = ['text', message['text'], message.reply_markup, None, message.entities]
+        adv_text = ['text', message['text'], message.reply_markup, None,
+                    message.entities]
     await message.answer('Сообщение добавлено', reply_markup=keyboardmenu)
     await adv.menu.set()
 
@@ -374,7 +428,8 @@ async def inline_lang(callback_query: types.CallbackQuery):
     msg_id = callback_query['message']['message_id']
     lang = callback_query.data.lstrip('lang/')
     try:
-        cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, from_id))
+        cursor.execute('UPDATE users SET lang = ? WHERE id = ?',
+                       (lang, from_id))
         sqlite.commit()
         await bot.edit_message_text(locale[lang]['lang'], cht_id, msg_id)
     except:
@@ -382,24 +437,32 @@ async def inline_lang(callback_query: types.CallbackQuery):
     return await callback_query.answer()
 
 
-@dp.message_handler(commands=['mode'], chat_type=types.ChatType.PRIVATE, state='*')
+@dp.message_handler(commands=['mode'], chat_type=types.ChatType.PRIVATE,
+                    state='*')
 async def change_mode(message: types.message):
-    lang = lang_func(message['from']['id'], message['from']['language_code'], message.chat.type)
+    lang = lang_func(message['from']['id'], message['from']['language_code'],
+                     message.chat.type)
     try:
-        file_mode = bool(cursor.execute("SELECT file_mode FROM users WHERE id = ?", [message.chat.id]).fetchone()[0])
+        file_mode = bool(
+            cursor.execute("SELECT file_mode FROM users WHERE id = ?",
+                           [message.chat.id]).fetchone()[0])
     except:
         file_mode = False
     if file_mode is True:
-        cursor.execute("UPDATE users SET file_mode = 0 WHERE id = ?", [message.chat.id])
+        cursor.execute("UPDATE users SET file_mode = 0 WHERE id = ?",
+                       [message.chat.id])
         sqlite.commit()
         await message.answer(locale[lang]['file_mode_off'])
     else:
-        cursor.execute("UPDATE users SET file_mode = 1 WHERE id = ?", [message.chat.id])
+        cursor.execute("UPDATE users SET file_mode = 1 WHERE id = ?",
+                       [message.chat.id])
         sqlite.commit()
         await message.answer(locale[lang]['file_mode_on'])
 
 
-@dp.callback_query_handler(lambda call: call.data.startswith('id') or call.data.startswith('music'), state='*')
+@dp.callback_query_handler(
+    lambda call: call.data.startswith('id') or call.data.startswith('music'),
+    state='*')
 async def inline_music(callback_query: types.CallbackQuery):
     chat_type = callback_query.message.chat.type
     if chat_type == 'private':
@@ -409,20 +472,24 @@ async def inline_music(callback_query: types.CallbackQuery):
     chat_id = callback_query['message']['chat']['id']
     from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
-    lang = lang_func(from_id, callback_query['from']['language_code'], chat_type)
+    lang = lang_func(from_id, callback_query['from']['language_code'],
+                     chat_type)
     msg = await bot.send_message(chat_id, '⏳', disable_notification=disnotify)
     try:
         url = callback_query.data.lstrip('id/')
         playAddr = await api.music(url)
         if playAddr in ['error', 'connerror', 'errorlink']:
             raise
-        caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'], playAddr['cover'])
+        caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
+                                                     playAddr['cover'])
         audio = InputFile.from_url(url=playAddr['url'])
         cover = InputFile.from_url(url=playAddr['cover'])
         await bot.send_chat_action(chat_id, 'upload_audio')
-        await bot.send_audio(chat_id, audio, reply_to_message_id=msg_id, caption=caption, title=playAddr['title'],
+        await bot.send_audio(chat_id, audio, reply_to_message_id=msg_id,
+                             caption=caption, title=playAddr['title'],
                              performer=playAddr['author'],
-                             duration=playAddr['duration'], thumb=cover, disable_notification=disnotify)
+                             duration=playAddr['duration'], thumb=cover,
+                             disable_notification=disnotify)
         await callback_query.message.edit_reply_markup()
         await msg.delete()
         try:
@@ -445,7 +512,9 @@ async def inline_music(callback_query: types.CallbackQuery):
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
     try:
-        lang = lang_func(message['from']['id'], message['from']['language_code'], message.chat.type)
+        lang = lang_func(message['from']['id'],
+                         message['from']['language_code'],
+                         message.chat.type)
         try:
             if message.chat.type == 'private':
                 chat_type = 'videos'
@@ -487,23 +556,35 @@ async def send_ttdown(message: types.Message):
             button_id = f'id/{playAddr["id"]}'
             res = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
             button_text = locale[lang]['get_sound']
-            music = InlineKeyboardMarkup().add(InlineKeyboardButton(button_text, callback_data=button_id))
+            music = InlineKeyboardMarkup().add(
+                InlineKeyboardButton(button_text, callback_data=button_id))
             await message.answer_chat_action('upload_video')
-            vid = InputFile.from_url(url=playAddr['url'], filename=f'{vid_id}.mp4')
+            vid = InputFile.from_url(url=playAddr['url'],
+                                     filename=f'{vid_id}.mp4')
             cover = InputFile.from_url(url=playAddr['cover'])
             if message.chat.type == 'private':
                 try:
-                    file_mode = bool(cursor.execute("SELECT file_mode FROM users WHERE id = ?", [message.chat.id]).fetchone()[0])
+                    file_mode = bool(
+                        cursor.execute(
+                            "SELECT file_mode FROM users WHERE id = ?",
+                            [message.chat.id]).fetchone()[0])
                 except:
                     file_mode = False
             else:
                 file_mode = False
             if file_mode is False:
-                await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'],
-                                           width=playAddr['width'], duration=playAddr['duration'] // 1000,
-                                           reply_markup=music, disable_notification=disnotify)
+                await message.answer_video(vid, caption=res, thumb=cover,
+                                           height=playAddr['height'],
+                                           width=playAddr['width'],
+                                           duration=playAddr[
+                                                        'duration'] // 1000,
+                                           reply_markup=music,
+                                           disable_notification=disnotify)
             else:
-                await message.answer_document(vid, caption=res, reply_markup=music, disable_content_type_detection=True, disable_notification=disnotify)
+                await message.answer_document(vid, caption=res,
+                                              reply_markup=music,
+                                              disable_content_type_detection=True,
+                                              disable_notification=disnotify)
             await msg.delete()
             try:
                 cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?)',

@@ -23,11 +23,16 @@ class ttapi:
             if res['status_code'] != 0:
                 return 'errorlink'
             return {
-                'url': res['aweme_details'][0]['video']['play_addr']['url_list'][0],
+                'url':
+                    res['aweme_details'][0]['video']['play_addr']['url_list'][
+                        0],
                 'id': id,
-                'cover': res['aweme_details'][0]['video']['origin_cover']['url_list'][0],
+                'cover': res['aweme_details'][0]['video']['origin_cover'][
+                    'url_list'][
+                    0],
                 'width': res['aweme_details'][0]['video']['play_addr']['width'],
-                'height': res['aweme_details'][0]['video']['play_addr']['height'],
+                'height': res['aweme_details'][0]['video']['play_addr'][
+                    'height'],
                 'duration': res['aweme_details'][0]['video']['duration']
             }
         except:
@@ -48,7 +53,9 @@ class ttapi:
                 'title': res['aweme_details'][0]['music']['title'],
                 'author': res['aweme_details'][0]['music']['author'],
                 'duration': res['aweme_details'][0]['music']['duration'],
-                'cover': res['aweme_details'][0]['music']['cover_large']['url_list'][0]
+                'cover':
+                    res['aweme_details'][0]['music']['cover_large']['url_list'][
+                        0]
             }
         except:
             return 'error'
