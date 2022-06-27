@@ -290,7 +290,7 @@ async def podp_check(message: types.Message):
 @dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
 async def adb_check(message: types.Message):
     global adv_text
-    if adv_text != None:
+    if adv_text is not None:
         if adv_text[0] == 'text':
             await message.answer(adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True,
                                  entities=adv_text[4])
@@ -307,7 +307,7 @@ async def adb_check(message: types.Message):
 @dp.message_handler(filters.Text(equals=["Отправить сообщение"], ignore_case=True), state=adv.menu)
 async def adv_go(message: types.Message, state: FSMContext):
     global adv_text
-    if adv_text != None:
+    if adv_text is not None:
         msg = await message.answer('<code>Началась рассылка</code>')
         users = cursor.execute("SELECT id from users").fetchall()
         num = 0
@@ -500,7 +500,7 @@ async def send_ttdown(message: types.Message):
                     file_mode = False
             else:
                 file_mode = False
-            if file_mode == False:
+            if file_mode is False:
                 await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'],
                                            width=playAddr['width'], duration=playAddr['duration'] // 1000,
                                            reply_markup=music, disable_notification=disnotify)
