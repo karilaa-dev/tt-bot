@@ -19,8 +19,8 @@ from truechecker import TrueChecker
 
 from utils import ttapi, tCurrent
 
-with open('locale.json', 'r', encoding='utf-8') as f:
-    locale = jloads(f.read())
+with open('locale.json', 'r', encoding='utf-8') as locale_file:
+    locale = jloads(locale_file.read())
 
 
 def lang_func(usrid: int, usrlang: str, chat_type: str):
@@ -30,14 +30,15 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
                 if usrlang in locale['langs']:
                     return usrlang
                 return 'en'
-            lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {usrid}").fetchone()[0]
+            lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?", [usrid]).fetchone()[0]
         except:
             lang_req = None
         if lang_req is not None:
             lang = lang_req
         else:
             lang = usrlang
-            if lang not in locale['langs']: raise
+            if lang not in locale['langs']:
+                return 'en'
             cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, usrid))
             sqlite.commit()
         return lang
@@ -69,8 +70,8 @@ keyboardback = ReplyKeyboardMarkup(True)
 keyboardback.row('Назад')
 
 inlinelang = InlineKeyboardMarkup()
-for x in locale['langs']:
-    inlinelang.add(InlineKeyboardButton(locale[x]['lang_name'], callback_data=f'lang/{x}'))
+for lang_name in locale['langs']:
+    inlinelang.add(InlineKeyboardButton(locale[lang_name]['lang_name'], callback_data=f'lang/{lang_name}'))
 
 # Загрузка конфига
 config = configparser()
@@ -100,9 +101,9 @@ class podp(StatesGroup):
 
 def sqlite_init():
     try:
-        sqlite = sqlite3.connect('sqlite.db', timeout=20)
+        sql = sqlite3.connect('sqlite.db', timeout=20)
         logging.info('SQLite connected')
-        return sqlite
+        return sql
     except sqlite3.Error as error:
         logging.error('Error while connecting to SQLite', error)
         return exit()
@@ -228,13 +229,13 @@ async def send_reset_ad(message: types.Message):
 
 
 @dp.message_handler(commands=['lang'], chat_type=types.ChatType.PRIVATE, state='*')
-async def send_reset_ad(message: types.Message):
+async def lang_change(message: types.Message):
     if message.chat.type == 'private':
         await message.answer('Select language:', reply_markup=inlinelang)
 
 
 @dp.message_handler(commands=["export"], state='*')
-async def send_stats(message: types.Message):
+async def export_users(message: types.Message):
     if message["from"]["id"] in admin_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
         with open('users.txt', 'w') as f:
@@ -288,7 +289,7 @@ async def podp_check(message: types.Message):
 
 @dp.message_handler(filters.Text(equals=["Проверить сообщение"], ignore_case=True), state=adv.menu)
 async def adb_check(message: types.Message):
-    if adv_text != None:
+    if adv_text is not None:
         if adv_text[0] == 'text':
             await message.answer(adv_text[1], reply_markup=adv_text[2], disable_web_page_preview=True,
                                  entities=adv_text[4])
@@ -296,15 +297,15 @@ async def adb_check(message: types.Message):
             await message.answer_photo(adv_text[3], caption=adv_text[1], reply_markup=adv_text[2],
                                        caption_entities=adv_text[4])
         elif adv_text[0] == 'gif':
-            await message.answer_animation(adv_text[3], message.reply_markup, message.animation.file_id,
+            await message.answer_1animation(adv_text[3], message.reply_markup, message.animation.file_id,
                                            caption_entities=adv_text[4])
     else:
         await message.answer('Вы не добавили сообщение')
 
 
 @dp.message_handler(filters.Text(equals=["Отправить сообщение"], ignore_case=True), state=adv.menu)
-async def adv_go(message: types.Message, state: FSMContext):
-    if adv_text != None:
+async def adv_go(message: types.Message):
+    if adv_text is not None:
         msg = await message.answer('<code>Началась рассылка</code>')
         users = cursor.execute("SELECT id from users").fetchall()
         num = 0
@@ -330,13 +331,13 @@ async def adv_go(message: types.Message, state: FSMContext):
 
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=podp.menu)
-async def podp_change(message: types.Message, state: FSMContext):
+async def podp_change(message: types.Message):
     await message.answer('Введите новое сообщение используя html разметку', reply_markup=keyboardback)
     await podp.add.set()
 
 
 @dp.message_handler(filters.Text(equals=["Изменить сообщение"], ignore_case=True), state=adv.menu)
-async def podp_change(message: types.Message, state: FSMContext):
+async def adv_change(message: types.Message):
     await message.answer('Введите новое сообщение', reply_markup=keyboardback)
     await adv.add.set()
 
@@ -353,7 +354,6 @@ async def podp_change_set(message: types.Message):
 
 @dp.message_handler(content_types=['text', 'photo', 'animation'], state=adv.add)
 async def notify_text(message: types.Message):
-    global adv_text
     if 'photo' in message:
         adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id,
                     message.caption_entities]
@@ -371,8 +371,7 @@ async def inline_lang(callback_query: types.CallbackQuery):
     cht_id = callback_query['message']['chat']['id']
     from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
-    cdata = callback_query.data
-    lang = cdata.lstrip('lang/')
+    lang = callback_query.data.lstrip('lang/')
     try:
         cursor.execute('UPDATE users SET lang = ? WHERE id = ?', (lang, from_id))
         sqlite.commit()
@@ -381,19 +380,20 @@ async def inline_lang(callback_query: types.CallbackQuery):
         pass
     return await callback_query.answer()
 
+
 @dp.message_handler(commands=['mode'], chat_type=types.ChatType.PRIVATE, state='*')
 async def change_mode(message: types.message):
     lang = lang_func(message['from']['id'], message['from']['language_code'], message.chat.type)
     try:
-        file_mode = bool(cursor.execute(f"SELECT file_mode FROM users WHERE id = {message.chat.id}").fetchone()[0])
+        file_mode = bool(cursor.execute("SELECT file_mode FROM users WHERE id = ?", [message.chat.id]).fetchone()[0])
     except:
         file_mode = False
     if file_mode is True:
-        cursor.execute(f"UPDATE users SET file_mode = 0 WHERE id = {message.chat.id}")
+        cursor.execute("UPDATE users SET file_mode = 0 WHERE id = ?", [message.chat.id])
         sqlite.commit()
         await message.answer(locale[lang]['file_mode_off'])
     else:
-        cursor.execute(f"UPDATE users SET file_mode = 1 WHERE id = {message.chat.id}")
+        cursor.execute("UPDATE users SET file_mode = 1 WHERE id = ?", [message.chat.id])
         sqlite.commit()
         await message.answer(locale[lang]['file_mode_on'])
 
@@ -408,13 +408,13 @@ async def inline_music(callback_query: types.CallbackQuery):
     chat_id = callback_query['message']['chat']['id']
     from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
-    cdata = callback_query.data
     lang = lang_func(from_id, callback_query['from']['language_code'], chat_type)
     msg = await bot.send_message(chat_id, '⏳', disable_notification=disnotify)
     try:
         url = callback_query.data.lstrip('id/')
         playAddr = await api.music(url)
-        if playAddr in ['error', 'connerror', 'errorlink']: raise
+        if playAddr in ['error', 'connerror', 'errorlink']:
+            raise
         caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'], playAddr['cover'])
         audio = InputFile.from_url(url=playAddr['url'])
         cover = InputFile.from_url(url=playAddr['cover'])
@@ -461,7 +461,7 @@ async def send_ttdown(message: types.Message):
                 if playAddr == 'errorlink':
                     status = False
                 elif playAddr in ['error', 'connerror']:
-                    raise
+                    status = False
             elif mob_re.match(message.text) is not None:
                 msg = await message.answer('⏳', disable_notification=disnotify)
                 link = mob_re.findall(message.text)[0]
@@ -474,7 +474,7 @@ async def send_ttdown(message: types.Message):
                 if playAddr == 'errorlink':
                     status = False
                 elif playAddr in ['error', 'connerror']:
-                    raise
+                    status = False
             else:
                 if message.chat.type == 'private':
                     await message.answer(locale[lang]['link_error'])
@@ -492,7 +492,7 @@ async def send_ttdown(message: types.Message):
             cover = InputFile.from_url(url=playAddr['cover'])
             if message.chat.type == 'private':
                 try:
-                    file_mode = bool(cursor.execute(f"SELECT file_mode FROM users WHERE id = {message.chat.id}").fetchone()[0])
+                    file_mode = bool(cursor.execute("SELECT file_mode FROM users WHERE id = ?", [message.chat.id]).fetchone()[0])
                 except:
                     file_mode = False
             else:

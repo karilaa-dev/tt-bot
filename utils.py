@@ -20,7 +20,8 @@ class ttapi:
                 res = jloads(await req.content())
             except:
                 return 'connerror'
-            if res['status_code'] != 0: return 'errorlink'
+            if res['status_code'] != 0:
+                return 'errorlink'
             return {
                 'url': res['aweme_details'][0]['video']['play_addr']['url_list'][0],
                 'id': id,
@@ -40,7 +41,8 @@ class ttapi:
                 res = jloads(await req.content())
             except:
                 return 'connerror'
-            if res['status_code'] != 0: return 'errorlink'
+            if res['status_code'] != 0:
+                return 'errorlink'
             return {
                 'url': res['aweme_details'][0]['music']['play_url']['uri'],
                 'title': res['aweme_details'][0]['music']['title'],
