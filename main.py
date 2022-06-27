@@ -29,8 +29,7 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
             if chat_type == 'group':
                 if usrlang in locale['langs']:
                     return usrlang
-                else:
-                    return 'en'
+                return 'en'
             lang_req = cursor.execute(f"SELECT lang FROM users WHERE id = {usrid}").fetchone()[0]
         except:
             lang_req = None
