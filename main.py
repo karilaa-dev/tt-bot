@@ -180,8 +180,7 @@ async def send_start(message: types.Message):
 @dp.message_handler(commands=['msg', 'tell', 'say', 'send'],
                     chat_type=types.ChatType.PRIVATE)
 async def send_hi(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"][
-        "id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         text = message.text.split(' ', 2)
         try:
             await bot.send_message(text[1], text[2])
@@ -214,8 +213,7 @@ async def send_admin(message: types.Message):
 
 @dp.message_handler(commands=['truecheck'])
 async def truecheck(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"][
-        "id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
         with open('users.txt', 'w') as f:
             for x in users:
@@ -268,8 +266,7 @@ async def export_users(message: types.Message):
 
 @dp.message_handler(commands=["stats"])
 async def send_stats(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"][
-        "id"] in second_ids:
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         text = message.text.split(' ')
         if len(text) > 1:
             try:
