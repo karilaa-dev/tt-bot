@@ -116,10 +116,10 @@ async def bot_stats():
     music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
     groups = cursor.execute("SELECT COUNT(id) FROM groups").fetchall()[0][0]
     users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    videos24 = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    music24 = cursor.execute(f"SELECT COUNT(id) FROM music WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    groups24 = cursor.execute(f"SELECT COUNT(id) FROM groups WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
-    videos24u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?", [tnow - 86400]).fetchall()[0][
+    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
+    music24 = cursor.execute("SELECT COUNT(id) FROM music WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
+    groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?", [tnow - 86400]).fetchall()[0][0]
+    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?", [tnow - 86400]).fetchall()[0][
         0]
     return locale['stats'].format(users, music, videos, users24, music24, videos24, videos24u, groups, groups24)
 
@@ -139,7 +139,7 @@ async def send_start(message: types.Message):
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)', [message.chat.id]).fetchone()[0]
     lang = lang_func(message.chat.id, message['from']['language_code'], message.chat.type)
     if req == 0:
-        cursor.execute(f'INSERT INTO users VALUES (?, ?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args, 0))
+        cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)', (message.chat.id, tCurrent(), lang, args, 0))
         sqlite.commit()
         if message.chat.last_name is not None:
             full_name = f'{message.chat.first_name} {message.chat.last_name}'
@@ -428,12 +428,12 @@ async def inline_music(callback_query: types.CallbackQuery):
         await callback_query.message.edit_reply_markup()
         await msg.delete()
         try:
-            cursor.execute(f'INSERT INTO music VALUES (?,?,?)',
+            cursor.execute('INSERT INTO music VALUES (?,?,?)',
                            (callback_query["from"]["id"], tCurrent(), url))
             sqlite.commit()
             logging.info(f'{callback_query["from"]["id"]}: Music - {url}')
         except:
-            logging.error(f'Неудалось записать в бд')
+            logging.error('Неудалось записать в бд')
     except:
         try:
             await msg.delete()
@@ -513,7 +513,7 @@ async def send_ttdown(message: types.Message):
                 sqlite.commit()
                 logging.info(f'{message["from"]["id"]}: {link}')
             except:
-                logging.error(f'Неудалось записать в бд')
+                logging.error('Неудалось записать в бд')
             if message.chat.type == 'private' and podp_text != '':
                 await message.answer(podp_text)
         else:
