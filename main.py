@@ -297,7 +297,7 @@ async def adb_check(message: types.Message):
             await message.answer_photo(adv_text[3], caption=adv_text[1], reply_markup=adv_text[2],
                                        caption_entities=adv_text[4])
         elif adv_text[0] == 'gif':
-            await message.answer_1animation(adv_text[3], message.reply_markup, message.animation.file_id,
+            await message.answer_animation(adv_text[3], message.reply_markup, message.animation.file_id,
                                            caption_entities=adv_text[4])
     else:
         await message.answer('Вы не добавили сообщение')
@@ -354,6 +354,7 @@ async def podp_change_set(message: types.Message):
 
 @dp.message_handler(content_types=['text', 'photo', 'animation'], state=adv.add)
 async def notify_text(message: types.Message):
+    global adv_text
     if 'photo' in message:
         adv_text = ['photo', message['caption'], message.reply_markup, message.photo[-1].file_id,
                     message.caption_entities]
@@ -497,7 +498,7 @@ async def send_ttdown(message: types.Message):
                     file_mode = False
             else:
                 file_mode = False
-            if file_mode == False:
+            if file_mode is False:
                 await message.answer_video(vid, caption=res, thumb=cover, height=playAddr['height'],
                                            width=playAddr['width'], duration=playAddr['duration'] // 1000,
                                            reply_markup=music, disable_notification=disnotify)
@@ -542,8 +543,8 @@ if __name__ == "__main__":
     cursor = sqlite.cursor()
     adv_text = None
 
-    with open('podp.txt', 'r', encoding='utf-8') as f:
-        podp_text = f.read()
+    with open('podp.txt', 'r', encoding='utf-8') as podp_file:
+        podp_text = podp_file.read()
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(stats_log)
