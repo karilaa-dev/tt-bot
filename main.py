@@ -130,7 +130,7 @@ async def bot_stats():
     groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?",
                               [tnow - 86400]).fetchall()[0][0]
     videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?",
-                       [tnow - 86400]).fetchall()[0][0]
+                               [tnow - 86400]).fetchall()[0][0]
     return locale['stats'].format(users, music, videos, users24, music24,
                                   videos24,
                                   videos24u, groups, groups24)
@@ -272,7 +272,7 @@ async def send_stats(message: types.Message):
             try:
                 tnow = tCurrent()
                 total = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
-                                   [text[1].lower()]).fetchone()[0]
+                                       [text[1].lower()]).fetchone()[0]
                 total24h = cursor.execute(
                     'SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
                     (text[1].lower(), tnow - 86400)).fetchone()[0]
@@ -505,104 +505,115 @@ async def inline_music(callback_query: types.CallbackQuery):
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
-    try:
-        lang = lang_func(message['from']['id'],
-                         message['from']['language_code'],
-                         message.chat.type)
-        try:
-            if message.chat.type == 'private':
-                chat_type = 'videos'
-                disnotify = False
-            else:
-                chat_type = 'groups'
-                disnotify = True
-            if web_re.match(message.text) is not None:
-                msg = await message.answer('⏳', disable_notification=disnotify)
-                link = web_re.findall(message.text)[0]
-                vid_id = red_re.findall(message.text)[0]
-                playAddr = await api.video(vid_id)
-                status = True
-                if playAddr == 'errorlink':
-                    status = False
-                elif playAddr in ['error', 'connerror']:
-                    status = False
-            elif mob_re.match(message.text) is not None:
-                msg = await message.answer('⏳', disable_notification=disnotify)
-                link = mob_re.findall(message.text)[0]
-                client = aiosonic.HTTPClient()
-                req = await client.get(message.text)
-                res = await req.text()
-                vid_id = red_re.findall(res)[0]
-                playAddr = await api.video(vid_id)
-                status = True
-                if playAddr == 'errorlink':
-                    status = False
-                elif playAddr in ['error', 'connerror']:
-                    status = False
-            else:
-                if message.chat.type == 'private':
-                    await message.answer(locale[lang]['link_error'])
-                return
-        except:
+    # try:
+    lang = lang_func(message['from']['id'],
+                     message['from']['language_code'],
+                     message.chat.type)
+    # try:
+    if message.chat.type == 'private':
+        chat_type = 'videos'
+        disnotify = False
+    else:
+        chat_type = 'groups'
+        disnotify = True
+    if web_re.match(message.text) is not None:
+        msg = await message.answer('⏳', disable_notification=disnotify)
+        link = web_re.findall(message.text)[0]
+        vid_id = red_re.findall(message.text)[0]
+        playAddr = await api.video(vid_id)
+        status = True
+        error_link = False
+        if playAddr == 'errorlink':
             status = False
-
-        if status is True:
-            button_id = f'id/{playAddr["id"]}'
-            res = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
-            button_text = locale[lang]['get_sound']
-            music = InlineKeyboardMarkup().add(
-                InlineKeyboardButton(button_text, callback_data=button_id))
-            await message.answer_chat_action('upload_video')
-            vid = InputFile.from_url(url=playAddr['url'],
-                                     filename=f'{vid_id}.mp4')
-            cover = InputFile.from_url(url=playAddr['cover'])
-            if message.chat.type == 'private':
-                try:
-                    file_mode = bool(
-                        cursor.execute(
-                            "SELECT file_mode FROM users WHERE id = ?",
-                            [message.chat.id]).fetchone()[0])
-                except:
-                    file_mode = False
-            else:
-                file_mode = False
-            if file_mode is False:
-                await message.answer_video(vid, caption=res, thumb=cover,
-                                           height=playAddr['height'],
-                                           width=playAddr['width'],
-                                           duration=playAddr[
-                                                        'duration'] // 1000,
-                                           reply_markup=music,
-                                           disable_notification=disnotify)
-            else:
-                await message.answer_document(vid, caption=res,
-                                              reply_markup=music,
-                                              disable_content_type_detection=True,
-                                              disable_notification=disnotify)
-            await msg.delete()
-            try:
-                cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?)',
-                               (message["chat"]["id"], tCurrent(), link))
-                sqlite.commit()
-                logging.info(f'{message["from"]["id"]}: {link}')
-            except:
-                logging.error('Неудалось записать в бд')
-            if message.chat.type == 'private' and podp_text != '':
-                await message.answer(podp_text)
-        else:
-            if message.chat.type == 'private':
-                await msg.edit_text(locale[lang]['link_error'])
-            else:
-                await msg.delete()
-            return
-    except:
-        try:
-            await msg.delete()
-        except:
-            pass
+            error_link = True
+        elif playAddr in ['error', 'connerror']:
+            status = False
+    elif mob_re.match(message.text) is not None:
+        msg = await message.answer('⏳', disable_notification=disnotify)
+        link = mob_re.findall(message.text)[0]
+        client = aiosonic.HTTPClient()
+        req = await client.get(link)
+        res = await req.text()
+        vid_id = red_re.findall(res)[0]
+        playAddr = await api.video(vid_id)
+        status = True
+        error_link = False
+        if playAddr == 'errorlink':
+            status = False
+            error_link = True
+        elif playAddr in ['error', 'connerror']:
+            status = False
+    else:
         if message.chat.type == 'private':
-            await message.answer(locale[lang]['error'])
+            await message.answer(locale[lang]['link_error'])
         return
+    # except:
+    #     error_link = True
+    #     status = False
+
+    if status is True:
+        button_id = f'id/{playAddr["id"]}'
+        res = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
+        button_text = locale[lang]['get_sound']
+        music = InlineKeyboardMarkup().add(
+            InlineKeyboardButton(button_text, callback_data=button_id))
+        await message.answer_chat_action('upload_video')
+        vid = InputFile.from_url(url=playAddr['url'],
+                                 filename=f'{vid_id}.mp4')
+        cover = InputFile.from_url(url=playAddr['cover'])
+        if message.chat.type == 'private':
+            try:
+                file_mode = bool(
+                    cursor.execute(
+                        "SELECT file_mode FROM users WHERE id = ?",
+                        [message.chat.id]).fetchone()[0])
+            except:
+                file_mode = False
+        else:
+            file_mode = False
+        if file_mode is False:
+            await message.answer_video(vid, caption=res, thumb=cover,
+                                       height=playAddr['height'],
+                                       width=playAddr['width'],
+                                       duration=playAddr[
+                                                    'duration'] // 1000,
+                                       reply_markup=music,
+                                       disable_notification=disnotify)
+        else:
+            await message.answer_document(vid, caption=res,
+                                          reply_markup=music,
+                                          disable_content_type_detection=True,
+                                          disable_notification=disnotify)
+        await msg.delete()
+        try:
+            cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?)',
+                           (message["chat"]["id"], tCurrent(), link))
+            sqlite.commit()
+            logging.info(f'{message["from"]["id"]}: {link}')
+        except:
+            logging.error('Неудалось записать в бд')
+        if message.chat.type == 'private' and podp_text != '':
+            await message.answer(podp_text)
+    else:
+        if message.chat.type == 'private':
+            if error_link is True:
+                error_text = locale[lang]['link_error']
+            else:
+                error_text = locale[lang]['error']
+            await msg.edit_text(error_text)
+        else:
+            await msg.delete()
+        return
+
+
+# except:
+#     try:
+#         await msg.delete()
+#     except:
+#         pass
+#     if message.chat.type == 'private':
+#         await message.answer(locale[lang]['error'])
+#     return
 
 
 if __name__ == "__main__":
