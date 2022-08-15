@@ -55,24 +55,24 @@ logging.basicConfig(level=logging.INFO,
                               logging.StreamHandler()])
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
-keyboard = ReplyKeyboardMarkup(True)
-keyboard.row('Сообщение подписи')
-keyboard.row('Глобальное сообщение')
+keyboard = ReplyKeyboardMarkup(True, resize_keyboard=True)
+keyboard.row('📝Сообщение подписи')
+keyboard.row('🌐Глобальное сообщение')
 keyboard.row('Скрыть клавиатуру')
 
-keyboardmenu = ReplyKeyboardMarkup(True)
-keyboardmenu.row('Проверить сообщение')
-keyboardmenu.row('Изменить сообщение')
-keyboardmenu.row('Отправить сообщение')
-keyboardmenu.row('Назад')
+keyboardmenu = ReplyKeyboardMarkup(True, resize_keyboard=True)
+keyboardmenu.row('👁‍🗨Проверить сообщение')
+keyboardmenu.row('✏Изменить сообщение')
+keyboardmenu.row('📢Отправить сообщение')
+keyboardmenu.row('↩Назад')
 
-keyboardmenupodp = ReplyKeyboardMarkup(True)
-keyboardmenupodp.row('Проверить сообщение')
-keyboardmenupodp.row('Изменить сообщение')
-keyboardmenupodp.row('Назад')
+keyboardmenupodp = ReplyKeyboardMarkup(True, resize_keyboard=True)
+keyboardmenupodp.row('👁‍🗨Проверить сообщение')
+keyboardmenupodp.row('✏Изменить сообщение')
+keyboardmenupodp.row('↩Назад')
 
-keyboardback = ReplyKeyboardMarkup(True)
-keyboardback.row('Назад')
+keyboardback = ReplyKeyboardMarkup(True, resize_keyboard=True)
+keyboardback.row('↩Назад')
 
 inlinelang = InlineKeyboardMarkup()
 for lang_name in locale['langs']:
@@ -189,7 +189,7 @@ async def send_hi(message: types.Message):
             await message.answer('ops')
 
 
-@dp.message_handler(filters.Text(equals=["назад"], ignore_case=True), state='*')
+@dp.message_handler(filters.Text(equals=["↩назад", "назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
 async def cancel(message: types.Message, state: FSMContext):
     if message["from"]["id"] in admin_ids:
@@ -286,23 +286,23 @@ async def send_stats(message: types.Message):
 
 
 @dp.message_handler(
-    filters.Text(equals=["Сообщение подписи"], ignore_case=True))
+    filters.Text(equals=["📝Сообщение подписи"], ignore_case=True))
 async def podp_menu(message: types.Message):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Сообщение подписи', reply_markup=keyboardmenupodp)
+        await message.answer('📝Сообщение подписи', reply_markup=keyboardmenupodp)
         await podp.menu.set()
 
 
 @dp.message_handler(
-    filters.Text(equals=["Глобальное сообщение"], ignore_case=True))
+    filters.Text(equals=["🌐Глобальное сообщение"], ignore_case=True))
 async def adv_menu(message: types.Message):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Глобальное сообщение', reply_markup=keyboardmenu)
+        await message.answer('🌐Глобальное сообщение', reply_markup=keyboardmenu)
         await adv.menu.set()
 
 
 @dp.message_handler(
-    filters.Text(equals=["Проверить сообщение"], ignore_case=True),
+    filters.Text(equals=["👁‍🗨Проверить сообщение"], ignore_case=True),
     state=podp.menu)
 async def podp_check(message: types.Message):
     with open('podp.txt', 'r', encoding='utf-8') as f:
@@ -315,7 +315,7 @@ async def podp_check(message: types.Message):
 
 
 @dp.message_handler(
-    filters.Text(equals=["Проверить сообщение"], ignore_case=True),
+    filters.Text(equals=["👁‍🗨Проверить сообщение"], ignore_case=True),
     state=adv.menu)
 async def adb_check(message: types.Message):
     if adv_text is not None:
@@ -336,7 +336,7 @@ async def adb_check(message: types.Message):
 
 
 @dp.message_handler(
-    filters.Text(equals=["Отправить сообщение"], ignore_case=True),
+    filters.Text(equals=["📢Отправить сообщение"], ignore_case=True),
     state=adv.menu)
 async def adv_go(message: types.Message):
     if adv_text is not None:
@@ -362,7 +362,7 @@ async def adv_go(message: types.Message):
                 num += 1
             except:
                 pass
-            sleep(0.1)
+            await sleep(0.1)
         await msg.delete()
         await message.answer(f'Сообщение пришло <b>{num}</b> пользователям')
     else:
@@ -370,7 +370,7 @@ async def adv_go(message: types.Message):
 
 
 @dp.message_handler(
-    filters.Text(equals=["Изменить сообщение"], ignore_case=True),
+    filters.Text(equals=["✏Изменить сообщение"], ignore_case=True),
     state=podp.menu)
 async def podp_change(message: types.Message):
     await message.answer('Введите новое сообщение используя html разметку',
@@ -379,7 +379,7 @@ async def podp_change(message: types.Message):
 
 
 @dp.message_handler(
-    filters.Text(equals=["Изменить сообщение"], ignore_case=True),
+    filters.Text(equals=["✏Изменить сообщение"], ignore_case=True),
     state=adv.menu)
 async def adv_change(message: types.Message):
     await message.answer('Введите новое сообщение', reply_markup=keyboardback)
