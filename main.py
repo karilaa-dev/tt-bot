@@ -324,13 +324,20 @@ async def adb_check(message: types.Message):
                                  disable_web_page_preview=True,
                                  entities=adv_text[4])
         elif adv_text[0] == 'photo':
-            await message.answer_photo(adv_text[3], caption=adv_text[1],
+            await message.answer_photo(adv_text[3],
+                                       caption=adv_text[1],
                                        reply_markup=adv_text[2],
                                        caption_entities=adv_text[4])
         elif adv_text[0] == 'gif':
-            await message.answer_animation(adv_text[3], message.reply_markup,
-                                           message.animation.file_id,
+            await message.answer_animation(adv_text[3],
+                                           caption=adv_text[1],
+                                           reply_markup=adv_text[2],
                                            caption_entities=adv_text[4])
+        elif adv_text[0] == 'video':
+            await message.answer_video(adv_text[3],
+                                       caption=adv_text[1],
+                                       reply_markup=adv_text[2],
+                                       caption_entities=adv_text[4])
     else:
         await message.answer('Вы не добавили сообщение')
 
@@ -351,7 +358,8 @@ async def adv_go(message: types.Message):
                                            disable_web_page_preview=True,
                                            entities=adv_text[4])
                 elif adv_text[0] == 'photo':
-                    await bot.send_photo(x[0], adv_text[3], caption=adv_text[1],
+                    await bot.send_photo(x[0], adv_text[3],
+                                         caption=adv_text[1],
                                          reply_markup=adv_text[2],
                                          caption_entities=adv_text[4])
                 elif adv_text[0] == 'gif':
@@ -359,6 +367,11 @@ async def adv_go(message: types.Message):
                                              caption=adv_text[1],
                                              reply_markup=adv_text[2],
                                              caption_entities=adv_text[4])
+                elif adv_text[0] == 'video':
+                    await bot.send_video(x[0], adv_text[3],
+                                         caption=adv_text[1],
+                                         reply_markup=adv_text[2],
+                                         caption_entities=adv_text[4])
                 num += 1
             except:
                 pass
@@ -397,7 +410,7 @@ async def podp_change_set(message: types.Message):
     await podp.menu.set()
 
 
-@dp.message_handler(content_types=['text', 'photo', 'animation'], state=adv.add)
+@dp.message_handler(content_types=['text', 'photo', 'animation', 'video'], state=adv.add)
 async def notify_text(message: types.Message):
     global adv_text
     if 'photo' in message:
@@ -407,6 +420,10 @@ async def notify_text(message: types.Message):
     elif 'animation' in message:
         adv_text = ['gif', message['caption'], message.reply_markup,
                     message.animation.file_id,
+                    message.caption_entities]
+    elif 'video' in message:
+        adv_text = ['video', message['caption'], message.reply_markup,
+                    message.video.file_id,
                     message.caption_entities]
     else:
         adv_text = ['text', message['text'], message.reply_markup, None,
