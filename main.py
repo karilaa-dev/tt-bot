@@ -13,7 +13,7 @@ from aiogram.dispatcher import FSMContext, filters
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, InlineKeyboardButton, \
     InlineKeyboardMarkup, InputFile, \
-    ReplyKeyboardRemove
+    ReplyKeyboardRemove, InputMediaVideo, InputMediaDocument
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from simplejson import loads as jloads
 from truechecker import TrueChecker
@@ -534,7 +534,7 @@ async def send_ttdown(message: types.Message):
                 chat_type = 'groups'
                 disnotify = True
             if web_re.match(message.text) is not None:
-                msg = await message.answer('⏳', disable_notification=disnotify)
+                # msg = await message.answer('⏳', disable_notification=disnotify)
                 link = web_re.findall(message.text)[0]
                 vid_id = red_re.findall(message.text)[0]
                 playAddr = await api.video(vid_id)
@@ -546,7 +546,7 @@ async def send_ttdown(message: types.Message):
                 elif playAddr in ['error', 'connerror']:
                     status = False
             elif mob_re.match(message.text) is not None:
-                msg = await message.answer('⏳', disable_notification=disnotify)
+                # msg = await message.answer('⏳', disable_notification=disnotify)
                 link = mob_re.findall(message.text)[0]
                 client = aiosonic.HTTPClient()
                 req = await client.get(link)
@@ -569,15 +569,16 @@ async def send_ttdown(message: types.Message):
             status = False
 
         if status is True:
+            cover = InputFile.from_url(url=playAddr['cover'])
+            msg = await message.answer_photo(cover, locale[lang]['downloading'], disable_notification=disnotify)
             button_id = f'id/{playAddr["id"]}'
             res = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
             button_text = locale[lang]['get_sound']
             music = InlineKeyboardMarkup().add(
                 InlineKeyboardButton(button_text, callback_data=button_id))
-            await message.answer_chat_action('upload_video')
             vid = InputFile.from_url(url=playAddr['url'],
                                      filename=f'{vid_id}.mp4')
-            cover = InputFile.from_url(url=playAddr['cover'])
+            # cover = InputFile.from_url(url=playAddr['cover'])
             if message.chat.type == 'private':
                 try:
                     file_mode = bool(
@@ -589,19 +590,16 @@ async def send_ttdown(message: types.Message):
             else:
                 file_mode = False
             if file_mode is False:
-                await message.answer_video(vid, caption=res, thumb=cover,
-                                           height=playAddr['height'],
-                                           width=playAddr['width'],
-                                           duration=playAddr[
-                                                        'duration'] // 1000,
-                                           reply_markup=music,
-                                           disable_notification=disnotify)
+                media = InputMediaVideo(media=vid, caption=res, thumb=cover,
+                                        height=playAddr['height'],
+                                        width=playAddr['width'],
+                                        duration=playAddr['duration'] // 1000)
+                await msg.edit_media(media=media, reply_markup=music)
+
             else:
-                await message.answer_document(vid, caption=res,
-                                              reply_markup=music,
-                                              disable_content_type_detection=True,
-                                              disable_notification=disnotify)
-            await msg.delete()
+                media = InputMediaDocument(media=vid, caption=res,
+                                           disable_content_type_detection=True)
+                await msg.edit_media(media=media, reply_markup=music)
             try:
                 cursor.execute(f'INSERT INTO {chat_type} VALUES (?,?,?)',
                                (message["chat"]["id"], tCurrent(), link))
@@ -617,9 +615,7 @@ async def send_ttdown(message: types.Message):
                     error_text = locale[lang]['link_error']
                 else:
                     error_text = locale[lang]['error']
-                await msg.edit_text(error_text)
-            else:
-                await msg.delete()
+                await message.answer(error_text)
             return
 
 
