@@ -375,7 +375,7 @@ async def adv_go(message: types.Message):
                 num += 1
             except:
                 pass
-            await sleep(0.1)
+            await sleep(0.05)
         await msg.delete()
         await message.answer(f'Сообщение пришло <b>{num}</b> пользователям')
     else:
@@ -534,7 +534,6 @@ async def send_ttdown(message: types.Message):
                 chat_type = 'groups'
                 disnotify = True
             if web_re.match(message.text) is not None:
-                # msg = await message.answer('⏳', disable_notification=disnotify)
                 link = web_re.findall(message.text)[0]
                 vid_id = red_re.findall(message.text)[0]
                 playAddr = await api.video(vid_id)
@@ -546,7 +545,6 @@ async def send_ttdown(message: types.Message):
                 elif playAddr in ['error', 'connerror']:
                     status = False
             elif mob_re.match(message.text) is not None:
-                # msg = await message.answer('⏳', disable_notification=disnotify)
                 link = mob_re.findall(message.text)[0]
                 client = aiosonic.HTTPClient()
                 req = await client.get(link)
@@ -578,7 +576,6 @@ async def send_ttdown(message: types.Message):
                 InlineKeyboardButton(button_text, callback_data=button_id))
             vid = InputFile.from_url(url=playAddr['url'],
                                      filename=f'{vid_id}.mp4')
-            # cover = InputFile.from_url(url=playAddr['cover'])
             if message.chat.type == 'private':
                 try:
                     file_mode = bool(

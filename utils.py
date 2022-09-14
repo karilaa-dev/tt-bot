@@ -10,11 +10,15 @@ def tCurrent():
 class ttapi:
     def __init__(self):
         self.url = "http://api.tiktokv.com/aweme/v1/aweme/detail/?aweme_id={}"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Linux; Android 9; ASUS_X00TD; Flow) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/359.0.0.288 Mobile Safari/537.36"}
 
     async def video(self, id: int):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.url.format(id)) as response:
+                async with session.get(self.url.format(id), headers=self.headers) as response:
                     try:
                         res = await response.json()
                     except:
@@ -40,7 +44,7 @@ class ttapi:
     async def music(self, id: int):
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.url.format(id)) as response:
+                async with session.get(self.url.format(id), headers=self.headers) as response:
                     try:
                         res = await response.json()
                     except:
