@@ -9,7 +9,7 @@ def tCurrent():
 
 class ttapi:
     def __init__(self):
-        self.url = "https://api-h2.tiktokv.com/aweme/v1/feed/?version_code=2613&aweme_id=7142788943921122566&device_type=Pixel%204"
+        self.url = "https://api-h2.tiktokv.com/aweme/v1/feed/?version_code=2613&aweme_id={}&device_type=Pixel%204"
         self.headers = {
             "user-agent": "Mozilla/5.0 (Linux; Android 8.0; Pixel 2 Build/OPD3.170816.012)"
             "AppleWebKit/537.36 (KHTML, like Gecko)"
