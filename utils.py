@@ -9,11 +9,11 @@ def tCurrent():
 
 class ttapi:
     def __init__(self):
-        self.url = "http://api.tiktokv.com/aweme/v1/aweme/detail/?aweme_id={}"
+        self.url = "https://api-h2.tiktokv.com/aweme/v1/feed/?version_code=2613&aweme_id=7142788943921122566&device_type=Pixel%204"
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Linux; Android 9; ASUS_X00TD; Flow) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) "
-                          "Chrome/359.0.0.288 Mobile Safari/537.36"}
+            "user-agent": "Mozilla/5.0 (Linux; Android 8.0; Pixel 2 Build/OPD3.170816.012)"
+            "AppleWebKit/537.36 (KHTML, like Gecko)"
+            "Chrome/87.0.4280.88 Mobile Safari/537.36 Edg/87.0.664.66"}
 
     async def video(self, id: int):
         try:
@@ -27,8 +27,7 @@ class ttapi:
                 return 'errorlink'
             return {
                 'url':
-                    res['aweme_detail']['video']['play_addr']['url_list'][
-                        0],
+                    res["aweme_list"][0]["video"]["play_addr"]["url_list"][2],
                 'id': id,
                 'cover': res['aweme_detail']['video']['origin_cover'][
                     'url_list'][
