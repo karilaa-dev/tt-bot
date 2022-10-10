@@ -51,8 +51,10 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
-                    handlers=[logging.FileHandler("bot.log"),
-                              logging.StreamHandler()])
+                    handlers=[
+                                #logging.FileHandler("bot.log"),
+                                logging.StreamHandler()
+                            ])
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
 keyboard = ReplyKeyboardMarkup(True, resize_keyboard=True)
