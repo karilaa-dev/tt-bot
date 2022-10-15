@@ -158,10 +158,6 @@ async def send_start(message: types.Message):
         cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)',
                        (message.chat.id, tCurrent(), lang, args, 0))
         sqlite.commit()
-        if message.chat.last_name is not None:
-            full_name = f'{message.chat.first_name} {message.chat.last_name}'
-        else:
-            full_name = f'{message.chat.first_name}'
         if message.chat.username is not None:
             username = f'@{message.chat.username}\n'
         else:
@@ -170,11 +166,11 @@ async def send_start(message: types.Message):
             deeplink = ''
         else:
             deeplink = args
-        text = f'<b>{full_name}</b>\n{username}<code>{message.chat.id}</code>\n<i>{deeplink}</i>'
+        text = f'<b><a href="tg://user?id={message.chat.id}">{message.chat.full_name}</a></b>\n{username}<code>{message.chat.id}</code>\n<i>{deeplink}</i>'
         await bot.send_message(logs, text)
         username = username.replace('\n', ' ')
         logging.info(
-            f'{full_name} {username}{message.chat.id} {deeplink}')
+            f'{message.chat.full_name} {username}{message.chat.id} {deeplink}')
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
 
