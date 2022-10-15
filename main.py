@@ -5,7 +5,6 @@ from asyncio import sleep
 from configparser import ConfigParser as configparser
 from time import ctime
 
-import aiosonic
 from aiogram import Bot, Dispatcher, executor, types
 from aiogram.bot.api import TelegramAPIServer
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -18,10 +17,11 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from simplejson import loads as jloads
 from truechecker import TrueChecker
 
-from utils import ttapi, tCurrent
+from utils import ttapi, tCurrent, AsyncSession
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = jloads(locale_file.read())
+aSession = AsyncSession()
 
 
 def lang_func(usrid: int, usrlang: str, chat_type: str):
@@ -52,9 +52,9 @@ def lang_func(usrid: int, usrlang: str, chat_type: str):
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[
-                                #logging.FileHandler("bot.log"),
-                                logging.StreamHandler()
-                            ])
+                        # logging.FileHandler("bot.log"),
+                        logging.StreamHandler()
+                    ])
 logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 
 keyboard = ReplyKeyboardMarkup(True, resize_keyboard=True)
@@ -524,6 +524,7 @@ async def send_ttdown(message: types.Message):
         lang = lang_func(message['from']['id'],
                          message['from']['language_code'],
                          message.chat.type)
+        await message.answer_chat_action('upload_video')
         try:
             if message.chat.type == 'private':
                 chat_type = 'videos'
@@ -544,9 +545,12 @@ async def send_ttdown(message: types.Message):
                     status = False
             elif mob_re.match(message.text) is not None:
                 link = mob_re.findall(message.text)[0]
-                client = aiosonic.HTTPClient()
-                req = await client.get(link)
-                res = await req.text()
+                # client = aiosonic.HTTPClient()
+                # req = await client.get(link)
+                # res = await req.text()
+                session = await aSession.get_session()
+                req = await session.request("get", link)
+                res = str(req.url)
                 vid_id = red_re.findall(res)[0]
                 playAddr = await api.video(vid_id)
                 status = True
