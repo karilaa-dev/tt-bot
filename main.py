@@ -493,7 +493,7 @@ async def inline_music(callback_query: types.CallbackQuery):
                                                      playAddr['cover'])
         audio = InputFile.from_url(url=playAddr['url'])
         cover = InputFile.from_url(url=playAddr['cover'])
-        await bot.send_chat_action(chat_id, 'upload_audio')
+        await bot.send_chat_action(chat_id, 'upload_document')
         await bot.send_audio(chat_id, audio, reply_to_message_id=msg_id,
                              caption=caption, title=playAddr['title'],
                              performer=playAddr['author'],
@@ -524,7 +524,6 @@ async def send_ttdown(message: types.Message):
         lang = lang_func(message['from']['id'],
                          message['from']['language_code'],
                          message.chat.type)
-        await message.answer_chat_action('upload_video')
         try:
             if message.chat.type == 'private':
                 chat_type = 'videos'
@@ -533,6 +532,7 @@ async def send_ttdown(message: types.Message):
                 chat_type = 'groups'
                 disnotify = True
             if web_re.match(message.text) is not None:
+                await message.answer_chat_action('upload_video')
                 link = web_re.findall(message.text)[0]
                 vid_id = red_re.findall(message.text)[0]
                 playAddr = await api.video(vid_id)
@@ -544,6 +544,7 @@ async def send_ttdown(message: types.Message):
                 elif playAddr in ['error', 'connerror']:
                     status = False
             elif mob_re.match(message.text) is not None:
+                await message.answer_chat_action('upload_video')
                 link = mob_re.findall(message.text)[0]
                 # client = aiosonic.HTTPClient()
                 # req = await client.get(link)

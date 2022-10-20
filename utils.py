@@ -46,8 +46,12 @@ class ttapi:
 
     async def music(self, id: int):
         try:
+            openudid = ''.join(sample('0123456789abcdef', 16))
+            uuid = ''.join(sample('01234567890123456', 16))
+            ts = int(time())
             async with aiohttp.ClientSession() as session:
-                async with session.get(self.url.format(id), headers=self.headers) as response:
+                async with session.get(self.url.format(id, openudid, uuid, ts * 1000, ts),
+                                       headers=self.headers) as response:
                     try:
                         res = await response.json()
                     except:
