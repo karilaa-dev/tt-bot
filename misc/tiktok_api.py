@@ -1,12 +1,6 @@
-from random import sample
-from time import time
 from typing import Optional
 
 import aiohttp
-
-
-def tCurrent():
-    return int(time())
 
 
 class ttapi:
@@ -18,7 +12,8 @@ class ttapi:
 
     async def video(self, id: int):
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(force_close=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(self.url.format(id), headers=self.headers) as response:
                     try:
                         res = await response.json()
@@ -43,7 +38,8 @@ class ttapi:
 
     async def music(self, id: int):
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(force_close=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.get(self.url.format(id), headers=self.headers) as response:
                     try:
                         res = await response.json()
