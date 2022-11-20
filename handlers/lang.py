@@ -1,8 +1,8 @@
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from data.loader import dp, cursor, sqlite, bot
 from data.config import locale
+from data.loader import dp, cursor, sqlite, bot
 
 lang_keyboard = InlineKeyboardMarkup()
 for lang_name in locale['langs']:

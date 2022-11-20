@@ -8,7 +8,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from data.config import bot_token, local_server
 from misc.tiktok_api import AsyncSession, ttapi
 
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[
                         # logging.FileHandler("bot.log"),

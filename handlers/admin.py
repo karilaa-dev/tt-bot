@@ -2,8 +2,9 @@ from asyncio import sleep
 
 from aiogram import types
 from truechecker import TrueChecker
-from data.loader import bot, cursor, dp
+
 from data.config import admin_ids, second_ids, bot_token
+from data.loader import bot, cursor, dp
 from misc.utils import tCurrent
 
 

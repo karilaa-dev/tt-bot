@@ -1,7 +1,7 @@
 from time import time, ctime
 
-from data.loader import cursor, sqlite, bot
 from data.config import upd_chat, upd_id, locale
+from data.loader import cursor, sqlite, bot
 
 
 def tCurrent():

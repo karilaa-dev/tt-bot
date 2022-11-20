@@ -5,8 +5,8 @@ from aiogram.dispatcher import filters, FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove
 
-from data.loader import dp, cursor, bot
 from data.config import admin_ids
+from data.loader import dp, cursor, bot
 
 adv_text = None
 

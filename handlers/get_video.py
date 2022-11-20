@@ -4,10 +4,9 @@ import re
 from aiogram import types
 from aiogram.types import InputFile, InputMediaVideo, InputMediaDocument, InlineKeyboardMarkup, InlineKeyboardButton
 
-from data.loader import dp, api, cursor, sqlite, aSession
 from data.config import locale
+from data.loader import dp, api, cursor, sqlite, aSession
 from misc.utils import lang_func
-
 
 web_regex = re.compile(r'https?:\/\/www.tiktok.com\/@[^\s]+?\/video\/[0-9]+')
 mus_regex = re.compile(r'https?://www.tiktok.com/music/[^\s]+')
@@ -110,7 +109,6 @@ async def send_ttdown(message: types.Message):
                     error_text = locale[lang]['error']
                 await message.answer(error_text)
             return
-
 
     except:
         try:

@@ -2,8 +2,8 @@ import logging
 
 from aiogram import types
 
-from data.loader import dp, bot, cursor, sqlite
 from data.config import logs, locale
+from data.loader import dp, bot, cursor, sqlite
 from misc.utils import lang_func, tCurrent
 
 
