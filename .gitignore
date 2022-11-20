@@ -1,10 +1,10 @@
 #folders
-maybe/
-logs/
 venv/
+
 #files
 config.ini
-#extensions
 sqlite.db
+
+#extensions
 /*test*.py
 /*.log
