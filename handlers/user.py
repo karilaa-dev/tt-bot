@@ -27,8 +27,7 @@ async def send_start(message: types.Message):
                f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
         await bot.send_message(logs, text)
         username = username.replace('\n', ' ')
-        logging.info(
-            f'{message.chat.full_name} {username}{chat_id} {args or ""}')
+        logging.info(f'{message.chat.full_name} {username}{chat_id} {args or ""}')
     await message.answer(locale[lang]['start'])
     await message.answer(locale[lang]['lang_start'])
 

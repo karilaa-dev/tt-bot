@@ -1,13 +1,15 @@
 from aiogram import executor, Dispatcher
 
+from data.config import logs
 from data.loader import scheduler, sqlite
 from handlers import dp
-from misc.utils import stats_log
+from misc.utils import stats_log, backup_dp
 
 
 async def on_startup(dp: Dispatcher):
     scheduler.add_job(stats_log)
     scheduler.add_job(stats_log, "interval", seconds=300)
+    scheduler.add_job(backup_dp, "cron", args=[logs], hour=0)
 
 
 async def on_shutdown(dp: Dispatcher):

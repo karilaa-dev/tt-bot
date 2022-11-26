@@ -1,3 +1,4 @@
+from datetime import datetime
 from time import time, ctime
 
 from data.config import upd_chat, upd_id, locale
@@ -57,3 +58,11 @@ async def stats_log():
     text = await bot_stats()
     text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
     await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
+
+
+async def backup_dp(chat_id: int):
+    try:
+        await bot.send_document(chat_id, open('sqlite.db', 'rb'),
+                                caption=f'💾Backup\n<code>{datetime.utcnow()}</code>')
+    except:
+        pass

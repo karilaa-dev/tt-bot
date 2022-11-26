@@ -5,7 +5,7 @@ from truechecker import TrueChecker
 
 from data.config import admin_ids, second_ids, bot_token
 from data.loader import bot, cursor, dp
-from misc.utils import tCurrent
+from misc.utils import tCurrent, bot_stats, backup_dp
 
 
 @dp.message_handler(commands=['msg', 'tell', 'say', 'send'],
@@ -39,7 +39,7 @@ async def truecheck(message: types.Message):
             await sleep(3)
         username = (await dp.bot.me)['username']
         profile = await checker.get_profile(username)
-        res = f'Пользователи\n - живы: {profile.users.active}\n - остановлены: {profile.users.stopped}\n - удалены: {profile.users.deleted}\n - отсутствуют: {profile.users.not_found}'
+        res = f'Users\n - alive: {profile.users.active}\n - stopped: {profile.users.stopped}\n - deleted: {profile.users.deleted}\n - not found: {profile.users.not_found}'
         await msg.delete()
         await message.answer(res)
         await checker.close()
@@ -53,10 +53,16 @@ async def export_users(message: types.Message):
             for x in users:
                 f.write(str(x[0]) + '\n')
         await message.answer_document(open('users.txt', 'rb'),
-                                      caption='Список пользоватлей бота')
+                                      caption='User list')
 
 
-@dp.message_handler(commands=["stats"])
+@dp.message_handler(commands=["backup"], state='*')
+async def backup(message: types.Message):
+    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+        await backup_dp(message.from_user.id)
+
+
+@dp.message_handler(commands=["stats"], state='*')
 async def send_stats(message: types.Message):
     if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
         text = message.text.split(' ')

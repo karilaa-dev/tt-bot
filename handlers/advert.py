@@ -17,38 +17,37 @@ class AdminMenu(StatesGroup):
 
 
 admin_keyboard = ReplyKeyboardMarkup(True, resize_keyboard=True)
-admin_keyboard.row('👁‍🗨Проверить сообщение')
-admin_keyboard.row('✏Изменить сообщение')
-admin_keyboard.row('📢Отправить сообщение')
-admin_keyboard.row('Скрыть клавиатуру')
+admin_keyboard.row('👁‍🗨Check message')
+admin_keyboard.row('✏Edit message')
+admin_keyboard.row('📢Send message')
+admin_keyboard.row('🔽Hide keyboard')
 
 back_keyboard = ReplyKeyboardMarkup(True, resize_keyboard=True)
-back_keyboard.row('↩Назад')
+back_keyboard.row('↩Return')
 
 
 @dp.message_handler(filters.Text(equals=["↩назад", "назад"], ignore_case=True), state='*')
 @dp.message_handler(commands=["stop", "cancel", "back"], state='*')
 async def cancel(message: types.Message, state: FSMContext):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Вы вернулись назад', reply_markup=admin_keyboard)
+        await message.answer('↩You have returned', reply_markup=admin_keyboard)
         await state.finish()
 
 
 @dp.message_handler(
-    filters.Text(equals=["Скрыть клавиатуру"], ignore_case=True))
+    filters.Text(equals=["🔽Hide keyboard"]))
 async def send_clear_keyb(message: types.Message):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Вы успешно скрыли клавиатуру',
-                             reply_markup=ReplyKeyboardRemove())
+        await message.answer('🔽You successfully hide the keyboard', reply_markup=ReplyKeyboardRemove())
 
 
 @dp.message_handler(commands=['admin'])
 async def send_admin(message: types.Message):
     if message["from"]["id"] in admin_ids:
-        await message.answer('Вы открыли админ меню', reply_markup=admin_keyboard)
+        await message.answer('🤖You opened admin menu', reply_markup=admin_keyboard)
 
 
-@dp.message_handler(filters.Text(equals=["👁‍🗨Проверить сообщение"], ignore_case=True))
+@dp.message_handler(filters.Text(equals=["👁‍🗨Check message"]))
 async def adb_check(message: types.Message):
     if adv_text is not None:
         if adv_text[0] == 'text':
@@ -71,14 +70,14 @@ async def adb_check(message: types.Message):
                                        reply_markup=adv_text[2],
                                        caption_entities=adv_text[4])
     else:
-        await message.answer('Вы не добавили сообщение')
+        await message.answer('⚠️You have not created a message yet')
 
 
 @dp.message_handler(
-    filters.Text(equals=["📢Отправить сообщение"], ignore_case=True))
+    filters.Text(equals=["📢Send message"]))
 async def adv_go(message: types.Message):
     if adv_text is not None:
-        msg = await message.answer('<code>Началась рассылка</code>')
+        msg = await message.answer('<code>Announcement started</code>')
         users = cursor.execute("SELECT id from users").fetchall()
         num = 0
         for x in users:
@@ -108,15 +107,15 @@ async def adv_go(message: types.Message):
                 pass
             await sleep(0.05)
         await msg.delete()
-        await message.answer(f'Сообщение пришло <b>{num}</b> пользователям')
+        await message.answer(f'✅Message received by <b>{num}</b> users')
     else:
-        await message.answer('Вы не добавили сообщение')
+        await message.answer('⚠️You have not created a message yet')
 
 
 @dp.message_handler(
-    filters.Text(equals=["✏Изменить сообщение"], ignore_case=True))
+    filters.Text(equals=["✏Edit message"]))
 async def adv_change(message: types.Message):
-    await message.answer('Введите новое сообщение', reply_markup=back_keyboard)
+    await message.answer('📝Write new message', reply_markup=back_keyboard)
     await AdminMenu.add.set()
 
 
@@ -138,5 +137,5 @@ async def notify_text(message: types.Message, state: FSMContext):
     else:
         adv_text = ['text', message['text'], message.reply_markup, None,
                     message.entities]
-    await message.answer('Сообщение добавлено', reply_markup=admin_keyboard)
+    await message.answer('✅Message added', reply_markup=admin_keyboard)
     await state.finish()

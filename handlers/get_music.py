@@ -26,7 +26,7 @@ async def inline_music(callback_query: types.CallbackQuery):
     try:
         url = callback_query.data.lstrip('id/')
         playAddr = await api.music(url)
-        if playAddr in ['error', 'connerror', 'errorlink']:
+        if playAddr is None:
             raise
         caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
                                                      playAddr['cover'])
@@ -46,12 +46,12 @@ async def inline_music(callback_query: types.CallbackQuery):
             sqlite.commit()
             logging.info(f'{callback_query["from"]["id"]}: Music - {url}')
         except:
-            logging.error('Неудалось записать в бд')
+            logging.error('Cant write into database')
     except:
         try:
             await msg.delete()
         except:
             pass
-        if chat_type == 'private':
+        if not group_chat:
             await bot.send_message(chat_id, locale[lang]['error'])
     return await callback_query.answer()
