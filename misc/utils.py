@@ -63,6 +63,6 @@ async def stats_log():
 async def backup_dp(chat_id: int):
     try:
         await bot.send_document(chat_id, open('sqlite.db', 'rb'),
-                                caption=f'💾Backup\n<code>{datetime.utcnow()}</code>')
+                                caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
