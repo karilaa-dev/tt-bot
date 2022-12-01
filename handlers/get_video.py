@@ -18,10 +18,9 @@ async def send_ttdown(message: types.Message):
         lang = lang_func(message['from']['id'],
                          message['from']['language_code'],
                          group_chat)
-        await message.answer_chat_action('upload_video')
         video_id, link = await api.get_id(message.text)
         if video_id is None:
-            if not group_chat == 'private':
+            if not group_chat:
                 await message.answer(locale[lang]['link_error'])
             return
         playAddr = await api.video(video_id)
@@ -29,7 +28,7 @@ async def send_ttdown(message: types.Message):
             if not group_chat:
                 await message.answer(locale[lang]['error'])
             return
-
+        await message.answer_chat_action('upload_video')
         cover = InputFile.from_url(url=playAddr['cover'])
         temp_msg = await message.answer_photo(cover, locale[lang]['downloading'], disable_notification=group_chat)
         result_caption = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
@@ -38,7 +37,7 @@ async def send_ttdown(message: types.Message):
 
         vid = InputFile.from_url(url=playAddr['url'],
                                  filename=f'{video_id}.mp4')
-        if not group_chat == 'private':
+        if not group_chat:
             file_mode = bool(
                 cursor.execute("SELECT file_mode FROM users WHERE id = ?",
                                (message.chat.id,)).fetchone()[0])
