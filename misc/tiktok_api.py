@@ -45,7 +45,7 @@ class ttapi:
                     res = await response.json()
                 except:
                     return None
-        if res['status_code'] != 0:
+        if res is None or res['status_code'] != 0:
             return None
         return res
 
