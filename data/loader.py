@@ -6,7 +6,6 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from data.config import bot_token, local_server
-from misc.tiktok_api import ttapi
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[
@@ -21,6 +20,5 @@ dp = Dispatcher(bot, storage=MemoryStorage())
 
 scheduler = AsyncIOScheduler(timezone="Europe/Kiev")
 
-api = ttapi()
 sqlite = sqlite3.connect('sqlite.db')
 cursor = sqlite.cursor()

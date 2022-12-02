@@ -4,9 +4,11 @@ from aiogram import types
 from aiogram.types import InputFile
 
 from data.config import locale
-from data.loader import dp, bot, cursor, sqlite, api
+from data.loader import dp, bot, cursor, sqlite
+from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent
 
+api = ttapi()
 
 @dp.callback_query_handler(
     lambda call: call.data.startswith('id') or call.data.startswith('music'),

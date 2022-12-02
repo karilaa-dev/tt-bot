@@ -4,21 +4,24 @@ from aiogram import types
 from aiogram.types import InputFile, InputMediaVideo, InputMediaDocument, InlineKeyboardMarkup, InlineKeyboardButton
 
 from data.config import locale
-from data.loader import dp, api, cursor, sqlite
+from data.loader import dp, cursor, sqlite
+from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent
 
+api = ttapi()
 
 @dp.message_handler()
 async def send_ttdown(message: types.Message):
+    chat_id = message.chat.id
     if message.chat.type == 'private':
         group_chat = False
     else:
         group_chat = True
     try:
-        lang = lang_func(message['from']['id'],
+        lang = lang_func(chat_id,
                          message['from']['language_code'],
                          group_chat)
-        video_id, link = await api.get_id(message.text)
+        video_id, link = await api.get_id(message.text, chat_id)
         if video_id is None:
             if not group_chat:
                 await message.answer(locale[lang]['link_error'])
@@ -28,7 +31,6 @@ async def send_ttdown(message: types.Message):
             if not group_chat:
                 await message.answer(locale[lang]['error'])
             return
-        await message.answer_chat_action('upload_video')
         cover = InputFile.from_url(url=playAddr['cover'])
         temp_msg = await message.answer_photo(cover, locale[lang]['downloading'], disable_notification=group_chat)
         result_caption = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
@@ -40,7 +42,7 @@ async def send_ttdown(message: types.Message):
         if not group_chat:
             file_mode = bool(
                 cursor.execute("SELECT file_mode FROM users WHERE id = ?",
-                               (message.chat.id,)).fetchone()[0])
+                               (chat_id,)).fetchone()[0])
         else:
             file_mode = False
         if file_mode is False:
@@ -58,9 +60,9 @@ async def send_ttdown(message: types.Message):
             else:
                 log_table_name = 'videos'
             cursor.execute(f'INSERT INTO {log_table_name} VALUES (?,?,?)',
-                           (message["chat"]["id"], tCurrent(), link))
+                           (message.chat.id, tCurrent(), link))
             sqlite.commit()
-            logging.info(f'{message["from"]["id"]}: {link}')
+            logging.info(f'{message.chat.id}: {link}')
         except:
             logging.error('Cant write into database')
 

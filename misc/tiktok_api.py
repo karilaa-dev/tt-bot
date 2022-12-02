@@ -2,12 +2,14 @@ import re
 
 import aiohttp
 
+from data.loader import bot
+
 
 class ttapi:
     def __init__(self):
-        self.url = 'https://api-h2.tiktokv.com/aweme/v1/feed/?aweme_id={0}&version_code=2613&aid=1180'
+        self.url = 'https://api.tiktokv.com/aweme/v1/feed/?aweme_id={0}&iid=6165993682518218889&device_id=6858675245898655468&aid=1180'
         self.headers = {
-            'User-Agent': 'com.ss.android.ugc.trill/2613 (Linux; U; Android 10; en_US; Pixel 4; Build/QQ3A.200805.001; Cronet/58.0.2991.0)'
+            'User-Agent': 'com.ss.android.ugc.trill/494+Mozilla/5.0+(Linux;+Android+12;+2112123G+Build/SKQ1.211006.001;+wv)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Version/4.0+Chrome/107.0.5304.105+Mobile+Safari/537.36'
         }
         self.connector = aiohttp.TCPConnector(force_close=True)
         self.redirect_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+?\/([0-9]+)')
@@ -21,16 +23,20 @@ class ttapi:
         video_id = self.redirect_regex.findall(url)[0]
         return video_id
 
-    async def get_id(self, link: str):
+    async def get_id(self, link: str, chat_id=None):
         web_regex = re.compile(r'https?:\/\/www.tiktok.com\/@[^\s]+?\/video\/[0-9]+')
         mus_regex = re.compile(r'https?://www.tiktok.com/music/[^\s]+')
         mobile_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+')
         redirect_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+?\/([0-9]+)')
         if web_regex.match(link) is not None:
+            if chat_id is not None:
+                await bot.send_chat_action(chat_id, 'upload_video')
             link = web_regex.findall(link)[0]
             video_id = redirect_regex.findall(link)[0]
             return video_id, link
         elif mobile_regex.match(link) is not None:
+            if chat_id is not None:
+                await bot.send_chat_action(chat_id, 'upload_video')
             link = mobile_regex.findall(link)[0]
             video_id = await self.get_id_from_mobile(link)
             return video_id, link
