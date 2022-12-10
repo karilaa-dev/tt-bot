@@ -10,17 +10,18 @@ from misc.utils import lang_func, tCurrent
 
 api = ttapi()
 
+
 @dp.message_handler()
-async def send_ttdown(message: types.Message):
+async def send_tiktok_video(message: types.Message):
     chat_id = message.chat.id
     if message.chat.type == 'private':
         group_chat = False
     else:
         group_chat = True
+    lang = lang_func(chat_id,
+                     message['from']['language_code'],
+                     group_chat)
     try:
-        lang = lang_func(chat_id,
-                         message['from']['language_code'],
-                         group_chat)
         video_id, link = await api.get_id(message.text, chat_id)
         if video_id is None:
             if not group_chat:

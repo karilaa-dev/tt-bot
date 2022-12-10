@@ -10,12 +10,12 @@ from misc.utils import lang_func, tCurrent
 
 api = ttapi()
 
+
 @dp.callback_query_handler(
     lambda call: call.data.startswith('id') or call.data.startswith('music'),
     state='*')
-async def inline_music(callback_query: types.CallbackQuery):
-    chat_type = callback_query.message.chat.type
-    if chat_type == 'private':
+async def send_tiktok_sound(callback_query: types.CallbackQuery):
+    if callback_query.message.chat.type == 'private':
         group_chat = False
     else:
         group_chat = True
@@ -26,8 +26,8 @@ async def inline_music(callback_query: types.CallbackQuery):
                      group_chat)
     msg = await bot.send_message(chat_id, '⏳', disable_notification=group_chat)
     try:
-        url = callback_query.data.lstrip('id/')
-        playAddr = await api.music(url)
+        video_id = callback_query.data.lstrip('id/')
+        playAddr = await api.music(int(video_id))
         if playAddr is None:
             raise
         caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
@@ -44,9 +44,9 @@ async def inline_music(callback_query: types.CallbackQuery):
         await msg.delete()
         try:
             cursor.execute('INSERT INTO music VALUES (?,?,?)',
-                           (callback_query["from"]["id"], tCurrent(), url))
+                           (callback_query["from"]["id"], tCurrent(), video_id))
             sqlite.commit()
-            logging.info(f'{callback_query["from"]["id"]}: Music - {url}')
+            logging.info(f'{callback_query["from"]["id"]}: Music - {video_id}')
         except:
             logging.error('Cant write into database')
     except:

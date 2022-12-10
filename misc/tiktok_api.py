@@ -1,4 +1,5 @@
 import re
+from random import randint
 
 import aiohttp
 
@@ -7,7 +8,7 @@ from data.loader import bot
 
 class ttapi:
     def __init__(self):
-        self.url = 'https://api.tiktokv.com/aweme/v1/feed/?aweme_id={0}&iid=6165993682518218889&device_id=6858675245898655468&aid=1180'
+        self.url = 'https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={0}&iid=61659936825182188891&device_id={1}&aid=1180'
         self.headers = {
             'User-Agent': 'com.ss.android.ugc.trill/494+Mozilla/5.0+(Linux;+Android+12;+2112123G+Build/SKQ1.211006.001;+wv)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Version/4.0+Chrome/107.0.5304.105+Mobile+Safari/537.36'
         }
@@ -46,7 +47,8 @@ class ttapi:
     async def get_video_data(self, video_id: int):
         connector = aiohttp.TCPConnector(force_close=True)
         async with aiohttp.ClientSession(connector=connector) as session:
-            async with session.get(self.url.format(video_id), headers=self.headers) as response:
+            async with session.get(self.url.format(video_id, randint(10 * 10 * 10, 9 * 10 ** 10)),
+                                   headers=self.headers) as response:
                 try:
                     res = await response.json()
                 except:

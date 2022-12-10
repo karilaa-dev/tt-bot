@@ -1,9 +1,9 @@
-from configparser import ConfigParser as configparser
+from configparser import ConfigParser
 
 from aiogram.bot.api import TelegramAPIServer
 from ujson import loads as json_loads
 
-config = configparser()
+config = ConfigParser()
 config.read("config.ini")
 admin_ids = json_loads(config["bot"]["admin_ids"])
 second_ids = json_loads(config["bot"]["second_ids"])

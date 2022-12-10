@@ -68,12 +68,12 @@ async def send_stats(message: types.Message):
         text = message.text.split(' ')
         if len(text) > 1:
             try:
-                tnow = tCurrent()
+                time_now = tCurrent()
                 total = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
                                        [text[1].lower()]).fetchone()[0]
                 total24h = cursor.execute(
                     'SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
-                    (text[1].lower(), tnow - 86400)).fetchone()[0]
+                    (text[1].lower(), time_now - 86400)).fetchone()[0]
                 await message.answer(
                     f'По этой ссылке пришло <b>{total}</b> пользователей\nЗа 24 часа: <b>{total24h}</b>')
             except:

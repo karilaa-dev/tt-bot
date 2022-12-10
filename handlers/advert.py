@@ -36,7 +36,7 @@ async def cancel(message: types.Message, state: FSMContext):
 
 @dp.message_handler(
     filters.Text(equals=["🔽Hide keyboard"]))
-async def send_clear_keyb(message: types.Message):
+async def send_clear_keyboard(message: types.Message):
     if message["from"]["id"] in admin_ids:
         await message.answer('🔽You successfully hide the keyboard', reply_markup=ReplyKeyboardRemove())
 
