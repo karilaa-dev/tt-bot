@@ -6,7 +6,7 @@ from aiogram.types import InputFile, InputMediaVideo, InputMediaDocument, Inline
 from data.config import locale
 from data.loader import dp, cursor, sqlite
 from misc.tiktok_api import ttapi
-from misc.utils import lang_func, tCurrent
+from misc.utils import lang_func, tCurrent, start_manager
 
 api = ttapi()
 
@@ -14,13 +14,15 @@ api = ttapi()
 @dp.message_handler()
 async def send_tiktok_video(message: types.Message):
     chat_id = message.chat.id
+    lang = lang_func(chat_id, message['from']['language_code'])
+    req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
+                         (chat_id,)).fetchone()[0]
+    if req == 0:
+        await start_manager(chat_id, message, lang)
     if message.chat.type == 'private':
         group_chat = False
     else:
         group_chat = True
-    lang = lang_func(chat_id,
-                     message['from']['language_code'],
-                     group_chat)
     try:
         video_id, link = await api.get_id(message.text, chat_id)
         if video_id is None:
@@ -40,11 +42,11 @@ async def send_tiktok_video(message: types.Message):
 
         vid = InputFile.from_url(url=playAddr['url'],
                                  filename=f'{video_id}.mp4')
-        if not group_chat:
+        try:
             file_mode = bool(
                 cursor.execute("SELECT file_mode FROM users WHERE id = ?",
                                (chat_id,)).fetchone()[0])
-        else:
+        except:
             file_mode = False
         if file_mode is False:
             media = InputMediaVideo(media=vid, caption=result_caption, thumb=cover,
@@ -56,11 +58,7 @@ async def send_tiktok_video(message: types.Message):
                                        disable_content_type_detection=True)
         await temp_msg.edit_media(media=media, reply_markup=music_button)
         try:
-            if group_chat:
-                log_table_name = 'groups'
-            else:
-                log_table_name = 'videos'
-            cursor.execute(f'INSERT INTO {log_table_name} VALUES (?,?,?)',
+            cursor.execute(f'INSERT INTO videos VALUES (?,?,?)',
                            (message.chat.id, tCurrent(), link))
             sqlite.commit()
             logging.info(f'{message.chat.id}: {link}')

@@ -20,10 +20,8 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
     else:
         group_chat = True
     chat_id = callback_query['message']['chat']['id']
-    from_id = callback_query['from']['id']
     msg_id = callback_query['message']['message_id']
-    lang = lang_func(from_id, callback_query['from']['language_code'],
-                     group_chat)
+    lang = lang_func(chat_id, callback_query['from']['language_code'])
     msg = await bot.send_message(chat_id, '⏳', disable_notification=group_chat)
     try:
         video_id = callback_query.data.lstrip('id/')
@@ -44,9 +42,9 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
         await msg.delete()
         try:
             cursor.execute('INSERT INTO music VALUES (?,?,?)',
-                           (callback_query["from"]["id"], tCurrent(), video_id))
+                           (chat_id, tCurrent(), video_id))
             sqlite.commit()
-            logging.info(f'{callback_query["from"]["id"]}: Music - {video_id}')
+            logging.info(f'{chat_id}: Music - {video_id}')
         except:
             logging.error('Cant write into database')
     except:

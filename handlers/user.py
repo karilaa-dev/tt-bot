@@ -1,41 +1,33 @@
-import logging
+from aiogram import types
 
 from aiogram import types
 
-from data.config import logs, locale
+from data.config import locale
 from data.loader import dp, bot, cursor, sqlite
-from misc.utils import lang_func, tCurrent
+from misc.utils import lang_func, start_manager
 
 
-@dp.message_handler(commands=['start'], chat_type=types.ChatType.PRIVATE)
+@dp.message_handler(commands=['start'], chat_type='private', state='*')
 async def send_start(message: types.Message):
     chat_id = message.chat.id
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
                          (chat_id,)).fetchone()[0]
-    lang = lang_func(chat_id, message['from']['language_code'], False)
+    lang = lang_func(chat_id, message['from']['language_code'])
     if req == 0:
-        args = message.get_args().lower()
-        if args == '':
-            args = None
-        cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)',
-                       (chat_id, tCurrent(), lang, args, 0))
-        sqlite.commit()
-        username = ''
-        if message.chat.username is not None:
-            username = f'@{message.chat.username}\n'
-        text = f'<b><a href="tg://user?id={chat_id}">{message.chat.full_name}</a></b>' \
-               f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
-        await bot.send_message(logs, text)
-        username = username.replace('\n', ' ')
-        logging.info(f'{message.chat.full_name} {username}{chat_id} {args or ""}')
-    await message.answer(locale[lang]['start'])
-    await message.answer(locale[lang]['lang_start'])
+        await start_manager(chat_id, message, lang)
+    else:
+        await message.answer(locale[lang]['start'])
+        await message.answer(locale[lang]['lang_start'])
 
 
-@dp.message_handler(commands=['mode'], chat_type=types.ChatType.PRIVATE, state='*')
+@dp.message_handler(commands=['mode'], state='*')
 async def change_mode(message: types.message):
     chat_id = message.chat.id
-    lang = lang_func(chat_id, message['from']['language_code'], False)
+    lang = lang_func(chat_id, message['from']['language_code'])
+    if message.chat.type != 'private':
+        user_status = await bot.get_chat_member(message.chat.id, message.from_user.id)
+        if user_status.status not in ['creator', 'administrator']:
+            return await message.answer(locale[lang]['not_admin'])
     try:
         file_mode = bool(
             cursor.execute("SELECT file_mode FROM users WHERE id = ?",

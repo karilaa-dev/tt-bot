@@ -1,7 +1,8 @@
+import logging
 from datetime import datetime
 from time import time, ctime
 
-from data.config import upd_chat, upd_id, locale
+from data.config import upd_chat, upd_id, locale, logs
 from data.loader import cursor, sqlite, bot
 
 
@@ -9,13 +10,9 @@ def tCurrent():
     return int(time())
 
 
-def lang_func(usrid: int, usrlang: str, is_group: bool):
+def lang_func(usrid: int, usrlang: str):
     try:
         try:
-            if is_group:
-                if usrlang in locale['langs']:
-                    return usrlang
-                return 'en'
             lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?",
                                       (usrid,)).fetchone()[0]
         except:
@@ -36,22 +33,30 @@ def lang_func(usrid: int, usrlang: str, is_group: bool):
 
 async def bot_stats():
     tnow = tCurrent()
-    users = cursor.execute("SELECT COUNT(id) FROM users").fetchall()[0][0]
-    videos = cursor.execute("SELECT COUNT(id) FROM videos").fetchall()[0][0]
+    users = cursor.execute("SELECT COUNT(id) FROM users WHERE id > 0").fetchall()[0][0]
+    groups = cursor.execute("SELECT COUNT(id) FROM users WHERE id < 0").fetchall()[0][0]
+    videos = cursor.execute("SELECT COUNT(id) FROM videos WHERE id > 0").fetchall()[0][0]
+    videos_groups = cursor.execute("SELECT COUNT(id) FROM videos WHERE id < 0").fetchall()[0][0]
     music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
-    groups = cursor.execute("SELECT COUNT(id) FROM groups").fetchall()[0][0]
-    users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ?",
-                             (tnow - 86400,)).fetchall()[0][0]
-    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ?",
-                              (tnow - 86400,)).fetchall()[0][0]
+
+    old_24 = tnow - 86400
+
+    users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ? and id > 0",
+                             (old_24,)).fetchall()[0][0]
+    groups24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ? and id < 0",
+                              (old_24,)).fetchall()[0][0]
     music24 = cursor.execute("SELECT COUNT(id) FROM music WHERE time >= ?",
-                             (tnow - 86400,)).fetchall()[0][0]
-    groups24 = cursor.execute("SELECT COUNT(id) FROM groups WHERE time >= ?",
-                              (tnow - 86400,)).fetchall()[0][0]
-    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ?",
-                               (tnow - 86400,)).fetchall()[0][0]
-    return locale['stats'].format(users, music, videos, users24, music24,
-                                  videos24, videos24u, groups, groups24)
+                             (old_24,)).fetchall()[0][0]
+    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ? and id > 0",
+                              (old_24,)).fetchall()[0][0]
+    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ? and id > 0",
+                               (old_24,)).fetchall()[0][0]
+    videos_groups24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ? and id < 0",
+                                     (old_24,)).fetchall()[0][0]
+    videos_groups24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ? and id < 0",
+                                      (old_24,)).fetchall()[0][0]
+    return locale['stats'].format(users, groups, videos, videos_groups, music, users24, groups24, music24, videos24,
+                                  videos24u, videos_groups24, videos_groups24u)
 
 
 async def stats_log():
@@ -66,3 +71,25 @@ async def backup_dp(chat_id: int):
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
+
+
+async def start_manager(chat_id, message, lang):
+    if message.get_args() is not None:
+        args = message.get_args().lower()
+    else:
+        args = ''
+    if args == '':
+        args = None
+    cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)',
+                   (chat_id, tCurrent(), lang, args, 0))
+    sqlite.commit()
+    username = ''
+    if message.chat.username is not None:
+        username = f'@{message.chat.username}\n'
+    text = f'<b><a href="tg://user?id={chat_id}">{message.chat.full_name}</a></b>' \
+           f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
+    await bot.send_message(logs, text)
+    username = username.replace('\n', ' ')
+    logging.info(f'{message.chat.full_name} {username}{chat_id} {args or ""}')
+    await message.answer(locale[lang]['start'])
+    await message.answer(locale[lang]['lang_start'])
