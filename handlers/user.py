@@ -1,7 +1,5 @@
 from aiogram import types
 
-from aiogram import types
-
 from data.config import locale
 from data.loader import dp, bot, cursor, sqlite
 from misc.utils import lang_func, start_manager

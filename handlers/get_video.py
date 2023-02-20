@@ -1,7 +1,9 @@
 import logging
+from io import BytesIO
 
 from aiogram import types
-from aiogram.types import InputFile, InputMediaVideo, InputMediaDocument, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InputMediaVideo, InputMediaDocument, InlineKeyboardMarkup, InlineKeyboardButton
+from httpx import AsyncClient, AsyncHTTPTransport
 
 from data.config import locale
 from data.loader import dp, cursor, sqlite
@@ -34,14 +36,21 @@ async def send_tiktok_video(message: types.Message):
             if not group_chat:
                 await message.answer(locale[lang]['error'])
             return
-        cover = InputFile.from_url(url=playAddr['cover'])
-        temp_msg = await message.answer_photo(cover, locale[lang]['downloading'], disable_notification=group_chat)
+
+        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
+            cover_request = await client.get(playAddr['cover'], follow_redirects=True)
+
+        temp_msg = await message.answer_photo(BytesIO(cover_request.content), locale[lang]['downloading'],
+                                              disable_notification=group_chat)
         result_caption = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
         music_button = InlineKeyboardMarkup().add(
             InlineKeyboardButton(locale[lang]['get_sound'], callback_data=f'id/{playAddr["id"]}'))
 
-        vid = InputFile.from_url(url=playAddr['url'],
-                                 filename=f'{video_id}.mp4')
+        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
+            video_request = await client.get(playAddr['url'], follow_redirects=True)
+        vid = BytesIO(video_request.content)
+        vid.name = f'{video_id}.mp4'
+
         try:
             file_mode = bool(
                 cursor.execute("SELECT file_mode FROM users WHERE id = ?",
@@ -49,7 +58,7 @@ async def send_tiktok_video(message: types.Message):
         except:
             file_mode = False
         if file_mode is False:
-            media = InputMediaVideo(media=vid, caption=result_caption, thumb=cover,
+            media = InputMediaVideo(media=vid, caption=result_caption, thumb=BytesIO(cover_request.content),
                                     height=playAddr['height'],
                                     width=playAddr['width'],
                                     duration=playAddr['duration'] // 1000)

@@ -1,7 +1,8 @@
 import logging
+from io import BytesIO
 
 from aiogram import types
-from aiogram.types import InputFile
+from httpx import AsyncClient, AsyncHTTPTransport
 
 from data.config import locale
 from data.loader import dp, bot, cursor, sqlite
@@ -30,8 +31,11 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
             raise
         caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
                                                      playAddr['cover'])
-        audio = InputFile.from_url(url=playAddr['url'])
-        cover = InputFile.from_url(url=playAddr['cover'])
+        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
+            audio_request = await client.get(playAddr['url'], follow_redirects=True)
+            cover_request = await client.get(playAddr['cover'], follow_redirects=True)
+        audio = BytesIO(audio_request.content)
+        cover = BytesIO(cover_request.content)
         await bot.send_chat_action(chat_id, 'upload_document')
         await bot.send_audio(chat_id, audio, reply_to_message_id=msg_id,
                              caption=caption, title=playAddr['title'],
