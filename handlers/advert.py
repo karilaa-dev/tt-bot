@@ -78,7 +78,7 @@ async def adb_check(message: types.Message):
 async def adv_go(message: types.Message):
     if adv_text is not None:
         msg = await message.answer('<code>Announcement started</code>')
-        users = cursor.execute("SELECT id from users").fetchall()
+        users = cursor.execute("SELECT id from users WHERE id > 0").fetchall()
         num = 0
         for x in users:
             try:
@@ -105,7 +105,7 @@ async def adv_go(message: types.Message):
                 num += 1
             except:
                 pass
-            await sleep(0.05)
+            await sleep(0.04)
         await msg.delete()
         await message.answer(f'✅Message received by <b>{num}</b> users')
     else:

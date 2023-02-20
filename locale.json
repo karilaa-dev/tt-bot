@@ -11,7 +11,7 @@
     "link_error": "Probably something wrong with your link🥲",
     "lang_start": "The language is set to English🇺🇸.\nIt can be changed with the /lang command",
     "lang": "The language is set to English🇺🇸",
-    "start": "You have launched <b>No Watermark TikTok</b>\nThis bot allows you to download <b>video and audio</b> from TikTok <i><b>without watermark</b></i>.\nSubmit video link to get started",
+    "start": "You have launched <b>No Watermark TikTok</b>\nThis bot allows you to download <b>video and audio</b> from TikTok <i><b>without watermark</b></i>.\nSend video link to get started",
     "get_sound": "Get Sound",
     "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
     "result": "<a href='{1}'>Source</a>\n\n<b>{0}</b>",
@@ -19,7 +19,8 @@
     "file_mode_off": "<b>File mode is off</b>",
     "file_mode_on": "<b>File mode is on</b>",
     "downloading": "⏳Downloading video…",
-    "not_admin": "⚠You are not admin of this group!"
+    "not_admin": "⚠You are not admin of this group!",
+    "group_info": "<i>\n\nAlso this bot works in group chat. Just add this bot to group and send video link!</i>"
   },
   "ru": {
     "lang_name": "Русский🇷🇺",
@@ -35,7 +36,8 @@
     "file_mode_off": "<b>Файловый режим отключен</b>",
     "file_mode_on": "<b>Файловый режим включен</b>",
     "downloading": "⏳Загрузка видео…",
-    "not_admin": "⚠Вы не администратор этой группы!"
+    "not_admin": "⚠Вы не администратор этой группы!",
+    "group_info": "<i>\n\nТакже этот бот работает в групповых чатах. Просто добавьте этого бота в группу и отправьте ссылку на видео!</i>"
   },
   "ua": {
     "lang_name": "Український🇺🇦",
@@ -51,7 +53,8 @@
     "file_mode_off": "<b>Файловий режим вимкнено</b>",
     "file_mode_on": "<b>Файловий режим увімкнено</b>",
     "downloading": "⏳Завантаження відео…",
-    "not_admin": "⚠Ви не адміністратор цієї групи!"
+    "not_admin": "⚠Ви не адміністратор цієї групи!",
+    "group_info": "<i>\n\nТакож цей бот працює в групових чатах. Просто додайте цього бота в групу та надішліть посилання на відео!</i>"
   },
   "hi": {
     "lang_name": "हिंदी🇮🇳",
@@ -67,7 +70,8 @@
     "file_mode_off": "<b>फ़ाइल मोड बंद है</b>",
     "file_mode_on": "<b>फ़ाइल मोड चालू है</b>",
     "downloading": "⏳वीडियो डाउनलोड हो रहा है…",
-    "not_admin": "⚠आप इस ग्रुप के एडमिन नहीं हैं!"
+    "not_admin": "⚠आप इस ग्रुप के एडमिन नहीं हैं!",
+    "group_info": "<i>\n\nयह बॉट ग्रुप चैट में भी काम करता है। इसे ग्रुप में जोड़कर वीडियो का लिंक भेजें!</i>"
   },
   "stats": "Users: <b>{0}</b>\nGroups: <b>{1}</b>\nVideos: <b>{2}</b>\nVideos in groups: <b>{3}</b>\nMusic: <b>{4}</b>\n\n<b>In 24 hours</b>:\nUsers: <b>{5}</b>\nGroups: <b>{6}</b>\nMusic: <b>{7}</b>\nVideos: <b>{8}</b>\nUnique videos: <b>{9}</b>\nVideos in groups: <b>{10}</b>\nUnique videos in groups: <b>{11}</b>"
 }

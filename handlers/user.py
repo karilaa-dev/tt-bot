@@ -16,7 +16,11 @@ async def send_start(message: types.Message):
     if req == 0:
         await start_manager(chat_id, message, lang)
     else:
-        await message.answer(locale[lang]['start'])
+        if chat_id > 0:
+            start_text = locale[lang]['start'] + locale[lang]['group_info']
+        else:
+            start_text = locale[lang]['start']
+        await message.answer(start_text)
         await message.answer(locale[lang]['lang_start'])
 
 
