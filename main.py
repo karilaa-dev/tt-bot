@@ -18,4 +18,4 @@ async def on_shutdown(dp: Dispatcher):
 
 if __name__ == "__main__":
     scheduler.start()
-    executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown, skip_updates=True)
+    executor.start_polling(dp, on_startup=on_startup, on_shutdown=on_shutdown)
