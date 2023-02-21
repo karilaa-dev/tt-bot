@@ -54,12 +54,16 @@ class ttapi:
 
         if res is None or res['status_code'] != 0:
             return None
+        elif res['aweme_list'][0]['aweme_id'] != str(video_id):
+            return False
         return res
 
     async def video(self, video_id: int):
         res = await self.get_video_data(video_id)
         if res is None:
             return None
+        elif res is False:
+            return False
         return {
             'url':
                 res["aweme_list"][0]["video"]["play_addr"]["url_list"][2],
@@ -76,6 +80,8 @@ class ttapi:
         res = await self.get_video_data(video_id)
         if res is None:
             return None
+        elif res is False:
+            return False
         return {
             'url': res['aweme_list'][0]['music']['play_url']['uri'],
             'title': res['aweme_list'][0]['music']['title'],

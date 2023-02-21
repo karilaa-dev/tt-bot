@@ -27,7 +27,7 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
     try:
         video_id = callback_query.data.lstrip('id/')
         playAddr = await api.music(int(video_id))
-        if playAddr is None:
+        if playAddr in [None, False]:
             raise
         caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
                                                      playAddr['cover'])
