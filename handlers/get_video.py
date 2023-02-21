@@ -29,15 +29,15 @@ async def send_tiktok_video(message: types.Message):
         video_id, link = await api.get_id(message.text, chat_id)
         if video_id is None:
             if not group_chat:
-                await message.answer(locale[lang]['link_error'])
+                await message.reply(locale[lang]['link_error'])
             return
         playAddr = await api.video(video_id)
         if playAddr in [None, False]:
             if not group_chat:
                 if playAddr is False:
-                    await message.answer(locale[lang]['link_error'])
+                    await message.reply(locale[lang]['link_error'])
                 else:
-                    await message.answer(locale[lang]['error'])
+                    await message.reply(locale[lang]['error'])
             return
 
         async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
@@ -83,5 +83,5 @@ async def send_tiktok_video(message: types.Message):
         except:
             pass
         if not group_chat:
-            await message.answer(locale[lang]['error'])
+            await message.reply(locale[lang]['error'])
         return

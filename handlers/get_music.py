@@ -57,5 +57,5 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
         except:
             pass
         if not group_chat:
-            await bot.send_message(chat_id, locale[lang]['error'])
+            await bot.send_message(chat_id, locale[lang]['error'], reply_to_message_id=msg_id)
     return await callback_query.answer()
