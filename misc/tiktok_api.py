@@ -8,7 +8,7 @@ from data.loader import bot
 
 class ttapi:
     def __init__(self):
-        self.url = 'https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={0}&iid=61659936825182188891&device_id={1}'
+        self.url = 'https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={0}'
         self.headers = {
             'User-Agent': 'com.ss.android.ugc.trill/494+Mozilla/5.0+(Linux;+Android+12;+2112123G+Build/SKQ1.211006.001;+wv)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Version/4.0+Chrome/107.0.5304.105+Mobile+Safari/537.36'
         }
@@ -45,7 +45,7 @@ class ttapi:
     async def get_video_data(self, video_id: int):
 
         async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
-            response = await client.get(self.url.format(video_id, randint(10 * 10 * 10, 9 * 10 ** 10)),
+            response = await client.get(self.url.format(video_id),
                                         headers=self.headers)
             try:
                 res = response.json()
