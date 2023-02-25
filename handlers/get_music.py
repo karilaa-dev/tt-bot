@@ -53,7 +53,10 @@ async def send_tiktok_sound(callback_query: types.CallbackQuery):
         except:
             logging.error('Cant write into database')
     except:
-        await temp_msg.delete()
+        try:
+            await temp_msg.delete()
+        except:
+            pass
         if not group_chat:
             await bot.send_message(chat_id, locale[lang]['error'], reply_to_message_id=msg_id)
     return await callback_query.answer()

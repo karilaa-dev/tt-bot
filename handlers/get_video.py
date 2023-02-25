@@ -58,7 +58,10 @@ async def send_tiktok_video(message: types.Message):
             logging.error('Cant write into database')
 
     except:
-        await temp_msg.delete()
+        try:
+            await temp_msg.delete()
+        except:
+            pass
         if not group_chat:
             await message.reply(locale[lang]['error'])
         return
