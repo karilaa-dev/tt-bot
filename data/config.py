@@ -1,7 +1,7 @@
 from configparser import ConfigParser
+from json import loads as json_loads
 
 from aiogram.bot.api import TelegramAPIServer
-from json import loads as json_loads
 
 config = ConfigParser()
 config.read("config.ini")

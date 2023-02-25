@@ -1,14 +1,12 @@
 import logging
-from io import BytesIO
 
 from aiogram import types
-from aiogram.types import InputMediaVideo, InputMediaDocument, InlineKeyboardMarkup, InlineKeyboardButton
-from httpx import AsyncClient, AsyncHTTPTransport
 
 from data.config import locale
 from data.loader import dp, cursor, sqlite
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, start_manager
+from misc.video_types import send_video_result, send_image_result
 
 api = ttapi()
 
@@ -31,57 +29,36 @@ async def send_tiktok_video(message: types.Message):
             if not group_chat:
                 await message.reply(locale[lang]['link_error'])
             return
-        playAddr = await api.video(video_id)
-        if playAddr in [None, False]:
+        temp_msg = await message.answer('⏳', disable_notification=group_chat)
+        video_info = await api.video(video_id)
+        if video_info in [None, False]:
             if not group_chat:
-                if playAddr is False:
+                if video_info is False:
                     await message.reply(locale[lang]['link_error'])
                 else:
                     await message.reply(locale[lang]['error'])
             return
-
-        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
-            cover_request = await client.get(playAddr['cover'], follow_redirects=True)
-
-        temp_msg = await message.answer_photo(BytesIO(cover_request.content), locale[lang]['downloading'],
-                                              disable_notification=group_chat)
-        result_caption = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
-        music_button = InlineKeyboardMarkup().add(
-            InlineKeyboardButton(locale[lang]['get_sound'], callback_data=f'id/{playAddr["id"]}'))
-
-        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
-            video_request = await client.get(playAddr['url'], follow_redirects=True)
-        vid = BytesIO(video_request.content)
-        vid.name = f'{video_id}.mp4'
-
-        try:
-            file_mode = bool(
-                cursor.execute("SELECT file_mode FROM users WHERE id = ?",
-                               (chat_id,)).fetchone()[0])
-        except:
-            file_mode = False
-        if file_mode is False:
-            media = InputMediaVideo(media=vid, caption=result_caption, thumb=BytesIO(cover_request.content),
-                                    height=playAddr['height'],
-                                    width=playAddr['width'],
-                                    duration=playAddr['duration'] // 1000)
+        file_mode = bool(
+            cursor.execute("SELECT file_mode FROM users WHERE id = ?",
+                           (chat_id,)).fetchone()[0])
+        if video_info['type'] == 'images':
+            if group_chat:
+                image_limit = 10
+            else:
+                image_limit = None
+            await send_image_result(temp_msg, video_info, lang, file_mode, link, image_limit)
         else:
-            media = InputMediaDocument(media=vid, caption=result_caption,
-                                       disable_content_type_detection=True)
-        await temp_msg.edit_media(media=media, reply_markup=music_button)
+            await send_video_result(temp_msg, video_info, lang, file_mode, link)
         try:
-            cursor.execute(f'INSERT INTO videos VALUES (?,?,?)',
-                           (message.chat.id, tCurrent(), link))
+            cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
+                           (message.chat.id, tCurrent(), link, video_info['type'] == 'images'))
             sqlite.commit()
             logging.info(f'{message.chat.id}: {link}')
         except:
             logging.error('Cant write into database')
 
     except:
-        try:
-            await temp_msg.delete()
-        except:
-            pass
+        await temp_msg.delete()
         if not group_chat:
             await message.reply(locale[lang]['error'])
         return

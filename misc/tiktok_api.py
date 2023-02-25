@@ -1,5 +1,4 @@
 import re
-from random import randint
 
 from httpx import AsyncClient, AsyncHTTPTransport
 
@@ -56,37 +55,46 @@ class ttapi:
             return None
         elif res['aweme_list'][0]['aweme_id'] != str(video_id):
             return False
-        return res
+        return res['aweme_list'][0]
 
     async def video(self, video_id: int):
-        res = await self.get_video_data(video_id)
-        if res is None:
+        video_info = await self.get_video_data(video_id)
+        if video_info is None:
             return None
-        elif res is False:
+        elif video_info is False:
             return False
+        if video_info['aweme_type'] == 150:
+            video_type = 'images'
+            video_data = []
+            for image in video_info['image_post_info']['images']:
+                video_data.append(image["display_image"]["url_list"][0])
+        else:
+            video_type = 'video'
+            video_data = video_info['video']['play_addr']['url_list'][0]
         return {
-            'url':
-                res["aweme_list"][0]["video"]["play_addr"]["url_list"][2],
+            'type': video_type,
+            'data': video_data,
             'id': video_id,
-            'cover': res['aweme_list'][0]['video']['origin_cover'][
+            'cover': video_info['video']['origin_cover'][
                 'url_list'][0],
-            'width': res['aweme_list'][0]['video']['play_addr']['width'],
-            'height': res['aweme_list'][0]['video']['play_addr'][
+            'width': video_info['video']['play_addr']['width'],
+            'height': video_info['video']['play_addr'][
                 'height'],
-            'duration': res['aweme_list'][0]['video']['duration']
+            'duration': video_info['video']['duration']
         }
 
     async def music(self, video_id: int):
-        res = await self.get_video_data(video_id)
-        if res is None:
+        video_info = await self.get_video_data(video_id)
+        if video_info is None:
             return None
-        elif res is False:
+        elif video_info is False:
             return False
         return {
-            'url': res['aweme_list'][0]['music']['play_url']['uri'],
-            'title': res['aweme_list'][0]['music']['title'],
-            'author': res['aweme_list'][0]['music']['author'],
-            'duration': res['aweme_list'][0]['music']['duration'],
+            'data': video_info['music']['play_url']['uri'],
+            'id': video_id,
+            'title': video_info['music']['title'],
+            'author': video_info['music']['author'],
+            'duration': video_info['music']['duration'],
             'cover':
-                res['aweme_list'][0]['music']['cover_large']['url_list'][0]
+                video_info['music']['cover_large']['url_list'][0]
         }
