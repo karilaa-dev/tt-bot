@@ -54,8 +54,8 @@ def bot_stats(chat_type='all', stats_time=0):
     vid_img_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
                            (period,)).fetchone()[0]
 
-    music = cursor.execute(f"SELECT COUNT(id) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-    music_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+    music = cursor.execute(f"SELECT COUNT(id) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+    music_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
 
     text = \
 f'''Chats: <b>{chats}</b>
