@@ -31,36 +31,46 @@ def lang_func(usrid: int, usrlang: str):
         return 'en'
 
 
-async def bot_stats():
-    tnow = tCurrent()
-    users = cursor.execute("SELECT COUNT(id) FROM users WHERE id > 0").fetchall()[0][0]
-    groups = cursor.execute("SELECT COUNT(id) FROM users WHERE id < 0").fetchall()[0][0]
-    videos = cursor.execute("SELECT COUNT(id) FROM videos WHERE id > 0").fetchall()[0][0]
-    videos_groups = cursor.execute("SELECT COUNT(id) FROM videos WHERE id < 0").fetchall()[0][0]
-    music = cursor.execute("SELECT COUNT(id) FROM music").fetchall()[0][0]
+def bot_stats(chat_type='all', stats_time=0):
+    if stats_time == 0:
+        period = 0
+    else:
+        period = tCurrent() - stats_time
+    if chat_type == 'all':
+        chat_type = '!='
+    elif chat_type == 'groups':
+        chat_type = '<'
+    elif chat_type == 'users':
+        chat_type = '>'
 
-    old_24 = tnow - 86400
+    chats = cursor.execute(f"SELECT COUNT(id) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
 
-    users24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ? and id > 0",
-                             (old_24,)).fetchall()[0][0]
-    groups24 = cursor.execute("SELECT COUNT(id) FROM users WHERE time >= ? and id < 0",
-                              (old_24,)).fetchall()[0][0]
-    music24 = cursor.execute("SELECT COUNT(id) FROM music WHERE time >= ?",
-                             (old_24,)).fetchall()[0][0]
-    videos24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ? and id > 0",
-                              (old_24,)).fetchall()[0][0]
-    videos24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ? and id > 0",
-                               (old_24,)).fetchall()[0][0]
-    videos_groups24 = cursor.execute("SELECT COUNT(id) FROM videos WHERE time >= ? and id < 0",
-                                     (old_24,)).fetchall()[0][0]
-    videos_groups24u = cursor.execute("SELECT COUNT(DISTINCT(id)) FROM videos where time >= ? and id < 0",
-                                      (old_24,)).fetchall()[0][0]
-    return locale['stats'].format(users, groups, videos, videos_groups, music, users24, groups24, music24, videos24,
-                                  videos24u, videos_groups24, videos_groups24u)
+    vid = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+    vid_img = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
+                             (period,)).fetchone()[0]
+
+    vid_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ?",
+                               (period,)).fetchone()[0]
+    vid_img_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
+                           (period,)).fetchone()[0]
+
+    music = cursor.execute(f"SELECT COUNT(id) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+    music_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+
+    text = \
+f'''Chats: <b>{chats}</b>
+Music: <b>{music}</b>
+┗ Unique: <b>{music_u}</b>
+Videos: <b>{vid}</b>
+┗ Images: <b>{vid_img}</b>
+Unique videos: <b>{vid_u}</b>
+┗ Images: <b>{vid_img_u}</b>'''
+
+    return text
 
 
 async def stats_log():
-    text = await bot_stats()
+    text = bot_stats()
     text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
     await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
 

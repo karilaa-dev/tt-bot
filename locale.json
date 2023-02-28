@@ -76,6 +76,5 @@
     "not_admin": "⚠आप इस ग्रुप के एडमिन नहीं हैं!",
     "group_info": "<i>\n\nयह बॉट ग्रुप चैट में भी काम करता है। इसे ग्रुप में जोड़कर वीडियो का लिंक भेजें!</i>",
     "group_warning": "\n\n<code>टेलीग्राम की एक सीमा के कारण \nग्रुप में भेजे जाने वाले संदेशों की \nसीमा है, इसलिए बॉट आपको केवल \nपहले 10 तस्वीरें भेजेगा!</code>"
-  },
-  "stats": "Users: <b>{0}</b>\nGroups: <b>{1}</b>\nVideos: <b>{2}</b>\nVideos in groups: <b>{3}</b>\nMusic: <b>{4}</b>\n\n<b>In 24 hours</b>:\nUsers: <b>{5}</b>\nGroups: <b>{6}</b>\nMusic: <b>{7}</b>\nVideos: <b>{8}</b>\nUnique videos: <b>{9}</b>\nVideos in groups: <b>{10}</b>\nUnique videos in groups: <b>{11}</b>"
+  }
 }
