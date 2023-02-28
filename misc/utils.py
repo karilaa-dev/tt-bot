@@ -62,9 +62,9 @@ f'''Chats: <b>{chats}</b>
 Music: <b>{music}</b>
 ┗ Unique: <b>{music_u}</b>
 Videos: <b>{vid}</b>
+┗ Unique: <b>{vid_u}</b>
 ┗ Images: <b>{vid_img}</b>
-Unique videos: <b>{vid_u}</b>
-┗ Images: <b>{vid_img_u}</b>'''
+    ┗ Unique: <b>{vid_img_u}</b>'''
 
     return text
 
