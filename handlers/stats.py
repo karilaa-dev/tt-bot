@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from data.config import admin_ids, second_ids
 from data.loader import cursor, dp
-from misc.stats import bot_stats, plot_user_graph, get_stats_overall
+from misc.stats import bot_stats, plot_user_graph, get_stats_overall, plot_async
 from misc.utils import tCurrent
 
 
@@ -102,7 +102,7 @@ async def stats_graph(call: types.CallbackQuery):
     elif graph_time == 'total':
         period = cursor.execute(f"SELECT time FROM {graph_type} ORDER BY time ASC LIMIT 1").fetchone()[0]
         depth = '%Y-%m-%d'
-    result = plot_user_graph(graph_name, depth, period, 'id != 0', graph_type)
+    result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
     await call.message.answer_photo(result)
     await temp.delete()
     await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',

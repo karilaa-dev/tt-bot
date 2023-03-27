@@ -1,3 +1,5 @@
+import asyncio
+import sqlite3
 from datetime import datetime
 from io import BytesIO
 from time import ctime
@@ -80,7 +82,7 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
                 time > {period} and
                 {id_condition}"""
 
-    df = pd.read_sql_query(query, sqlite)
+    df = pd.read_sql_query(query, sqlite3.connect('sqlite.db'))
     df["time"] = pd.to_datetime(df["time"], unit="s")
     df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
 
@@ -99,6 +101,12 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
     days = [datetime.strptime(day.strftime(depth), depth) for day in days]
 
     return plot_users_grouped(days, amounts, graph_name)
+
+
+async def plot_async(graph_name, depth, period, id_condition, table):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None, lambda: plot_user_graph(graph_name, depth, period, id_condition, table))
 
 
 def get_stats_overall():
