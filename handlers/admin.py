@@ -1,4 +1,5 @@
 from asyncio import sleep
+from io import BytesIO
 
 from aiogram import types
 from truechecker import TrueChecker
@@ -84,46 +85,18 @@ async def truecheck(message: types.Message):
 async def export_users(message: types.Message):
     if message["from"]["id"] in admin_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
-        with open('users.txt', 'w') as f:
-            for x in users:
-                f.write(str(x[0]) + '\n')
-        await message.answer_document(open('users.txt', 'rb'),
-                                      caption='User list')
+        users_result = ''
+        for x in users:
+            users_result += str(x[0]) + '\n'
+        users_result = users_result.encode('utf-8')
+        result_file = BytesIO(users_result)
+        result_file.name = 'users.txt'
+        await message.answer_document(result_file, caption='User list')
 
 
 @dp.message_handler(commands=["backup"], state='*')
 async def backup(message: types.Message):
     if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+        msg = await message.answer('<code>Backup started, please wait...</code>')
         await backup_dp(message.from_user.id)
-
-
-@dp.message_handler(commands=["stats"], state='*')
-async def send_stats(message: types.Message):
-    if message["from"]["id"] in admin_ids+second_ids:
-        text = message.text.split(' ')
-        if len(text) > 1:
-            try:
-                time_now = tCurrent()
-                total = cursor.execute('SELECT COUNT(id) FROM users WHERE link = ?',
-                                       [text[1].lower()]).fetchone()[0]
-                total24h = cursor.execute(
-                    'SELECT COUNT(id) FROM users WHERE link = ? AND time >= ?',
-                    (text[1].lower(), time_now - 86400)).fetchone()[0]
-                await message.answer(
-                    f'This link was followed by <b>{total}</b> users\nBy 24 hours: <b>{total24h}</b>')
-            except:
-                await message.answer('Error')
-        else:
-            temp = await message.answer('Loading...')
-            keyb = stats_keyboard()
-            await temp.edit_text(bot_stats(), reply_markup=keyb)
-
-
-@dp.callback_query_handler(lambda c: c.data.startswith('stats:'))
-async def stats_callback(call: types.CallbackQuery):
-    group_type, stats_time = call.data.split(':')[1].split('/')
-    stats_time = int(stats_time)
-    await call.message.edit_text('Loading...')
-    keyb = stats_keyboard(group_type, stats_time)
-    await call.message.edit_text(bot_stats(group_type, stats_time), reply_markup=keyb)
-    await call.answer()
+        await msg.delete()
