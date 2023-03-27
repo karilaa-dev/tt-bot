@@ -1,8 +1,8 @@
 import logging
 from datetime import datetime
-from time import time, ctime
+from time import time
 
-from data.config import upd_chat, upd_id, locale, logs
+from data.config import locale, logs
 from data.loader import cursor, sqlite, bot
 
 
@@ -29,50 +29,6 @@ def lang_func(usrid: int, usrlang: str):
         return lang
     except:
         return 'en'
-
-
-def bot_stats(chat_type='all', stats_time=0):
-    if stats_time == 0:
-        period = 0
-    else:
-        period = tCurrent() - stats_time
-    if chat_type == 'all':
-        chat_type = '!='
-    elif chat_type == 'groups':
-        chat_type = '<'
-    elif chat_type == 'users':
-        chat_type = '>'
-
-    chats = cursor.execute(f"SELECT COUNT(id) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-
-    vid = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-    vid_img = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
-                             (period,)).fetchone()[0]
-
-    vid_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ?",
-                               (period,)).fetchone()[0]
-    vid_img_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
-                           (period,)).fetchone()[0]
-
-    music = cursor.execute(f"SELECT COUNT(id) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-    music_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-
-    text = \
-f'''Chats: <b>{chats}</b>
-Music: <b>{music}</b>
-┗ Unique: <b>{music_u}</b>
-Videos: <b>{vid}</b>
-┗ Unique: <b>{vid_u}</b>
-┗ Images: <b>{vid_img}</b>
-    ┗ Unique: <b>{vid_img_u}</b>'''
-
-    return text
-
-
-async def stats_log():
-    text = bot_stats()
-    text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
-    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
 
 
 async def backup_dp(chat_id: int):

@@ -3,7 +3,8 @@ from aiogram import executor, Dispatcher
 from data.config import logs
 from data.loader import scheduler, sqlite
 from handlers import dp
-from misc.utils import stats_log, backup_dp
+from misc.stats import stats_log
+from misc.utils import backup_dp
 
 
 async def on_startup(dp: Dispatcher):

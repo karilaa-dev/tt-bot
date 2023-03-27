@@ -6,42 +6,7 @@ from truechecker import TrueChecker
 
 from data.config import admin_ids, second_ids, bot_token
 from data.loader import bot, cursor, dp
-from misc.utils import tCurrent, bot_stats, backup_dp
-
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-
-def stats_keyboard(chat_type='all', stats_time=0):
-    keyb = InlineKeyboardMarkup()
-    times = ['24h', 'Week', 'Month', 'All']
-    chat_types = ['Users', 'Groups', 'All']
-    if stats_time == 0:
-        times[3] = '✅'+times[3]
-    elif stats_time == 2678400:
-        times[2] = '✅'+times[2]
-    elif stats_time == 604800:
-        times[1] = '✅'+times[1]
-    elif stats_time == 86400:
-        times[0] = '✅'+times[0]
-
-    if chat_type == 'all':
-        chat_types[2] = '✅'+chat_types[2]
-    elif chat_type == 'groups':
-        chat_types[1] = '✅'+chat_types[1]
-    elif chat_type == 'users':
-        chat_types[0] = '✅'+chat_types[0]
-
-    keyb.row(InlineKeyboardButton(times[0], callback_data=f'stats:{chat_type}/86400'),
-             InlineKeyboardButton(times[1], callback_data=f'stats:{chat_type}/604800'),
-             InlineKeyboardButton(times[2], callback_data=f'stats:{chat_type}/2678400'),
-             InlineKeyboardButton(times[3], callback_data=f'stats:{chat_type}/0'))
-
-    keyb.row(InlineKeyboardButton(chat_types[0], callback_data=f'stats:users/{stats_time}'),
-             InlineKeyboardButton(chat_types[1], callback_data=f'stats:groups/{stats_time}'),
-             InlineKeyboardButton(chat_types[2], callback_data=f'stats:all/{stats_time}'))
-
-    keyb.add(InlineKeyboardButton('🔄Reload', callback_data=f'stats:{chat_type}/{stats_time}'))
-    return keyb
+from misc.utils import backup_dp
 
 
 @dp.message_handler(commands=['msg', 'tell', 'say', 'send'],
