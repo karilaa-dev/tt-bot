@@ -114,7 +114,7 @@ async def stats_overall(call: types.CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = get_stats_overall()
     keyb = InlineKeyboardMarkup()
-    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_overall_update'))
+    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_overall'))
     keyb.add(InlineKeyboardButton('↩️Return', callback_data='stats_menu'))
     try:
         await temp.edit_text(result, reply_markup=keyb)
@@ -186,7 +186,7 @@ async def stats_other(call: types.CallbackQuery):
         if referral[0] is not None:
             result += f'┗ {referral[0]}: <code>{referral[1]}</code>\n'
     keyb = InlineKeyboardMarkup()
-    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_referral_update'))
+    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_referral'))
     keyb.add(InlineKeyboardButton('↩️Return', callback_data='stats_menu'))
     try:
         await temp.edit_text(result, reply_markup=keyb)
@@ -210,7 +210,7 @@ async def stats_other(call: types.CallbackQuery):
     for user in top_10_users:
         result += f'┗ {user[0]}: <code>{user[1]}</code>\n'
     keyb = InlineKeyboardMarkup()
-    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_other_update'))
+    keyb.add(InlineKeyboardButton('🔄Reload', callback_data='stats_other'))
     keyb.add(InlineKeyboardButton('↩️Return', callback_data='stats_menu'))
     try:
         await temp.edit_text(result, reply_markup=keyb)
