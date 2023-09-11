@@ -26,45 +26,45 @@ async def send_tiktok_video(message: Message):
         group_chat = False
     else:
         group_chat = True
-    # try:
-    video_id, link = await api.get_id(message.text, chat_id)
-    if video_id is None:
-        if not group_chat:
-            await message.reply(locale[lang]['link_error'])
-        return
-    temp_msg = await message.answer('⏳', disable_notification=group_chat)
-    video_info = await api.video(video_id)
-    if video_info in [None, False]:
-        if not group_chat:
-            if video_info is False:
+    try:
+        video_id, link = await api.get_id(message.text, chat_id)
+        if video_id is None:
+            if not group_chat:
                 await message.reply(locale[lang]['link_error'])
+            return
+        temp_msg = await message.answer('⏳', disable_notification=group_chat)
+        video_info = await api.video(video_id)
+        if video_info in [None, False]:
+            if not group_chat:
+                if video_info is False:
+                    await message.reply(locale[lang]['link_error'])
+                else:
+                    await message.reply(locale[lang]['error'])
+            return
+        file_mode = bool(
+            cursor.execute("SELECT file_mode FROM users WHERE id = ?",
+                           (chat_id,)).fetchone()[0])
+        if video_info['type'] == 'images':
+            if group_chat:
+                image_limit = 10
             else:
-                await message.reply(locale[lang]['error'])
-        return
-    file_mode = bool(
-        cursor.execute("SELECT file_mode FROM users WHERE id = ?",
-                       (chat_id,)).fetchone()[0])
-    if video_info['type'] == 'images':
-        if group_chat:
-            image_limit = 10
+                image_limit = None
+            await send_image_result(temp_msg, video_info, lang, file_mode, link, image_limit)
         else:
-            image_limit = None
-        await send_image_result(temp_msg, video_info, lang, file_mode, link, image_limit)
-    else:
-        await send_video_result(temp_msg, video_info, lang, file_mode, link)
-    # try:
-    cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
-                   (message.chat.id, tCurrent(), link, video_info['type'] == 'images'))
-    sqlite.commit()
-    logging.info(f'{message.chat.id}: {link}')
-    # except:
-    #     logging.error('Cant write into database')
+            await send_video_result(temp_msg, video_info, lang, file_mode, link)
+        try:
+            cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
+                           (message.chat.id, tCurrent(), link, video_info['type'] == 'images'))
+            sqlite.commit()
+            logging.info(f'{message.chat.id}: {link}')
+        except:
+            logging.error('Cant write into database')
 
-# except:
-#     try:
-#         await temp_msg.delete()
-#     except:
-#         pass
-#     if not group_chat:
-#         await message.reply(locale[lang]['error'])
-#     return
+    except:
+        try:
+            await temp_msg.delete()
+        except:
+            pass
+        if not group_chat:
+            await message.reply(locale[lang]['error'])
+        return
