@@ -17,7 +17,6 @@ async def send_start(message: Message) -> None:
                          (chat_id,)).fetchone()[0]
     lang = lang_func(chat_id, message.from_user.language_code)
     if req == 0:
-
         await start_manager(chat_id, message, lang)
     else:
         if chat_id > 0:
