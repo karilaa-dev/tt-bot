@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from data.config import upd_chat, upd_id
-from data.loader import cursor, bot, sqlite
+from data.loader import cursor, bot
 from misc.utils import tCurrent
 
 
@@ -33,13 +33,14 @@ def bot_stats(chat_type='all', stats_time=0):
     vid_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ?",
                            (period,)).fetchone()[0]
     vid_img_u = \
-    cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
-                   (period,)).fetchone()[0]
+        cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
+                       (period,)).fetchone()[0]
 
     music = cursor.execute(f"SELECT COUNT(id) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
     music_u = \
-    cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[
-        0]
+        cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music WHERE id {chat_type} 0 and time > ?",
+                       (period,)).fetchone()[
+            0]
 
     text = \
         f'''Chats: <b>{chats}</b>
@@ -82,7 +83,7 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
                 time > {period} and
                 {id_condition}"""
 
-    df = pd.read_sql_query(query, sqlite3.connect('sqlite.db'))
+    df = pd.read_sql_query(query, sqlite3.connect('sqlite-big.db'))
     df["time"] = pd.to_datetime(df["time"], unit="s")
     df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
 

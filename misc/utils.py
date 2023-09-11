@@ -3,11 +3,11 @@ from datetime import datetime
 from time import time
 
 from aiogram import types
+from aiogram.filters import Filter
 from aiogram.types import FSInputFile
 
 from data.config import locale, logs, admin_ids, second_ids
 from data.loader import cursor, sqlite, bot
-from aiogram.filters import Filter
 
 
 def tCurrent():
