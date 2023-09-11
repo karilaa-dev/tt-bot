@@ -1,5 +1,6 @@
 #folders
 venv/
+.idea/
 
 #files
 config.ini
