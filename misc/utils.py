@@ -2,6 +2,9 @@ import logging
 from datetime import datetime
 from time import time
 
+from aiogram import types
+from aiogram.types import FSInputFile
+
 from data.config import locale, logs
 from data.loader import cursor, sqlite, bot
 
@@ -33,15 +36,17 @@ def lang_func(usrid: int, usrlang: str):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, open('sqlite.db', 'rb'),
+        await bot.send_document(chat_id, FSInputFile('sqlite.db'),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
 
 
-async def start_manager(chat_id, message, lang):
-    if message.get_args() is not None:
-        args = message.get_args().lower()
+async def start_manager(chat_id, message: types.Message, lang):
+    text = message.text.split(' ')
+    print(message)
+    if len(text) > 1:
+        args = text[1].lower()
     else:
         args = ''
     if args == '':

@@ -1,40 +1,39 @@
-from io import BytesIO
+from aiogram import types, F, Router
+from aiogram.filters import Command
+from aiogram.types import BufferedInputFile
 
-from aiogram import types
-
-from data.config import admin_ids, second_ids, bot_token
-from data.loader import bot, cursor, dp
+from data.config import admin_ids, second_ids
+from data.loader import bot, cursor
 from misc.utils import backup_dp
 
+admin_router = Router(name=__name__)
 
-@dp.message_handler(commands=['msg', 'tell', 'say', 'send'],
-                    chat_type=types.ChatType.PRIVATE)
+
+@admin_router.message(Command('msg', 'tell', 'say', 'send'), F.chat.type == 'private')
 async def send_hi(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+    if message.from_user.id in admin_ids or message.from_user.id in second_ids:
         text = message.text.split(' ', 2)
         try:
             await bot.send_message(text[1], text[2])
-            await message.answer('done')
+            await message.answer('Message sent')
         except:
             await message.answer('ops')
 
 
-@dp.message_handler(commands=["export"], state='*')
+@admin_router.message(Command('export'))
 async def export_users(message: types.Message):
-    if message["from"]["id"] in admin_ids:
+    if message.from_user.id in admin_ids:
         users = cursor.execute('SELECT id FROM users').fetchall()
         users_result = ''
         for x in users:
             users_result += str(x[0]) + '\n'
         users_result = users_result.encode('utf-8')
-        result_file = BytesIO(users_result)
-        result_file.name = 'users.txt'
-        await message.answer_document(result_file, caption='User list')
+        await message.answer_document(BufferedInputFile(users_result, 'users.txt'), caption='User list')
 
 
-@dp.message_handler(commands=["backup"], state='*')
+@admin_router.message(Command('backup'))
 async def backup(message: types.Message):
-    if message["from"]["id"] in admin_ids or message["from"]["id"] in second_ids:
+    if message.from_user.id in admin_ids or message.from_user.id in second_ids:
         msg = await message.answer('<code>Backup started, please wait...</code>')
         await backup_dp(message.from_user.id)
         await msg.delete()
