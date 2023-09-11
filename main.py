@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from data.config import logs
 from data.loader import scheduler, sqlite, bot, dp
@@ -28,6 +29,8 @@ async def main() -> None:
         video_router,
         music_router
     )
+    bot_info = await bot.get_me()
+    logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')
     await dp.start_polling(bot)
 
 
