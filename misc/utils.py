@@ -60,7 +60,7 @@ async def start_manager(chat_id, message: Message, lang):
            f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
     await bot.send_message(logs, text)
     username = username.replace('\n', ' ')
-    logging.info(f'{message.chat.full_name} {username}{chat_id} {args or ""}')
+    logging.info(f'New User: {message.chat.full_name} {username}{chat_id} {args or ""}')
     if chat_id > 0:
         start_text = locale[lang]['start'] + locale[lang]['group_info']
     else:

@@ -49,7 +49,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             cursor.execute('INSERT INTO music VALUES (?,?,?)',
                            (chat_id, tCurrent(), video_id))
             sqlite.commit()
-            logging.info(f'{chat_id}: Music - {video_id}')
+            logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
         except:
             logging.error('Cant write into database')
     except:

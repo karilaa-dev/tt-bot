@@ -56,7 +56,7 @@ async def send_tiktok_video(message: Message):
             cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
                            (message.chat.id, tCurrent(), link, video_info['type'] == 'images'))
             sqlite.commit()
-            logging.info(f'{message.chat.id}: {link}')
+            logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {link}')
         except:
             logging.error('Cant write into database')
 
