@@ -1,16 +1,21 @@
-from aiogram import types
+from aiogram import F
+from aiogram import Router
+from aiogram.filters import CommandStart, Command
+from aiogram.types import Message
 
 from data.config import locale
-from data.loader import dp, bot, cursor, sqlite
+from data.loader import bot, cursor, sqlite
 from misc.utils import lang_func, start_manager
 
+user_router = Router(name=__name__)
 
-@dp.message_handler(commands=['start'], chat_type='private', state='*')
-async def send_start(message: types.Message):
+
+@user_router.message(CommandStart(), F.chat.type == 'private')
+async def send_start(message: Message) -> None:
     chat_id = message.chat.id
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
                          (chat_id,)).fetchone()[0]
-    lang = lang_func(chat_id, message['from']['language_code'])
+    lang = lang_func(chat_id, message.from_user.language_code)
     if req == 0:
         await start_manager(chat_id, message, lang)
     else:
@@ -22,10 +27,10 @@ async def send_start(message: types.Message):
         await message.answer(locale[lang]['lang_start'])
 
 
-@dp.message_handler(commands=['mode'], state='*')
-async def change_mode(message: types.message):
+@user_router.message(Command('mode'))
+async def change_mode(message: Message):
     chat_id = message.chat.id
-    lang = lang_func(chat_id, message['from']['language_code'])
+    lang = lang_func(chat_id, message.from_user.language_code)
     if message.chat.type != 'private':
         user_status = await bot.get_chat_member(message.chat.id, message.from_user.id)
         if user_status.status not in ['creator', 'administrator']:

@@ -1,20 +1,23 @@
 import logging
 
-from aiogram import types
+from aiogram import Router, F
+from aiogram.types import Message
 
 from data.config import locale
-from data.loader import dp, cursor, sqlite
+from data.loader import cursor, sqlite
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, start_manager
 from misc.video_types import send_video_result, send_image_result
 
+video_router = Router(name=__name__)
+
 api = ttapi()
 
 
-@dp.message_handler()
-async def send_tiktok_video(message: types.Message):
+@video_router.message(F.text)
+async def send_tiktok_video(message: Message):
     chat_id = message.chat.id
-    lang = lang_func(chat_id, message['from']['language_code'])
+    lang = lang_func(chat_id, message.from_user.language_code)
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
                          (chat_id,)).fetchone()[0]
     if req == 0:

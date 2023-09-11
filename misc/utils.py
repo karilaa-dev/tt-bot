@@ -2,7 +2,10 @@ import logging
 from datetime import datetime
 from time import time
 
-from data.config import locale, logs
+from aiogram.filters import Filter
+from aiogram.types import FSInputFile, Message
+
+from data.config import locale, logs, admin_ids, second_ids
 from data.loader import cursor, sqlite, bot
 
 
@@ -33,15 +36,16 @@ def lang_func(usrid: int, usrlang: str):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, open('sqlite.db', 'rb'),
+        await bot.send_document(chat_id, FSInputFile('sqlite-big.db'),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
 
 
-async def start_manager(chat_id, message, lang):
-    if message.get_args() is not None:
-        args = message.get_args().lower()
+async def start_manager(chat_id, message: Message, lang):
+    text = message.text.split(' ')
+    if len(text) > 1:
+        args = text[1].lower()
     else:
         args = ''
     if args == '':
@@ -63,3 +67,19 @@ async def start_manager(chat_id, message, lang):
         start_text = locale[lang]['start']
     await message.answer(start_text)
     await message.answer(locale[lang]['lang_start'])
+
+
+class IsAdmin(Filter):
+    async def __call__(self, message: Message) -> bool:
+        if message.from_user.id in admin_ids:
+            return True
+        else:
+            return False
+
+
+class IsSecondAdmin(Filter):
+    async def __call__(self, message: Message) -> bool:
+        if message.from_user.id in second_ids or message.from_user.id in admin_ids:
+            return True
+        else:
+            return False

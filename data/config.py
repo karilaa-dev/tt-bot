@@ -1,7 +1,8 @@
 from configparser import ConfigParser
 from json import loads as json_loads
 
-from aiogram.bot.api import TelegramAPIServer
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 
 config = ConfigParser()
 config.read("config.ini")
@@ -11,7 +12,7 @@ bot_token = config["bot"]["token"]
 logs = config["bot"]["logs"]
 upd_chat = config["bot"]["upd_chat"]
 upd_id = config["bot"]["upd_id"]
-local_server = TelegramAPIServer.from_base(config["bot"]["tg_server"])
+local_server = AiohttpSession(api=TelegramAPIServer.from_base(config["bot"]["tg_server"]))
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())

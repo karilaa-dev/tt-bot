@@ -1,17 +1,17 @@
 from asyncio import sleep
-from io import BytesIO
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaDocument, \
-    InputMediaPhoto
+from aiogram.types import BufferedInputFile
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.media_group import MediaGroupBuilder
 from httpx import AsyncClient, AsyncHTTPTransport
 
 from data.config import locale
 
 
 def music_button(video_id, lang):
-    keyb = InlineKeyboardMarkup()
-    keyb.add(InlineKeyboardButton(locale[lang]['get_sound'], callback_data=f'id/{video_id}'))
-    return keyb
+    keyb = InlineKeyboardBuilder()
+    keyb.button(text=locale[lang]['get_sound'], callback_data=f'id/{video_id}')
+    return keyb.as_markup()
 
 
 def result_caption(lang, link, group_warning=None):
@@ -24,12 +24,13 @@ def result_caption(lang, link, group_warning=None):
 async def send_video_result(temp_msg, video_info, lang, file_mode, link):
     video_id = video_info['id']
     async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
-        cover_request = await client.get(video_info['cover'], follow_redirects=True)
+        if file_mode is False:
+            cover_request = await client.get(video_info['cover'], follow_redirects=True)
         video_request = await client.get(video_info['data'], follow_redirects=True)
-    vid = BytesIO(video_request.content)
-    vid.name = f'{video_id}.mp4'
+    vid = BufferedInputFile(video_request.content, f'{video_id}.mp4')
     if file_mode is False:
-        await temp_msg.answer_video(video=vid, caption=result_caption(lang, link), thumb=BytesIO(cover_request.content),
+        await temp_msg.answer_video(video=vid, caption=result_caption(lang, link),
+                                    thumb=BufferedInputFile(cover_request.content, 'thumb.jpg'),
                                     height=video_info['height'],
                                     width=video_info['width'],
                                     duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
@@ -49,21 +50,20 @@ async def send_image_result(temp_msg, video_info, lang, file_mode, link, image_l
     client = AsyncClient(transport=AsyncHTTPTransport(retries=2))
     last_part = len(images) - 1
     for num, part in enumerate(images):
-        media = []
+        media_group = MediaGroupBuilder()
         for image in part:
             image_number += 1
             req = await client.get(image)
-            data = BytesIO(req.content)
+            data = BufferedInputFile(req.content, f'{video_id}-{image_number}.jpg')
             if file_mode:
-                data.name = f'{video_id}-{image_number}.jpg'
-                media.append(InputMediaDocument(data))
+                media_group.add_document(media=data)
             else:
-                media.append(InputMediaPhoto(data))
+                media_group.add_photo(media=data)
         if num < last_part:
             await sleep(2)
-            await temp_msg.answer_media_group(media, disable_notification=True)
+            await temp_msg.answer_media_group(media_group.build(), disable_notification=True)
         else:
-            final = await temp_msg.answer_media_group(media, disable_notification=True)
+            final = await temp_msg.answer_media_group(media_group.build(), disable_notification=True)
     await final[0].reply(result_caption(lang, link, bool(image_limit)), reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
     await temp_msg.delete()
