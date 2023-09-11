@@ -49,37 +49,40 @@ async def send_admin(message: types.Message):
 
 @dp.message_handler(filters.Text(equals=["👁‍🗨Check message"]))
 async def adb_check(message: types.Message):
-    if advert_message is not None:
-        await advert_message.send_copy(message["from"]["id"], disable_web_page_preview=True)
-    else:
-        await message.answer('⚠️You have not created a message yet')
+    if message["from"]["id"] in admin_ids:
+        if advert_message is not None:
+            await advert_message.send_copy(message["from"]["id"], disable_web_page_preview=True)
+        else:
+            await message.answer('⚠️You have not created a message yet')
 
 
 @dp.message_handler(
     filters.Text(equals=["📢Send message"]))
 async def adv_go(message: types.Message):
-    if advert_message is not None:
-        msg = await message.answer('<code>Announcement started</code>')
-        users = cursor.execute("SELECT id from users WHERE id > 0").fetchall()
-        num = 0
-        for x in users:
-            try:
-                await advert_message.send_copy(x[0], disable_web_page_preview=True)
-                num += 1
-            except:
-                pass
-            await sleep(0.04)
-        await msg.delete()
-        await message.answer(f'✅Message received by <b>{num}</b> users')
-    else:
-        await message.answer('⚠️You have not created a message yet')
+    if message["from"]["id"] in admin_ids:
+        if advert_message is not None:
+            msg = await message.answer('<code>Announcement started</code>')
+            users = cursor.execute("SELECT id from users WHERE id > 0").fetchall()
+            num = 0
+            for x in users:
+                try:
+                    await advert_message.send_copy(x[0], disable_web_page_preview=True)
+                    num += 1
+                except:
+                    pass
+                await sleep(0.04)
+            await msg.delete()
+            await message.answer(f'✅Message received by <b>{num}</b> users')
+        else:
+            await message.answer('⚠️You have not created a message yet')
 
 
 @dp.message_handler(
     filters.Text(equals=["✏Edit message"]))
 async def adv_change(message: types.Message):
-    await message.answer('📝Write new message', reply_markup=back_keyboard)
-    await AdminMenu.add.set()
+    if message["from"]["id"] in admin_ids:
+        await message.answer('📝Write new message', reply_markup=back_keyboard)
+        await AdminMenu.add.set()
 
 
 @dp.message_handler(content_types=ContentType.ANY, state=AdminMenu.add)
