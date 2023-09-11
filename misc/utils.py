@@ -2,9 +2,8 @@ import logging
 from datetime import datetime
 from time import time
 
-from aiogram import types
 from aiogram.filters import Filter
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, Message
 
 from data.config import locale, logs, admin_ids, second_ids
 from data.loader import cursor, sqlite, bot
@@ -43,7 +42,7 @@ async def backup_dp(chat_id: int):
         pass
 
 
-async def start_manager(chat_id, message: types.Message, lang):
+async def start_manager(chat_id, message: Message, lang):
     text = message.text.split(' ')
     print(message)
     if len(text) > 1:
@@ -72,7 +71,7 @@ async def start_manager(chat_id, message: types.Message, lang):
 
 
 class IsAdmin(Filter):
-    async def __call__(self, message: types.Message) -> bool:
+    async def __call__(self, message: Message) -> bool:
         if message.from_user.id in admin_ids:
             return True
         else:
@@ -80,7 +79,7 @@ class IsAdmin(Filter):
 
 
 class IsSecondAdmin(Filter):
-    async def __call__(self, message: types.Message) -> bool:
+    async def __call__(self, message: Message) -> bool:
         if message.from_user.id in second_ids or message.from_user.id in admin_ids:
             return True
         else:

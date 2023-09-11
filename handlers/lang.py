@@ -1,6 +1,7 @@
 from aiogram import F
-from aiogram import types, Router
+from aiogram import Router
 from aiogram.filters import Command
+from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale
@@ -17,7 +18,7 @@ lang_router = Router(name=__name__)
 
 
 @lang_router.message(Command('lang'))
-async def lang_change(message: types.Message):
+async def lang_change(message: Message):
     if message.chat.type != 'private':
         user_status = await bot.get_chat_member(message.chat.id, message.from_user.id)
         if user_status.status not in ['creator', 'administrator']:
@@ -27,7 +28,7 @@ async def lang_change(message: types.Message):
 
 
 @lang_router.callback_query(F.data.startswith('lang'))
-async def inline_lang(callback_query: types.CallbackQuery):
+async def inline_lang(callback_query: CallbackQuery):
     chat_id = callback_query.message.chat.id
     from_id = callback_query.from_user.id
     msg_id = callback_query.message.message_id

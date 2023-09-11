@@ -1,7 +1,7 @@
 import logging
 
-from aiogram import types, F, Router
-from aiogram.types import BufferedInputFile
+from aiogram import F, Router
+from aiogram.types import BufferedInputFile, CallbackQuery
 from httpx import AsyncClient, AsyncHTTPTransport
 
 from data.config import locale
@@ -15,7 +15,7 @@ api = ttapi()
 
 
 @dp.callback_query(F.data.startswith('id'))
-async def send_tiktok_sound(callback_query: types.CallbackQuery):
+async def send_tiktok_sound(callback_query: CallbackQuery):
     if callback_query.message.chat.type == 'private':
         group_chat = False
     else:

@@ -2,11 +2,11 @@ import csv
 from datetime import datetime
 from io import StringIO
 
-from aiogram import types, Router, F
+from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.loader import cursor
@@ -92,13 +92,13 @@ stats_user_keyboard = stats_user_keyboard.as_markup()
 
 
 @stats_router.callback_query(F.data == 'stats_graphs')
-async def stats_graphs(call: types.CallbackQuery):
+async def stats_graphs(call: CallbackQuery):
     await call.message.edit_text('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
                                  reply_markup=stats_graph_keyboard)
 
 
 @stats_router.callback_query(F.data.startswith('graph:'))
-async def stats_graph(call: types.CallbackQuery):
+async def stats_graph(call: CallbackQuery):
     graph_type, graph_time = call.data.split(':')[1:]
     temp = await call.message.edit_text('<code>Generating, please wait...</code>')
     time_now = tCurrent()
@@ -123,7 +123,7 @@ async def stats_graph(call: types.CallbackQuery):
 
 
 @stats_router.callback_query(F.data == 'stats_overall')
-async def stats_overall(call: types.CallbackQuery):
+async def stats_overall(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = get_stats_overall()
     keyb = InlineKeyboardBuilder()
@@ -138,13 +138,13 @@ async def stats_overall(call: types.CallbackQuery):
 
 
 @stats_router.callback_query(F.data == 'stats_user')
-async def stats_user(call: types.CallbackQuery, state: FSMContext):
+async def stats_user(call: CallbackQuery, state: FSMContext):
     msg = await call.message.edit_text('🔎Enter user id', reply_markup=stats_return_keyboard)
     await state.set_state(UserCheck.search)
 
 
 @stats_router.message(UserCheck.search)
-async def stats_user_search(message: types.Message, state: FSMContext):
+async def stats_user_search(message: Message, state: FSMContext):
     temp = await message.answer('<code>🔎Searching...</code>')
     req = cursor.execute('SELECT * FROM users WHERE id = ?', (message.text,)).fetchone()
     if req is None:
@@ -173,7 +173,7 @@ async def stats_user_search(message: types.Message, state: FSMContext):
 
 
 @stats_router.callback_query(F.data.startswith('user:'))
-async def stats_user_download(call: types.CallbackQuery):
+async def stats_user_download(call: CallbackQuery):
     user_id = call.data.split(':')[1]
     videos = cursor.execute('SELECT time, video FROM videos WHERE id = ?', (user_id,)).fetchall()
     if len(videos) == 0:
@@ -193,7 +193,7 @@ async def stats_user_download(call: types.CallbackQuery):
 
 
 @stats_router.callback_query(F.data == 'stats_referral')
-async def stats_other(call: types.CallbackQuery):
+async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗣Referral Stats</b>\n'
     top_referrals = cursor.execute(
@@ -213,7 +213,7 @@ async def stats_other(call: types.CallbackQuery):
 
 
 @stats_router.callback_query(F.data == 'stats_other')
-async def stats_other(call: types.CallbackQuery):
+async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗃Other Stats</b>\n'
     file_mode = cursor.execute('SELECT COUNT(id) FROM users WHERE file_mode = 1').fetchone()[0]
@@ -239,13 +239,13 @@ async def stats_other(call: types.CallbackQuery):
 
 
 @stats_router.callback_query(F.data == 'stats_detailed')
-async def stats_detailed(call: types.CallbackQuery):
+async def stats_detailed(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     await temp.edit_text(bot_stats(), reply_markup=stats_keyboard())
 
 
 @stats_router.callback_query(F.data.startswith('stats:'))
-async def stats_callback(call: types.CallbackQuery):
+async def stats_callback(call: CallbackQuery):
     group_type, stats_time = call.data.split(':')[1].split('/')
     stats_time = int(stats_time)
     await call.message.edit_text('Loading...')
@@ -255,12 +255,12 @@ async def stats_callback(call: types.CallbackQuery):
 
 
 @stats_router.message(Command('stats'), IsSecondAdmin())
-async def send_stats(message: types.Message, state: FSMContext):
+async def send_stats(message: Message, state: FSMContext):
     await state.clear()
     await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)
 
 
 @stats_router.callback_query(F.data == 'stats_menu')
-async def stats_menu(call: types.CallbackQuery, state: FSMContext):
+async def stats_menu(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await call.message.edit_text('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)

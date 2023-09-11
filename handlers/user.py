@@ -1,6 +1,7 @@
 from aiogram import F
-from aiogram import types, Router
+from aiogram import Router
 from aiogram.filters import CommandStart, Command
+from aiogram.types import Message
 
 from data.config import locale
 from data.loader import bot, cursor, sqlite
@@ -10,7 +11,7 @@ user_router = Router(name=__name__)
 
 
 @user_router.message(CommandStart(), F.chat.type == 'private')
-async def send_start(message: types.Message) -> None:
+async def send_start(message: Message) -> None:
     chat_id = message.chat.id
     req = cursor.execute('SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)',
                          (chat_id,)).fetchone()[0]
@@ -28,7 +29,7 @@ async def send_start(message: types.Message) -> None:
 
 
 @user_router.message(Command('mode'))
-async def change_mode(message: types.message):
+async def change_mode(message: Message):
     chat_id = message.chat.id
     lang = lang_func(chat_id, message.from_user.language_code)
     if message.chat.type != 'private':

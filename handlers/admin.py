@@ -1,6 +1,6 @@
-from aiogram import types, Router
+from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, Message
 
 from data.loader import bot, cursor
 from misc.utils import backup_dp, IsSecondAdmin
@@ -9,7 +9,7 @@ admin_router = Router(name=__name__)
 
 
 @admin_router.message(Command('msg', 'tell', 'say', 'send'), IsSecondAdmin())
-async def send_hi(message: types.Message):
+async def send_hi(message: Message):
     text = message.text.split(' ', 2)
     try:
         await bot.send_message(text[1], text[2])
@@ -19,7 +19,7 @@ async def send_hi(message: types.Message):
 
 
 @admin_router.message(Command('export'), IsSecondAdmin())
-async def export_users(message: types.Message):
+async def export_users(message: Message):
     users = cursor.execute('SELECT id FROM users').fetchall()
     users_result = ''
     for x in users:
@@ -29,7 +29,7 @@ async def export_users(message: types.Message):
 
 
 @admin_router.message(Command('backup'), IsSecondAdmin())
-async def backup(message: types.Message):
+async def backup(message: Message):
     msg = await message.answer('<code>Backup started, please wait...</code>')
     await backup_dp(message.from_user.id)
     await msg.delete()
