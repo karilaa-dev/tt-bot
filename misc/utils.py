@@ -44,7 +44,6 @@ async def backup_dp(chat_id: int):
 
 async def start_manager(chat_id, message: Message, lang):
     text = message.text.split(' ')
-    print(message)
     if len(text) > 1:
         args = text[1].lower()
     else:
