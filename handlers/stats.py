@@ -20,7 +20,7 @@ class UserCheck(StatesGroup):
     search = State()
 
 
-def stats_keyboard(chat_type='all', stats_time=0):
+def stats_keyboard(chat_type='all', stats_time=86400):
     keyb = InlineKeyboardBuilder()
     times = ['24h', 'Week', 'Month', 'All']
     chat_types = ['Users', 'Groups', 'All']

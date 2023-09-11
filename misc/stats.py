@@ -12,7 +12,7 @@ from data.loader import cursor, bot
 from misc.utils import tCurrent
 
 
-def bot_stats(chat_type='all', stats_time=0):
+def bot_stats(chat_type='all', stats_time=86400):
     if stats_time == 0:
         period = 0
     else:
