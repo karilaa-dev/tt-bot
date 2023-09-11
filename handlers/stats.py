@@ -9,10 +9,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import admin_ids, second_ids
 from data.loader import cursor
 from misc.stats import bot_stats, get_stats_overall, plot_async
-from misc.utils import tCurrent
+from misc.utils import tCurrent, IsSecondAdmin
 
 stats_router = Router(name=__name__)
 
@@ -255,11 +254,10 @@ async def stats_callback(call: types.CallbackQuery):
     await call.answer()
 
 
-@stats_router.message(Command('stats'))
+@stats_router.message(Command('stats'), IsSecondAdmin())
 async def send_stats(message: types.Message, state: FSMContext):
-    if message.from_user.id in admin_ids + second_ids:
-        await state.clear()
-        await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)
+    await state.clear()
+    await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)
 
 
 @stats_router.callback_query(F.data == 'stats_menu')

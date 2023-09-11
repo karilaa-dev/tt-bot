@@ -7,8 +7,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardRemove
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from data.config import admin_ids
 from data.loader import cursor
+from misc.utils import IsAdmin
 
 advert_router = Router(name=__name__)
 
@@ -35,24 +35,22 @@ class AdminMenu(StatesGroup):
 @advert_router.message(F.text == '↩Return')
 @advert_router.message(Command("stop", "cancel", "back"))
 async def cancel(message: types.Message, state: FSMContext):
-    if message.from_user.id in admin_ids:
-        await message.answer('↩You have returned', reply_markup=admin_keyboard)
-        await state.clear()
+    await message.answer('↩You have returned', reply_markup=admin_keyboard)
+    await state.clear()
 
 
 @advert_router.message(F.text == "🔽Hide keyboard")
+@advert_router.message(Command("hide"))
 async def send_clear_keyboard(message: types.Message):
-    if message.from_user.id in admin_ids:
-        await message.answer('🔽You successfully hide the keyboard', reply_markup=ReplyKeyboardRemove())
+    await message.answer('🔽You successfully hide the keyboard', reply_markup=ReplyKeyboardRemove())
 
 
-@advert_router.message(Command("admin"))
+@advert_router.message(Command("admin"), IsAdmin())
 async def send_admin(message: types.Message):
-    if message.from_user.id in admin_ids:
-        await message.answer('🤖You opened admin menu', reply_markup=admin_keyboard)
+    await message.answer('🤖You opened admin menu', reply_markup=admin_keyboard)
 
 
-@advert_router.message(F.text == "👁‍🗨Check message")
+@advert_router.message(F.text == "👁‍🗨Check message", IsAdmin())
 async def adb_check(message: types.Message):
     if advert_message is not None:
         await advert_message.copy_to(message.from_user.id)
@@ -60,7 +58,7 @@ async def adb_check(message: types.Message):
         await message.answer('⚠️You have not created a message yet')
 
 
-@advert_router.message(F.text == "📢Send message")
+@advert_router.message(F.text == "📢Send message", IsAdmin())
 async def adv_go(message: types.Message):
     if advert_message is not None:
         msg = await message.answer('<code>Announcement started</code>')
@@ -79,7 +77,7 @@ async def adv_go(message: types.Message):
         await message.answer('⚠️You have not created a message yet')
 
 
-@advert_router.message(F.text == "✏Edit message")
+@advert_router.message(F.text == "✏Edit message", IsAdmin())
 async def adv_change(message: types.Message, state: FSMContext):
     await message.answer('📝Write new message', reply_markup=back_keyboard)
     await state.set_state(AdminMenu.add)

@@ -5,8 +5,9 @@ from time import time
 from aiogram import types
 from aiogram.types import FSInputFile
 
-from data.config import locale, logs
+from data.config import locale, logs, admin_ids, second_ids
 from data.loader import cursor, sqlite, bot
+from aiogram.filters import Filter
 
 
 def tCurrent():
@@ -36,7 +37,7 @@ def lang_func(usrid: int, usrlang: str):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, FSInputFile('sqlite.db'),
+        await bot.send_document(chat_id, FSInputFile('sqlite-big.db'),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
@@ -68,3 +69,19 @@ async def start_manager(chat_id, message: types.Message, lang):
         start_text = locale[lang]['start']
     await message.answer(start_text)
     await message.answer(locale[lang]['lang_start'])
+
+
+class IsAdmin(Filter):
+    async def __call__(self, message: types.Message) -> bool:
+        if message.from_user.id in admin_ids:
+            return True
+        else:
+            return False
+
+
+class IsSecondAdmin(Filter):
+    async def __call__(self, message: types.Message) -> bool:
+        if message.from_user.id in second_ids or message.from_user.id in admin_ids:
+            return True
+        else:
+            return False
