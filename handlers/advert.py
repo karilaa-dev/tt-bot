@@ -1,4 +1,5 @@
 from asyncio import sleep
+from copy import copy
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -6,9 +7,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 from aiogram.types import ReplyKeyboardRemove
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
-from data.loader import cursor
+from data.loader import cursor, bot
 from misc.utils import IsAdmin
 
 advert_router = Router(name=__name__)
@@ -54,7 +55,7 @@ async def send_admin(message: Message):
 @advert_router.message(F.text == "👁‍🗨Check message", IsAdmin())
 async def adb_check(message: Message):
     if advert_message is not None:
-        await advert_message.copy_to(message.from_user.id)
+        await advert_message.copy_to(message.from_user.id, reply_markup=advert_message.reply_markup)
     else:
         await message.answer('⚠️You have not created a message yet')
 
@@ -67,7 +68,7 @@ async def adv_go(message: Message):
         num = 0
         for x in users:
             try:
-                await advert_message.copy_to(x[0])
+                await advert_message.copy_to(x[0], reply_markup=advert_message.reply_markup)
                 num += 1
             except:
                 pass
@@ -87,6 +88,6 @@ async def adv_change(message: Message, state: FSMContext):
 @advert_router.message(AdminMenu.add)
 async def notify_text(message: Message, state: FSMContext):
     global advert_message
-    advert_message = message
+    advert_message = copy(message)
     await message.answer('✅Message added', reply_markup=admin_keyboard)
     await state.clear()
