@@ -36,7 +36,7 @@ def lang_func(usrid: int, usrlang: str):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, FSInputFile('sqlite-big.db'),
+        await bot.send_document(chat_id, FSInputFile('sqlite.db'),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
