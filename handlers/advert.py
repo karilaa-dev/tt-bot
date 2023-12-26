@@ -55,7 +55,7 @@ async def send_admin(message: Message):
 @advert_router.message(F.text == "👁‍🗨Check message", IsAdmin())
 async def adb_check(message: Message):
     if advert_message is not None:
-        await advert_message.copy_to(message.from_user.id, reply_markup=advert_message.reply_markup)
+        await advert_message.send_copy(message.from_user.id)
     else:
         await message.answer('⚠️You have not created a message yet')
 
@@ -68,7 +68,7 @@ async def adv_go(message: Message):
         num = 0
         for x in users:
             try:
-                await advert_message.copy_to(x[0], reply_markup=advert_message.reply_markup)
+                await advert_message.send_copy(x[0])
                 num += 1
             except:
                 pass
