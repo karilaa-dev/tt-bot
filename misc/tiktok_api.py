@@ -25,21 +25,23 @@ class ttapi:
         video_id = self.redirect_regex.findall(url)[0]
         return video_id
 
-    async def get_id(self, link: str, chat_id=None):
+    async def regex_check(self, link: str):
         if self.web_regex.match(link) is not None:
-            if chat_id is not None:
-                await bot.send_chat_action(chat_id, 'upload_video')
             link = self.web_regex.findall(link)[0]
-            video_id = self.redirect_regex.findall(link)[0]
-            return video_id, link
+            return link, False
         elif self.mobile_regex.match(link) is not None:
-            if chat_id is not None:
-                await bot.send_chat_action(chat_id, 'upload_video')
             link = self.mobile_regex.findall(link)[0]
-            video_id = await self.get_id_from_mobile(link)
-            return video_id, link
+            return link, True
         else:
             return None, None
+
+    async def get_id(self, link: str, is_mobile: bool):
+        video_id = None
+        if not is_mobile:
+            video_id = self.redirect_regex.findall(link)[0]
+        elif is_mobile:
+            video_id = await self.get_id_from_mobile(link)
+        return video_id
 
     async def get_video_data(self, video_id: int):
 
