@@ -21,7 +21,7 @@ def result_caption(lang, link, group_warning=None):
     return result
 
 
-async def send_video_result(temp_msg, video_info, lang, file_mode, link):
+async def send_video_result(user_msg, video_info, lang, file_mode, link):
     video_id = video_info['id']
     async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
         if file_mode is False:
@@ -29,18 +29,17 @@ async def send_video_result(temp_msg, video_info, lang, file_mode, link):
         video_request = await client.get(video_info['data'], follow_redirects=True)
     vid = BufferedInputFile(video_request.content, f'{video_id}.mp4')
     if file_mode is False:
-        await temp_msg.answer_video(video=vid, caption=result_caption(lang, link),
+        await user_msg.reply_video(video=vid, caption=result_caption(lang, link),
                                     thumb=BufferedInputFile(cover_request.content, 'thumb.jpg'),
                                     height=video_info['height'],
                                     width=video_info['width'],
                                     duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
     else:
-        await temp_msg.answer_document(document=vid, caption=result_caption(lang, link),
+        await user_msg.reply_document(document=vid, caption=result_caption(lang, link),
                                        disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
-    await temp_msg.delete()
 
 
-async def send_image_result(temp_msg, video_info, lang, file_mode, link, image_limit):
+async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit):
     video_id = video_info['id']
     image_number = 0
     if image_limit:
@@ -61,10 +60,9 @@ async def send_image_result(temp_msg, video_info, lang, file_mode, link, image_l
                 media_group.add_photo(media=data)
         if num < last_part:
             await sleep(2)
-            await temp_msg.answer_media_group(media_group.build(), disable_notification=True)
+            await user_msg.reply_media_group(media_group.build(), disable_notification=True)
         else:
-            final = await temp_msg.answer_media_group(media_group.build(), disable_notification=True)
+            final = await user_msg.reply_media_group(media_group.build(), disable_notification=True)
     await final[0].reply(result_caption(lang, link, bool(image_limit)), reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
-    await temp_msg.delete()
     await client.aclose()

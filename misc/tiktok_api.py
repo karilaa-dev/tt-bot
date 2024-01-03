@@ -41,7 +41,10 @@ class ttapi:
         if not is_mobile:
             video_id = self.redirect_regex.findall(link)[0]
         elif is_mobile:
-            video_id = await self.get_id_from_mobile(link)
+            try:
+                video_id = await self.get_id_from_mobile(link)
+            except:
+                pass
         return video_id
 
     async def get_video_data(self, video_id: int):
