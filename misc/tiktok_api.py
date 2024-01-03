@@ -7,7 +7,7 @@ from data.loader import bot
 
 class ttapi:
     def __init__(self):
-        self.url = 'https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={0}'
+        self.url = 'https://api16-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={0}&pull_type=4&interest_list={"special_type"%3A0%2C"recommend_group"%3A1}'
         self.headers = {
             'User-Agent': 'com.ss.android.ugc.trill/494+Mozilla/5.0+(Linux;+Android+12;+2112123G+Build/SKQ1.211006.001;+wv)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Version/4.0+Chrome/107.0.5304.105+Mobile+Safari/537.36'
         }
