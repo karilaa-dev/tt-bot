@@ -3,10 +3,10 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji
 
-from data.config import locale
+from data.config import locale, admin_ids
 from data.loader import cursor, sqlite, bot
 from misc.tiktok_api import ttapi
-from misc.utils import tCurrent, start_manager
+from misc.utils import tCurrent, start_manager, error_catch
 from misc.video_types import send_video_result, send_image_result
 
 video_router = Router(name=__name__)
@@ -16,19 +16,19 @@ video_router = Router(name=__name__)
 async def send_tiktok_video(message: Message):
     # Api init
     api = ttapi()
+    # Statys message var
+    status_message = False
     # Group chat set
     group_chat = message.chat.type != 'private'
     #Get chat db info
     req = cursor.execute('SELECT lang, file_mode FROM users WHERE id = ?',
                          (message.chat.id,)).fetchone()
-    #Start manager if not in DB
-    if req is None:
-        #Set lang and file mode for new chat
+    if req is None: #Add new user if not in DB
+        # Set lang and file mode for new chat
         lang, file_mode = message.from_user.language_code, False
         #Start new chat manager
         await start_manager(message.chat.id, message, lang)
-    #Set lang and file mode if in DB
-    else:
+    else: #Set lang and file mode if in DB
         lang, file_mode = req[0], bool(req[1])
     try:
         #Check if link is valid
@@ -39,49 +39,56 @@ async def send_tiktok_video(message: Message):
             if not group_chat:
                 await message.reply(locale[lang]['link_error'])
             return
-        #If valid, send reaction
-        await message.react([ReactionTypeEmoji(emoji='👀')], disable_notification=True)
+        try: # If reaction is allowed, send it
+            await message.react([ReactionTypeEmoji(emoji='👀')], disable_notification=True)
+        except: # Send status message, if reaction is not allowed, and save it
+            status_message = await message.reply('⏳', disable_notification=True)
         #Get video id
         video_id = await api.get_id(link, is_mobile)
-        #If video id is bad, send reaction and error message
-        if video_id is None:
-            #Send reaction and error message, if not group chat
-            if not group_chat:
+        if video_id is None: #If video id is bad, send reaction and error message
+            if status_message: # Remove status message if it exists
+                await status_message.delete()
+            else: # Send reaction if status message is not used
                 await message.react([ReactionTypeEmoji(emoji='😢')])
-                await message.reply('Try creating new share link from tiktok, or you send a wrong link')#locale[lang]['link_error'])
+            if not group_chat: # Send error message, if not group chat
+                await message.reply(locale[lang]['bad_generated_link'])
             return
         #Get video info
         video_info = await api.video(video_id)
-        #If video info is bad, send reaction and error message
-        if video_info in [None, False]:
-            #Send reaction and error message, if not group chat
-            if not group_chat:
-                #Send error message if request didn't return info about video
-                if video_info is False:
-                    if is_mobile:
-                        await message.reply("Some bugged videos can't download from tiktok")#locale[lang]['link_error'])
-                    else:
-                        await message.reply("Some bugged videos can't download from tiktok, or you send a wrong link")
-                #Send error message if request is failed
-                else:
+        if video_info in [None, False]: #If video info is bad
+            if status_message: # Remove status message if it exists
+                await status_message.delete()
+            else: # Send reaction if status message is not used
+                await message.react([ReactionTypeEmoji(emoji='😢')])
+            if not group_chat: #Send error message, if not group chat
+                if video_info is False: #Send error message if request didn't return info about video
+                    if is_mobile: # Send error message about shadowban if video link is mobile
+                        await message.reply(locale[lang]['bugged_error_mobile'])
+                    else: # Mention user error if video link is not mobile
+                        await message.reply(locale[lang]['bugged_error'])
+                else: #Send error message if request is failed
                     await message.reply(locale[lang]['error'])
             return
         #Send reaction and upload video action
         await bot.send_chat_action(message.chat.id, 'upload_video')
-        await message.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
-        #Process images, if video is images
-        if video_info['type'] == 'images':
+        if not status_message: # If status message is not used, send reaction
+            try:
+                await message.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
+            except:
+                pass
+        if video_info['type'] == 'images': # Process images, if video is images
             if group_chat:
                 image_limit = 10
             else:
                 image_limit = None
             await send_image_result(message, video_info, lang, file_mode, link, image_limit)
-        #Process video, if video is video
-        else:
+        else: #Process video, if video is video
             await send_video_result(message, video_info, lang, file_mode, link)
-        await message.react([ReactionTypeEmoji(emoji='👍')], disable_notification=True)
-        #Try to write log into database
-        try:
+        if status_message:
+            await status_message.delete()
+        else:
+            await message.react([])
+        try: #Try to write log into database
             # Write log into database
             cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
                            (message.chat.id, tCurrent(), link, video_info['type'] == 'images'))
@@ -91,12 +98,20 @@ async def send_tiktok_video(message: Message):
         # If cant write log into database or log into console
         except:
             logging.error('Cant write into database')
-    # If something went wrong
-    except:
+    except Exception as e: # If something went wrong
+        error_text = error_catch(e)
+        logging.error(error_text)
+        if message.chat.id in admin_ids:
+            await message.reply('<code>{0}</code>'.format(error_text))
         try:
-            await message.react([ReactionTypeEmoji(emoji='😢')])
+            if status_message: # Remove status message if it exists
+                await status_message.delete()
+            if not group_chat:
+                await message.reply(locale[lang]['error'])
+                if not status_message:
+                    await message.react([ReactionTypeEmoji(emoji='😢')])
+            else:
+                if not status_message:
+                    await message.react([])
         except:
             pass
-        if not group_chat:
-            await message.reply(locale[lang]['error'])
-        return

@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
+from sys import exc_info
 from time import time
+from traceback import format_exception
 
 from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message
@@ -83,3 +85,9 @@ class IsSecondAdmin(Filter):
             return True
         else:
             return False
+
+def error_catch(e):
+    error_type, error_instance, tb = exc_info()
+    tb_str = format_exception(error_type, error_instance, tb)
+    error_message = "".join(tb_str)
+    return error_message

@@ -39,6 +39,23 @@ async def send_video_result(user_msg, video_info, lang, file_mode, link):
                                        disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
 
 
+async def send_music_result(query_msg, music_info, lang, group_chat):
+    video_id = music_info['id']
+    async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
+        audio_request = await client.get(music_info['data'], follow_redirects=True)
+        cover_request = await client.get(music_info['cover'], follow_redirects=True)
+    audio = BufferedInputFile(audio_request.content, f'{video_id}.mp3')
+    cover = BufferedInputFile(cover_request.content, f'{video_id}.jpg')
+    caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
+                                                 music_info['cover'])
+    # Send music
+    await query_msg.reply_audio(audio,
+                         caption=caption, title=music_info['title'],
+                         performer=music_info['author'],
+                         duration=music_info['duration'], thumbnail=cover,
+                         disable_notification=group_chat)
+
+
 async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit):
     video_id = video_info['id']
     image_number = 0
