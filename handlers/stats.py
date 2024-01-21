@@ -60,14 +60,15 @@ stats_graph_keyboard = InlineKeyboardBuilder()
 stats_graph_keyboard.button(text='👥Daily', callback_data='graph:users:daily')
 stats_graph_keyboard.button(text='👥Weekly', callback_data='graph:users:weekly')
 stats_graph_keyboard.button(text='👥Monthly', callback_data='graph:users:monthly')
-stats_graph_keyboard.button(text='👥Total', callback_data='graph:users:total')
 
 stats_graph_keyboard.button(text='📹Daily', callback_data='graph:videos:daily')
 stats_graph_keyboard.button(text='📹Weekly', callback_data='graph:videos:weekly')
 stats_graph_keyboard.button(text='📹Monthly', callback_data='graph:videos:monthly')
+
+stats_graph_keyboard.button(text='👥Total', callback_data='graph:users:total')
 stats_graph_keyboard.button(text='📹Total', callback_data='graph:videos:total')
 stats_graph_keyboard.button(text='↩Return', callback_data='stats_menu')
-stats_graph_keyboard.adjust(4, 5)
+stats_graph_keyboard.adjust(3, 3, 2, 1)
 stats_graph_keyboard = stats_graph_keyboard.as_markup()
 
 stats_menu_keyboard = InlineKeyboardBuilder()
