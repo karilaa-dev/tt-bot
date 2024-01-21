@@ -83,7 +83,7 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
                 time > {period} and
                 {id_condition}"""
 
-    df = pd.read_sql_query(query, sqlite3.connect('sqlite-big.db'))
+    df = pd.read_sql_query(query, sqlite3.connect('sqlite.db'))
     df["time"] = pd.to_datetime(df["time"], unit="s")
     df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
 
