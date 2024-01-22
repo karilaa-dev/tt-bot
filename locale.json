@@ -1,10 +1,12 @@
 {
   "langs": [
     "en",
+    "id",
     "ru",
-    "ua",
-    "hi",
-    "id"
+    "uk",
+    "vi",
+    "hi"
+
   ],
   "en": {
     "lang_name": "English🇺🇸",
@@ -48,7 +50,7 @@
     "bugged_error": "<b>⚠️ Некоторые видео не могут быть загружены, потому что TikTok скрыл это видео!</b>\nИли вы отправляете неправильную ссылку!",
     "bad_generated_link": "<b>⚠️ Попробуйте создать ссылку снова!</b>\nИли вы отправляете неправильную ссылку!"
   },
-  "ua": {
+  "uk": {
     "lang_name": "Український🇺🇦",
     "error": "<b>Щось пішло не так 🥲</b>\nНе могли б ви спробувати ще раз?…",
     "link_error": "Можливо, щось не так з вашим посиланням🥲",
@@ -110,5 +112,26 @@
     "bugged_error_mobile": "<b>⚠️ Beberapa video tidak dapat diunduh karena TikTok menyembunyikan video ini!</b>",
     "bugged_error": "<b>⚠️ Beberapa video tidak dapat diunduh karena TikTok menyembunyikan video ini!</b>\nAtau Anda mengirim tautan yang salah!",
     "bad_generated_link": "<b>⚠️ Coba buat tautan lagi</b>\nAtau Anda mengirim tautan yang salah!"
+  },
+  "vi": {
+    "lang_name": "Tiếng Anh\uD83C\uDDFB\uD83C\uDDF3",
+    "error": "<b>Có gì đó sai sai🥲</b>\nBạn có thể thử lại được không?…",
+    "link_error": "Có thể có gì đó sai với liên kết của bạn🥲",
+    "lang_start": "Ngôn ngữ được đặt thành tiếng Việt\uD83C\uDDFB\uD83C\uDDF3.\nNó có thể được thay đổi bằng lệnh /lang",
+    "lang": "Ngôn ngữ được đặt thành tiếng Việt\uD83C\uDDFB\uD83C\uDDF3",
+    "start": "Bạn đã khởi động <b>No Watermark TikTok</b>\nBot này cho phép bạn tải xuống <b>video và âm thanh</b> từ TikTok <i><b>không có dấu nhận thương hiệu</b></i>.\nGửi liên kết video để bắt đầu",
+    "get_sound": "Tải về âm thanh",
+    "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
+    "result": "<a href='{1}'>Nguồn</a>\n\n<b>{0}</b>",
+    "result_song": "<a href='{1}'>Bìa bài hát</a>\n\n<b>{0}</b>",
+    "file_mode_off": "<b>\uD83D\uDCC2Chế độ tệp đã tắt</b>",
+    "file_mode_on": "<b>\uD83D\uDCC2Chế độ tệp đã bật</b>",
+    "downloading": "⏳ Đang tải xuống video…",
+    "not_admin": "⚠️ Bạn không phải là quản trị viên của nhóm này!",
+    "group_info": "<i>\n\nBot này cũng hoạt động trong cuộc trò chuyện nhóm. Chỉ cần thêm bot này vào nhóm và gửi liên kết video!</i>",
+    "group_warning": "\n\n<code>Do hạn chế của Telegram \nvề giới hạn tin nhắn trong nhóm, \nbot chỉ gửi mười hình ảnh đầu tiên!</code>",
+    "bugged_error_mobile": "<b>⚠️ Một số video không thể tải xuống vì TikTok đã ẩn video này!</b>",
+    "bugged_error": "<b>⚠️ Một số video không thể tải xuống vì TikTok đã ẩn video này!</b>\nHoặc bạn đang gửi liên kết sai!",
+    "bad_generated_link": "<b>⚠️ Hãy thử tạo liên kết lại</b>\nHoặc bạn đang gửi liên kết sai!"
   }
 }
