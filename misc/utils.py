@@ -15,22 +15,22 @@ def tCurrent():
     return int(time())
 
 
-def lang_func(usrid: int, usrlang: str):
+def lang_func(usrid: int, usrlang: str, no_request = False):
     try:
-        try:
+        if not no_request:
             lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?",
-                                      (usrid,)).fetchone()[0]
-        except:
-            lang_req = None
-        if lang_req is not None:
-            lang = lang_req
+                                      (usrid,)).fetchone()
         else:
-            lang = usrlang
-            if lang not in locale['langs']:
-                return 'en'
-            cursor.execute('UPDATE users SET lang = ? WHERE id = ?',
-                           (lang, usrid))
-            sqlite.commit()
+            lang_req = None
+
+        if lang_req is not None:
+            lang = lang_req[0]
+        else:
+            if usrlang not in locale['langs']:
+                lang = 'en'
+            else:
+                lang = usrlang
+
         return lang
     except:
         return 'en'

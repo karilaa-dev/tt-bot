@@ -6,7 +6,7 @@ from aiogram.types import Message, ReactionTypeEmoji
 from data.config import locale, admin_ids
 from data.loader import cursor, sqlite, bot
 from misc.tiktok_api import ttapi
-from misc.utils import tCurrent, start_manager, error_catch
+from misc.utils import tCurrent, start_manager, error_catch, lang_func
 from misc.video_types import send_video_result, send_image_result
 
 video_router = Router(name=__name__)
@@ -25,11 +25,13 @@ async def send_tiktok_video(message: Message):
                          (message.chat.id,)).fetchone()
     if req is None: #Add new user if not in DB
         # Set lang and file mode for new chat
-        lang, file_mode = message.from_user.language_code, False
+        lang = lang_func(message.chat.id, message.from_user.language_code, True)
+        file_mode = False
         #Start new chat manager
         await start_manager(message.chat.id, message, lang)
     else: #Set lang and file mode if in DB
         lang, file_mode = req[0], bool(req[1])
+
     try:
         #Check if link is valid
         link, is_mobile = await api.regex_check(message.text)
