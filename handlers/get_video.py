@@ -70,8 +70,6 @@ async def send_tiktok_video(message: Message):
                 else: #Send error message if request is failed
                     await message.reply(locale[lang]['error'])
             return
-        #Send reaction and upload video action
-        await bot.send_chat_action(message.chat.id, 'upload_video')
         if not status_message: # If status message is not used, send reaction
             try:
                 await message.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
@@ -81,12 +79,17 @@ async def send_tiktok_video(message: Message):
             if len(video_info['data']) > 50: # If images are more than 50, propose to download only last 10
                 await message.reply(locale[lang]['to_much_images_warning'].format(link), reply_markup=image_ask_button(video_id, lang))
                 return await message.react([])
+            # Send upload image action
+            await bot.send_chat_action(message.chat.id, 'upload_photo')
             if group_chat:
                 image_limit = 10
             else:
                 image_limit = None
             await send_image_result(message, video_info, lang, file_mode, link, image_limit)
         else: #Process video, if video is video
+            # Send upload video action
+            await bot.send_chat_action(message.chat.id, 'upload_video')
+            # Send video
             await send_video_result(message, video_info, lang, file_mode, link)
         if status_message:
             await status_message.delete()
@@ -157,7 +160,7 @@ async def send_images_custon(callback_query: CallbackQuery):
                 await call_msg.reply_markup(reply_markup=image_ask_button(video_id, lang))
             return
         # Send upload action
-        await bot.send_chat_action(chat_id, 'upload_video')
+        await bot.send_chat_action(chat_id, 'upload_photo')
         if not group_chat:  # Send reaction if not group chat
             await call_msg.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
             image_limit = None
