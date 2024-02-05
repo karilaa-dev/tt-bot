@@ -13,6 +13,13 @@ def music_button(video_id, lang):
     keyb.button(text=locale[lang]['get_sound'], callback_data=f'id/{video_id}')
     return keyb.as_markup()
 
+def image_ask_button(video_id, lang):
+    keyb = InlineKeyboardBuilder()
+    keyb.button(text=locale[lang]['get_last_10'], callback_data=f'images/last10/{video_id}')
+    keyb.button(text=locale[lang]['get_all'], callback_data=f'images/all/{video_id}')
+    keyb.adjust(1, 1)
+    return keyb.as_markup()
+
 
 def result_caption(lang, link, group_warning=None):
     result = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
@@ -56,13 +63,20 @@ async def send_music_result(query_msg, music_info, lang, group_chat):
                          disable_notification=group_chat)
 
 
-async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit):
+async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit, cheat_mode=False):
     video_id = video_info['id']
     image_number = 0
     if image_limit:
         images = [video_info['data'][:image_limit]]
+        sleep_time = 0
     else:
         images = [video_info['data'][x:x + 10] for x in range(0, len(video_info['data']), 10)]
+        image_pages = len(images)
+        match image_pages:
+            case 1:     sleep_time = 0
+            case 2:     sleep_time = 1
+            case 3 | 4: sleep_time = 2
+            case _:     sleep_time = 3
     client = AsyncClient(transport=AsyncHTTPTransport(retries=2))
     last_part = len(images) - 1
     for num, part in enumerate(images):
@@ -76,7 +90,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, link, image_l
             else:
                 media_group.add_photo(media=data)
         if num < last_part:
-            await sleep(2)
+            await sleep(sleep_time)
             await user_msg.reply_media_group(media_group.build(), disable_notification=True)
         else:
             final = await user_msg.reply_media_group(media_group.build(), disable_notification=True)

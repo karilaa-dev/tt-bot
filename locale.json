@@ -27,7 +27,10 @@
     "group_warning": "\n\n<code>Due to Telegram restrictions \nabout message limit in groups, \nbot send only first ten images!</code>",
     "bugged_error_mobile": "<b>⚠️ Some video can't be downloaded because TikTok shadowbanned this video!</b>",
     "bugged_error": "<b>⚠️ Some video can't be downloaded because TikTok shadowbanned this video!</b>\nOr you are sending the wrong link!",
-    "bad_generated_link": "<b>⚠️ Try to create the link again</b>\nOr you are sending the wrong link!"
+    "bad_generated_link": "<b>⚠️ Try to create the link again</b>\nOr you are sending the wrong link!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ Too much images in this TikTok!</b>\nYou can download only the last 10 images or all of them, but it will take a few minutes and it's gonna flood the chat...",
+    "get_last_10": "✅Get last 10 images",
+    "get_all": "⚠️Get all images"
   },
   "ru": {
     "lang_name": "Русский🇷🇺",
@@ -48,7 +51,10 @@
     "group_warning": "\n\n<code>Из-за ограничений Телеграма о \nлимите сообщений в группах, \nбот отправляет только \nпервые десять изображений!</code>",
     "bugged_error_mobile": "<b>⚠️Н екоторые видео не могут быть загружены, потому что TikTok скрыл это видео!</b>",
     "bugged_error": "<b>⚠️ Некоторые видео не могут быть загружены, потому что TikTok скрыл это видео!</b>\nИли вы отправляете неправильную ссылку!",
-    "bad_generated_link": "<b>⚠️ Попробуйте создать ссылку снова!</b>\nИли вы отправляете неправильную ссылку!"
+    "bad_generated_link": "<b>⚠️ Попробуйте создать ссылку снова!</b>\nИли вы отправляете неправильную ссылку!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ Слишком много изображений в этом TikTok!</b>\nВы можете загрузить только последние 10 изображений или все из них, но это займет несколько минут и это заспамит чат…",
+    "get_last_10": "✅Получить последние 10 изображений",
+    "get_all": "⚠️Получить все изображения"
   },
   "uk": {
     "lang_name": "Український🇺🇦",
@@ -69,7 +75,10 @@
     "group_warning": "\n\n<code>Через обмеження Телеграма про \nліміт повідомлень в групах, \nбот надсилає тільки \nперші десять зображень!</code>",
     "bugged_error_mobile": "<b>⚠️ Деякі відео не можуть бути завантажені, тому що TikTok приховав це відео!</b>",
     "bugged_error": "<b>⚠️ Деякі відео не можуть бути завантажені, тому що TikTok приховав це відео!</b>\nАбо ви надсилаєте неправильне посилання!",
-    "bad_generated_link": "<b>⚠️ Спробуйте створити посилання знову!</b>\nАбо ви надсилаєте неправильне посилання!"
+    "bad_generated_link": "<b>⚠️ Спробуйте створити посилання знову!</b>\nАбо ви надсилаєте неправильне посилання!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ Занадто багато зображень в цьому TikTok!</b>\nВи можете завантажити лише останні 10 зображень або всі, але це займе кілька хвилин і це заспамить чат…",
+    "get_last_10": "✅Отримати останні 10 зображень",
+    "get_all": "⚠️Отримати всі зображення"
   },
   "hi": {
     "lang_name": "हिंदी🇮🇳",
@@ -90,7 +99,10 @@
     "group_warning": "\n\n<code>टेलीग्राम की एक सीमा के कारण \nग्रुप में भेजे जाने वाले संदेशों की \nसीमा है, इसलिए बॉट आपको केवल \nपहले 10 तस्वीरें भेजेगा!</code>",
     "bugged_error_mobile": "<b>⚠️ कुछ वीडियो डाउनलोड नहीं किए जा सकते क्योंकि टिकटॉक ने इस वीडियो को छिपा दिया है!</b>",
     "bugged_error": "<b>⚠️ कुछ वीडियो डाउनलोड नहीं किए जा सकते क्योंकि टिकटॉक ने इस वीडियो को छिपा दिया है!</b>\nया आप गलत लिंक भेज रहे हैं!",
-    "bad_generated_link": "<b>⚠️ लिंक फिर से बनाने की कोशिश करें</b>\nया आप गलत लिंक भेज रहे हैं!"
+    "bad_generated_link": "<b>⚠️ लिंक फिर से बनाने की कोशिश करें</b>\nया आप गलत लिंक भेज रहे हैं!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ इस TikTok में बहुत सारी तस्वीरें हैं!</b>\nआप केवल पिछले 10 तस्वीरें या उनमें से सभी डाउनलोड कर सकते हैं, लेकिन यह कुछ मिनट लेगा और यह चैट को फ्लड कर देगा…",
+    "get_last_10": "✅पिछले 10 तस्वीरें प्राप्त करें",
+    "get_all": "⚠️सभी तस्वीरें प्राप्त करें"
   },
   "id": {
     "lang_name": "Bahasa Inggris\uD83C\uDDEE\uD83C\uDDE9",
@@ -111,7 +123,10 @@
     "group_warning": "\n\n<code>Karena batasan Telegram \ntentang batas pesan di grup, \nbot hanya mengirim sepuluh gambar pertama!</code>",
     "bugged_error_mobile": "<b>⚠️ Beberapa video tidak dapat diunduh karena TikTok menyembunyikan video ini!</b>",
     "bugged_error": "<b>⚠️ Beberapa video tidak dapat diunduh karena TikTok menyembunyikan video ini!</b>\nAtau Anda mengirim tautan yang salah!",
-    "bad_generated_link": "<b>⚠️ Coba buat tautan lagi</b>\nAtau Anda mengirim tautan yang salah!"
+    "bad_generated_link": "<b>⚠️ Coba buat tautan lagi</b>\nAtau Anda mengirim tautan yang salah!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ Terlalu banyak gambar dalam TikTok ini!</b>\nAnda hanya dapat mengunduh sepuluh gambar terakhir atau semuanya, tetapi ini akan memakan waktu beberapa menit dan akan membanjiri obrolan…",
+    "get_last_10": "✅Dapatkan 10 gambar terakhir",
+    "get_all": "⚠️Dapatkan semua gambar"
   },
   "vi": {
     "lang_name": "Tiếng Anh\uD83C\uDDFB\uD83C\uDDF3",
@@ -132,6 +147,9 @@
     "group_warning": "\n\n<code>Do hạn chế của Telegram \nvề giới hạn tin nhắn trong nhóm, \nbot chỉ gửi mười hình ảnh đầu tiên!</code>",
     "bugged_error_mobile": "<b>⚠️ Một số video không thể tải xuống vì TikTok đã ẩn video này!</b>",
     "bugged_error": "<b>⚠️ Một số video không thể tải xuống vì TikTok đã ẩn video này!</b>\nHoặc bạn đang gửi liên kết sai!",
-    "bad_generated_link": "<b>⚠️ Hãy thử tạo liên kết lại</b>\nHoặc bạn đang gửi liên kết sai!"
+    "bad_generated_link": "<b>⚠️ Hãy thử tạo liên kết lại</b>\nHoặc bạn đang gửi liên kết sai!",
+    "to_much_images_warning": "{0}\n\n<b>⚠️ Quá nhiều hình ảnh trong TikTok này!</b>\nBạn chỉ có thể tải xuống mười hình ảnh cuối cùng hoặc tất cả chúng, nhưng điều này sẽ mất vài phút và sẽ làm ngập chát…",
+    "get_last_10": "✅Lấy 10 hình ảnh cuối cùng",
+    "get_all": "⚠️Lấy tất cả hình ảnh"
   }
 }

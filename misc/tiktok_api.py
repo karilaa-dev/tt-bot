@@ -86,7 +86,8 @@ class ttapi:
             'width': video_info['video']['play_addr']['width'],
             'height': video_info['video']['play_addr'][
                 'height'],
-            'duration': video_info['video']['duration']
+            'duration': video_info['video']['duration'],
+            'author': video_info['author']['unique_id'],
         }
 
     async def music(self, video_id: int):
