@@ -27,10 +27,10 @@ class ttapi:
         return video_id
 
     async def regex_check(self, link: str):
-        if self.web_regex.match(link) is not None:
+        if self.web_regex.search(link) is not None:
             link = self.web_regex.findall(link)[0]
             return link, False
-        elif self.mobile_regex.match(link) is not None:
+        elif self.mobile_regex.search(link) is not None:
             link = self.mobile_regex.findall(link)[0]
             return link, True
         else:
