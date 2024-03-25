@@ -1,6 +1,5 @@
 import re
 
-from httpx import AsyncClient, AsyncHTTPTransport
 import aiohttp
 
 
@@ -22,11 +21,10 @@ class ttapi:
         self.mus_regex = re.compile(r'https?://www.tiktok.com/music/[^\s]+')
 
     async def get_id_from_mobile(self, link: str):
-        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
-            response = await client.get(link)
-            url = (response.text)[9:-26]
-        video_id = self.redirect_regex.findall(url)[0]
-        return video_id
+        async with aiohttp.ClientSession() as client:
+            async with client.get(link) as response:
+                url = response.url
+        return url.name
 
     async def regex_check(self, link: str):
         if self.web_regex.search(link) is not None:
@@ -50,7 +48,6 @@ class ttapi:
         return video_id
 
     async def get_video_data(self, video_id: int):
-
         async with aiohttp.ClientSession() as client:
             self.params['aweme_id'] = video_id
             async with client.get(self.url, params=self.params) as response:
