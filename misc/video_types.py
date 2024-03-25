@@ -13,6 +13,7 @@ def music_button(video_id, lang):
     keyb.button(text=locale[lang]['get_sound'], callback_data=f'id/{video_id}')
     return keyb.as_markup()
 
+
 def image_ask_button(video_id, lang):
     keyb = InlineKeyboardBuilder()
     keyb.button(text=locale[lang]['get_last_10'], callback_data=f'images/last10/{video_id}')
@@ -38,13 +39,13 @@ async def send_video_result(user_msg, video_info, lang, file_mode, link):
             video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
     if file_mode is False:
         await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, link),
-                                    thumb=BufferedInputFile(cover_bytes, 'thumb.jpg'),
-                                    height=video_info['height'],
-                                    width=video_info['width'],
-                                    duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
+                                   thumb=BufferedInputFile(cover_bytes, 'thumb.jpg'),
+                                   height=video_info['height'],
+                                   width=video_info['width'],
+                                   duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
     else:
         await user_msg.reply_document(document=video_bytes, caption=result_caption(lang, link),
-                                       disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
+                                      disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
 
 
 async def send_music_result(query_msg, music_info, lang, group_chat):
@@ -60,10 +61,10 @@ async def send_music_result(query_msg, music_info, lang, group_chat):
                                                  music_info['cover'])
     # Send music
     await query_msg.reply_audio(audio,
-                         caption=caption, title=music_info['title'],
-                         performer=music_info['author'],
-                         duration=music_info['duration'], thumbnail=cover,
-                         disable_notification=group_chat)
+                                caption=caption, title=music_info['title'],
+                                performer=music_info['author'],
+                                duration=music_info['duration'], thumbnail=cover,
+                                disable_notification=group_chat)
 
 
 async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit, cheat_mode=False):

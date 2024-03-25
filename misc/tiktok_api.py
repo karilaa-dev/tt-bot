@@ -7,14 +7,14 @@ class ttapi:
     def __init__(self):
         self.url = 'https://api22-normal-c-alisg.tiktokv.com/aweme/v1/feed/'
         self.params = {"pull_type": 4, "interest_list": "{\"special_type\":0,\"recommend_group\":1}",
-            "iid": "7318518857994389254",
-            "device_id": "7318517321748022790",
-            "channel": "googleplay",
-            "app_name": "musical_ly",
-            "version_code": "300904",
-            "device_platform": "android",
-            "device_type": "ASUS_Z01QD",
-            "os_version": "9"}
+                       "iid": "7318518857994389254",
+                       "device_id": "7318517321748022790",
+                       "channel": "googleplay",
+                       "app_name": "musical_ly",
+                       "version_code": "300904",
+                       "device_platform": "android",
+                       "device_type": "ASUS_Z01QD",
+                       "os_version": "9"}
         self.redirect_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+?\/([0-9]+)')
         self.mobile_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+')
         self.web_regex = re.compile(r'https?:\/\/www.tiktok.com\/@[^\s]+?\/video\/[0-9]+')

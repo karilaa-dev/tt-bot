@@ -15,7 +15,7 @@ def tCurrent():
     return int(time())
 
 
-def lang_func(usrid: int, usrlang: str, no_request = False):
+def lang_func(usrid: int, usrlang: str, no_request=False):
     try:
         if not no_request:
             lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?",
@@ -85,6 +85,7 @@ class IsSecondAdmin(Filter):
             return True
         else:
             return False
+
 
 def error_catch(e):
     error_type, error_instance, tb = exc_info()

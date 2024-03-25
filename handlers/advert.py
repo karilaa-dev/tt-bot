@@ -7,9 +7,9 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 from aiogram.types import ReplyKeyboardRemove
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from data.loader import cursor, bot
+from data.loader import cursor
 from misc.utils import IsAdmin
 
 advert_router = Router(name=__name__)
