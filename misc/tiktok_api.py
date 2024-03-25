@@ -1,28 +1,30 @@
 import re
 
 from httpx import AsyncClient, AsyncHTTPTransport
-
-from data.loader import bot
+import aiohttp
 
 
 class ttapi:
     def __init__(self):
-        self.url = 'https://api22-normal-c-useast2a.tiktokv.com/aweme/v1/feed/'
-        self.params = {"pull_type": 4, "interest_list": "{\"special_type\":0,\"recommend_group\":1}"}
-        self.headers = {
-            'User-Agent': 'com.ss.android.ugc.trill/494+Mozilla/5.0+(Linux;+Android+12;+2112123G+Build/SKQ1.211006.001;+wv)+AppleWebKit/537.36+(KHTML,+like+Gecko)+Version/4.0+Chrome/107.0.5304.105+Mobile+Safari/537.36'
-        }
+        self.url = 'https://api22-normal-c-alisg.tiktokv.com/aweme/v1/feed/'
+        self.params = {"pull_type": 4, "interest_list": "{\"special_type\":0,\"recommend_group\":1}",
+            "iid": "7318518857994389254",
+            "device_id": "7318517321748022790",
+            "channel": "googleplay",
+            "app_name": "musical_ly",
+            "version_code": "300904",
+            "device_platform": "android",
+            "device_type": "ASUS_Z01QD",
+            "os_version": "9"}
         self.redirect_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+?\/([0-9]+)')
         self.mobile_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+')
         self.web_regex = re.compile(r'https?:\/\/www.tiktok.com\/@[^\s]+?\/video\/[0-9]+')
         self.mus_regex = re.compile(r'https?://www.tiktok.com/music/[^\s]+')
 
     async def get_id_from_mobile(self, link: str):
-
         async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
             response = await client.get(link)
             url = (response.text)[9:-26]
-
         video_id = self.redirect_regex.findall(url)[0]
         return video_id
 
@@ -49,13 +51,13 @@ class ttapi:
 
     async def get_video_data(self, video_id: int):
 
-        async with AsyncClient(transport=AsyncHTTPTransport(retries=2)) as client:
+        async with aiohttp.ClientSession() as client:
             self.params['aweme_id'] = video_id
-            response = await client.get(self.url, params=self.params, headers=self.headers)
-            try:
-                res = response.json()
-            except:
-                return None
+            async with client.get(self.url, params=self.params) as response:
+                try:
+                    res = await response.json()
+                except:
+                    return None
 
         if res is None or res['status_code'] != 0:
             return None
