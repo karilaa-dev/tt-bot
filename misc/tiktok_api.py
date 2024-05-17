@@ -139,7 +139,10 @@ class ttapi:
                 video_data.append(image["display_image"]["url_list"][0])
         else:
             video_type = 'video'
-            video_data = video_info['video']['play_addr_h264']['url_list'][0]
+            if 'play_addr_h264' in video_info['video']:
+                video_data = video_info['video']['play_addr_h264']['url_list'][0]
+            else:
+                video_data = video_info['video']['play_addr']['url_list'][0]
         return {
             'type': video_type,
             'data': video_data,
