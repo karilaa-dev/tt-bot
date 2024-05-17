@@ -45,18 +45,19 @@ async def send_tiktok_video(message: Message):
             await message.react([ReactionTypeEmoji(emoji='👀')], disable_notification=True)
         except:  # Send status message, if reaction is not allowed, and save it
             status_message = await message.reply('⏳', disable_notification=True)
-        # Get video id
-        video_id = await api.get_id(link, is_mobile)
-        if video_id is None:  # If video id is bad, send reaction and error message
-            if status_message:  # Remove status message if it exists
-                await status_message.delete()
-            else:  # Send reaction if status message is not used
-                await message.react([ReactionTypeEmoji(emoji='😢')])
-            if not group_chat:  # Send error message, if not group chat
-                await message.reply(locale[lang]['bad_generated_link'])
-            return
+        # # Get video id
+        # video_id = await api.get_id(link, is_mobile)
+        # if video_id is None:  # If video id is bad, send reaction and error message
+        #     if status_message:  # Remove status message if it exists
+        #         await status_message.delete()
+        #     else:  # Send reaction if status message is not used
+        #         await message.react([ReactionTypeEmoji(emoji='😢')])
+        #     if not group_chat:  # Send error message, if not group chat
+        #         await message.reply(locale[lang]['bad_generated_link'])
+        #     return
         # Get video info
-        video_info = await api.video(video_id)
+        # video_info = await api.video(video_id)
+        video_info = await api.rapid_video(link)
         if video_info in [None, False]:  # If video info is bad
             if status_message:  # Remove status message if it exists
                 await status_message.delete()
@@ -64,13 +65,14 @@ async def send_tiktok_video(message: Message):
                 await message.react([ReactionTypeEmoji(emoji='😢')])
             if not group_chat:  # Send error message, if not group chat
                 if video_info is False:  # Send error message if request didn't return info about video
-                    if is_mobile:  # Send error message about shadowban if video link is mobile
-                        await message.reply(locale[lang]['bugged_error_mobile'])
-                    else:  # Mention user error if video link is not mobile
-                        await message.reply(locale[lang]['bugged_error'])
+                    # if is_mobile:  # Send error message about shadowban if video link is mobile
+                    #     await message.reply(locale[lang]['bugged_error_mobile'])
+                    # else:  # Mention user error if video link is not mobile
+                    await message.reply(locale[lang]['bugged_error'])
                 else:  # Send error message if request is failed
                     await message.reply(locale[lang]['error'])
             return
+        video_id = video_info['id']
         if not status_message:  # If status message is not used, send reaction
             try:
                 await message.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)

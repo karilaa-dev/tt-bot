@@ -2,6 +2,8 @@ import re
 
 import aiohttp
 
+from data.config import rapid_api
+
 
 class ttapi:
     def __init__(self):
@@ -62,6 +64,41 @@ class ttapi:
             return False
         return res['aweme_list'][0]
 
+    async def rapid_get_video_data(self, link):
+        url = "https://tokapi-mobile-version.p.rapidapi.com/v1/post"
+        headers = {
+            "X-RapidAPI-Key": rapid_api,
+            "X-RapidAPI-Host": "tokapi-mobile-version.p.rapidapi.com"
+        }
+        querystring = {"video_url": link}
+        async with aiohttp.ClientSession(headers=headers) as client:
+            async with client.get(url, params=querystring) as response:
+                try:
+                    res = await response.json()
+                except:
+                    return None
+            if 'error' in res:
+                return False
+            else:
+                return res['aweme_detail']
+
+    async def rapid_get_video_data_id(self, video_id: int):
+        url = "https://tokapi-mobile-version.p.rapidapi.com/v1/post"+'/'+str(video_id)
+        headers = {
+            "X-RapidAPI-Key": rapid_api,
+            "X-RapidAPI-Host": "tokapi-mobile-version.p.rapidapi.com"
+        }
+        async with aiohttp.ClientSession(headers=headers) as client:
+            async with client.get(url) as response:
+                try:
+                    res = await response.json()
+                except:
+                    return None
+            if 'error' in res:
+                return False
+            else:
+                return res['aweme_detail']
+
     async def video(self, video_id: int):
         video_info = await self.get_video_data(video_id)
         if video_info is None:
@@ -72,7 +109,7 @@ class ttapi:
             video_type = 'images'
             video_data = []
             for image in video_info['image_post_info']['images']:
-                video_data.append(image["display_image"]["url_list"][0])
+                video_data.append(image["display_image"]["url_list"][1])
         else:
             video_type = 'video'
             video_data = video_info['video']['play_addr']['url_list'][0]
@@ -89,6 +126,31 @@ class ttapi:
             'author': video_info['author']['unique_id'],
         }
 
+    async def rapid_video(self, video_link: str):
+        video_info = await self.rapid_get_video_data(video_link)
+        if video_info is None:
+            return None
+        elif video_info is False:
+            return False
+        if video_info['aweme_type'] == 150:
+            video_type = 'images'
+            video_data = []
+            for image in video_info['image_post_info']['images']:
+                video_data.append(image["display_image"]["url_list"][0])
+        else:
+            video_type = 'video'
+            video_data = video_info['video']['play_addr_h264']['url_list'][0]
+        return {
+            'type': video_type,
+            'data': video_data,
+            'id': video_info['aweme_id'],
+            'cover': video_info['video']['origin_cover']['url_list'][0],
+            'width': video_info['video']['width'],
+            'height': video_info['video']['height'],
+            'duration': video_info['video']['duration'],
+            'author': video_info['author']['unique_id'],
+        }
+
     async def music(self, video_id: int):
         video_info = await self.get_video_data(video_id)
         if video_info is None:
@@ -98,6 +160,22 @@ class ttapi:
         return {
             'data': video_info['music']['play_url']['uri'],
             'id': video_id,
+            'title': video_info['music']['title'],
+            'author': video_info['music']['author'],
+            'duration': video_info['music']['duration'],
+            'cover':
+                video_info['music']['cover_large']['url_list'][0]
+        }
+
+    async def rapid_music(self, video_id: str):
+        video_info = await self.rapid_get_video_data_id(video_id)
+        if video_info is None:
+            return None
+        elif video_info is False:
+            return False
+        return {
+            'data': video_info['music']['play_url']['uri'],
+            'id': video_info['aweme_id'],
             'title': video_info['music']['title'],
             'author': video_info['music']['author'],
             'duration': video_info['music']['duration'],

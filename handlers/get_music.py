@@ -33,7 +33,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         status_message = await call_msg.reply('⏳', disable_notification=True)
     try:
         # Get music info
-        music_info = await api.music(int(video_id))
+        music_info = await api.rapid_music(int(video_id))
         if music_info in [None, False]:  # Return error if info is bad
             if not group_chat:  # Send error message, if not group chat
                 if music_info is False:  # If api doesn't return info about video
