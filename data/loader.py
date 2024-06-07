@@ -2,6 +2,7 @@ import logging
 import sqlite3
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -17,7 +18,7 @@ logging.getLogger('apscheduler.executors.default').setLevel(logging.WARNING)
 logging.getLogger('apscheduler.scheduler').propagate = False
 logging.getLogger('aiogram').setLevel(logging.WARNING)
 
-bot = Bot(token=bot_token, session=local_server, parse_mode=ParseMode.HTML)
+bot = Bot(token=bot_token, session=local_server, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 dp = Dispatcher(storage=MemoryStorage())
 
