@@ -14,6 +14,8 @@ music_router = Router(name=__name__)
 
 @dp.callback_query(F.data.startswith('id'))
 async def send_tiktok_sound(callback_query: CallbackQuery):
+    # User rapid api
+    alt_mode = False
     # Vars
     call_msg = callback_query.message
     chat_id = call_msg.chat.id
@@ -33,7 +35,10 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         status_message = await call_msg.reply('⏳', disable_notification=True)
     try:
         # Get music info
-        music_info = await api.rapid_music(int(video_id))
+        if not alt_mode:
+            music_info = await api.music(video_id)
+        else:
+            music_info = await api.rapid_music(video_id)
         if music_info in [None, False]:  # Return error if info is bad
             if not group_chat:  # Send error message, if not group chat
                 if music_info is False:  # If api doesn't return info about video

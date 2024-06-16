@@ -1,11 +1,13 @@
 from asyncio import sleep
 
 import aiohttp
-from aiogram.types import BufferedInputFile
+from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.utils.media_group import MediaGroupBuilder
 
-from data.config import locale
+from data.config import locale, api_link
+
+download_link = api_link + '/api/download'
+download_params = {'prefix': 'false', 'with_watermark': 'false'}
 
 
 def music_button(video_id, lang):
@@ -29,22 +31,29 @@ def result_caption(lang, link, group_warning=None):
     return result
 
 
-async def send_video_result(user_msg, video_info, lang, file_mode, link):
+async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=False):
     video_id = video_info['id']
     async with aiohttp.ClientSession() as client:
         if file_mode is False:
             async with client.get(video_info['cover'], allow_redirects=True) as cover_request:
                 cover_bytes = await cover_request.read()
-        async with client.get(video_info['data'], allow_redirects=True) as video_request:
+        if alt_mode:
+            url = video_info['data']
+            params = {}
+        else:
+            url = download_link
+            download_params['url'] = video_info['link']
+            params = download_params
+        async with client.get(url, allow_redirects=True, params=params) as video_request:
             video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
     if file_mode is False:
-        await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, link),
+        await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, video_info['link']),
                                    thumb=BufferedInputFile(cover_bytes, 'thumb.jpg'),
                                    height=video_info['height'],
                                    width=video_info['width'],
                                    duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
     else:
-        await user_msg.reply_document(document=video_bytes, caption=result_caption(lang, link),
+        await user_msg.reply_document(document=video_bytes, caption=result_caption(lang, video_info['link']),
                                       disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
 
 
@@ -67,7 +76,7 @@ async def send_music_result(query_msg, music_info, lang, group_chat):
                                 disable_notification=group_chat)
 
 
-async def send_image_result(user_msg, video_info, lang, file_mode, link, image_limit, cheat_mode=False):
+async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     video_id = video_info['id']
     image_number = 0
     if image_limit:
@@ -77,28 +86,29 @@ async def send_image_result(user_msg, video_info, lang, file_mode, link, image_l
         images = [video_info['data'][x:x + 10] for x in range(0, len(video_info['data']), 10)]
         image_pages = len(images)
         match image_pages:
-            case 1:     sleep_time = 0
-            case 2:     sleep_time = 1
-            case 3 | 4: sleep_time = 2
-            case _:     sleep_time = 3
-    client = aiohttp.ClientSession()
+            case 1:
+                sleep_time = 0
+            case 2:
+                sleep_time = 1
+            case 3 | 4:
+                sleep_time = 2
+            case _:
+                sleep_time = 3
     last_part = len(images) - 1
     for num, part in enumerate(images):
-        media_group = MediaGroupBuilder()
-        for image in part:
+        media_group = []
+        for image_link in part:
             image_number += 1
-            async with client.get(image) as image_request:
-                image_bytes = await image_request.read()
-            data = BufferedInputFile(image_bytes, f'{video_id}-{image_number}.jpg')
+            data = image_link
             if file_mode:
-                media_group.add_document(media=data)
+                media_group.append(InputMediaDocument(media=data))
             else:
-                media_group.add_photo(media=data)
+                media_group.append(InputMediaPhoto(media=data))
         if num < last_part:
             await sleep(sleep_time)
-            await user_msg.reply_media_group(media_group.build(), disable_notification=True)
+            await user_msg.reply_media_group(media_group, disable_notification=True)
         else:
-            final = await user_msg.reply_media_group(media_group.build(), disable_notification=True)
-    await final[0].reply(result_caption(lang, link, bool(image_limit)), reply_markup=music_button(video_id, lang),
+            final = await user_msg.reply_media_group(media_group, disable_notification=True)
+    await final[0].reply(result_caption(lang, video_info['link'], bool(image_limit)),
+                         reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
-    await client.close()
