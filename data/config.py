@@ -13,6 +13,8 @@ logs = config["bot"]["logs"]
 upd_chat = config["bot"]["upd_chat"]
 upd_id = config["bot"]["upd_id"]
 local_server = AiohttpSession(api=TelegramAPIServer.from_base(config["bot"]["tg_server"]))
+api_link = config["bot"]["api_link"]
+rapid_api = config["bot"]["rapid_api"]
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())
