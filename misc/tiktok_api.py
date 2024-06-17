@@ -82,17 +82,17 @@ class ttapi:
             video_type = 'video'
             video_data = None
             video_duration = video_info['video']['duration']
-            video_width = video_info['video']['width']
-            video_height = video_info['video']['height']
-            video_cover = video_info['video']['cover']
+            video_width = int(video_info['video']['width'])
+            video_height = int(video_info['video']['height'])
+            video_cover = int(video_info['video']['cover'])
         return {
             'type': video_type,
             'data': video_data,
             'id': int(video_info['id']),
             'cover': video_cover,
-            'width': int(video_width),
-            'height': int(video_height),
-            'duration': int(video_duration),
+            'width': video_width,
+            'height': video_height,
+            'duration': video_duration,
             'author': video_info['author']['uniqueId'],
             'link': video_link
         }
