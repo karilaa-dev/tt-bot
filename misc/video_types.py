@@ -40,10 +40,12 @@ async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=Fals
         if alt_mode:
             url = video_info['data']
             params = {}
+            video_duration = video_info['duration'] // 1000
         else:
             url = download_link
             download_params['url'] = video_info['link']
             params = download_params
+            video_duration = video_info['duration']
         async with client.get(url, allow_redirects=True, params=params) as video_request:
             video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
     if file_mode is False:
@@ -51,7 +53,7 @@ async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=Fals
                                    thumb=BufferedInputFile(cover_bytes, 'thumb.jpg'),
                                    height=video_info['height'],
                                    width=video_info['width'],
-                                   duration=video_info['duration'] // 1000, reply_markup=music_button(video_id, lang))
+                                   duration=video_duration, reply_markup=music_button(video_id, lang))
     else:
         await user_msg.reply_document(document=video_bytes, caption=result_caption(lang, video_info['link']),
                                       disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
