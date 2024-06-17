@@ -113,10 +113,10 @@ class ttapi:
                 video_data.append(image["display_image"]["url_list"][-1])
         else:
             video_type = 'video'
-            video_duration = video_info['video']['duration']
-            video_width = video_info['video']['width']
-            video_height = video_info['video']['height']
-            video_cover = video_info['video']['origin_cover']['url_list'][0]
+            video_duration = int(video_info['video']['duration'])
+            video_width = int(video_info['video']['width'])
+            video_height = int(video_info['video']['height'])
+            video_cover = video_info['video']['cover']['url_list'][0]
             if 'play_addr_h264' in video_info['video']:
                 video_data = video_info['video']['play_addr_h264']['url_list'][0]
             else:
@@ -124,7 +124,7 @@ class ttapi:
         return {
             'type': video_type,
             'data': video_data,
-            'id': video_info['aweme_id'],
+            'id': int(video_info['aweme_id']),
             'cover': video_cover,
             'width': video_width,
             'height': video_height,
@@ -157,7 +157,7 @@ class ttapi:
             'id': video_info['aweme_id'],
             'title': video_info['music']['title'],
             'author': video_info['music']['author'],
-            'duration': video_info['music']['duration'],
+            'duration': int(video_info['music']['duration']),
             'cover':
                 video_info['music']['cover_large']['url_list'][0]
         }
