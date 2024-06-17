@@ -23,7 +23,7 @@ async def send_start(message: Message) -> None:
             start_text = locale[lang]['start'] + locale[lang]['group_info']
         else:
             start_text = locale[lang]['start']
-        await message.answer(start_text)
+        await message.answer(start_text, disable_web_page_preview=True)
         await message.answer(locale[lang]['lang_start'])
 
 
