@@ -81,10 +81,10 @@ class ttapi:
         else:
             video_type = 'video'
             video_data = None
-            video_duration = video_info['video']['duration']
+            video_duration = int(video_info['video']['duration'])
             video_width = int(video_info['video']['width'])
             video_height = int(video_info['video']['height'])
-            video_cover = int(video_info['video']['cover'])
+            video_cover = video_info['video']['cover']
         return {
             'type': video_type,
             'data': video_data,
