@@ -3,7 +3,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
-from data.config import locale, admin_ids
+from data.config import locale, admin_ids, alt_mode
 from data.loader import dp, bot, cursor, sqlite
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, error_catch
@@ -14,8 +14,6 @@ music_router = Router(name=__name__)
 
 @dp.callback_query(F.data.startswith('id'))
 async def send_tiktok_sound(callback_query: CallbackQuery):
-    # User rapid api
-    alt_mode = False
     # Vars
     call_msg = callback_query.message
     chat_id = call_msg.chat.id

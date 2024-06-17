@@ -5,6 +5,7 @@ venv/
 #files
 config.ini
 sqlite.db
+LICENSE.md
 
 #extensions
 /*test*.py

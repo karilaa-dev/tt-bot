@@ -3,7 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 
-from data.config import locale, admin_ids
+from data.config import locale, admin_ids, alt_mode
 from data.loader import cursor, sqlite, bot
 from misc.tiktok_api import ttapi
 from misc.utils import tCurrent, start_manager, error_catch, lang_func
@@ -14,8 +14,6 @@ video_router = Router(name=__name__)
 
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
-    # User rapid api
-    alt_mode = False
     # Api init
     api = ttapi()
     # Statys message var

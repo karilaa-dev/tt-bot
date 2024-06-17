@@ -88,11 +88,11 @@ class ttapi:
         return {
             'type': video_type,
             'data': video_data,
-            'id': video_info['id'],
+            'id': int(video_info['id']),
             'cover': video_cover,
-            'width': video_width,
-            'height': video_height,
-            'duration': video_duration,
+            'width': int(video_width),
+            'height': int(video_height),
+            'duration': int(video_duration),
             'author': video_info['author']['uniqueId'],
             'link': video_link
         }
@@ -139,10 +139,10 @@ class ttapi:
             return video_info
         return {
             'data': video_info['music']['playUrl'],
-            'id': video_info['id'],
+            'id': int(video_info['id']),
             'title': video_info['music']['title'],
             'author': video_info['music']['authorName'],
-            'duration': video_info['music']['duration'],
+            'duration': int(video_info['music']['duration']),
             'cover': video_info['music']['coverLarge']
         }
 
