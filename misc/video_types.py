@@ -1,4 +1,3 @@
-import asyncio
 from asyncio import sleep
 
 import aiohttp
@@ -48,7 +47,6 @@ async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=Fals
             params = download_params
             video_duration = video_info['duration']
         async with client.get(url, allow_redirects=True, params=params) as video_request:
-            await asyncio.sleep(0)
             video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
     if file_mode is False:
         await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, video_info['link']),
