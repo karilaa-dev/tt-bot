@@ -70,7 +70,9 @@ class ttapi:
         video_info = await self.get_video_data(video_link)
         if video_info in [None, False]:
             return video_info
-        if 'imagePost' in video_info:
+        if 'video' not in video_info:
+            return None
+        elif 'imagePost' in video_info:
             video_type = 'images'
             video_duration = None
             video_width, video_height = None, None
@@ -99,10 +101,10 @@ class ttapi:
 
     async def rapid_video(self, video_link: str):
         video_info = await self.rapid_get_video_data(video_link)
-        if video_info is None:
+        if video_info in [None, False]:
+            return video_info
+        if 'aweme_detail' not in video_info:
             return None
-        elif video_info is False:
-            return False
         if video_info['aweme_type'] == 150:
             video_type = 'images'
             video_duration = None
@@ -137,6 +139,8 @@ class ttapi:
         video_info = await self.get_video_data(f'https://www.tiktok.com/@ttgrab_bot/video/{video_id}')
         if video_info in [None, False]:
             return video_info
+        if 'music' not in video_info:
+            return None
         return {
             'data': video_info['music']['playUrl'],
             'id': int(video_info['id']),
@@ -148,10 +152,8 @@ class ttapi:
 
     async def rapid_music(self, video_id):
         video_info = await self.rapid_get_video_data_id(video_id)
-        if video_info is None:
-            return None
-        elif video_info is False:
-            return False
+        if video_info in [None, False]:
+            return video_info
         return {
             'data': video_info['music']['play_url']['uri'],
             'id': video_info['aweme_id'],
