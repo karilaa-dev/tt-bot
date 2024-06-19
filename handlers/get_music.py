@@ -40,7 +40,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         if music_info in [None, False]:  # Return error if info is bad
             if not group_chat:  # Send error message, if not group chat
                 if music_info is False:  # If api doesn't return info about video
-                    await call_msg.reply(locale[lang]['bugged_error_mobile'])
+                    await call_msg.reply(locale[lang]['bugged_error'])
                 else:  # If something went wrong
                     await call_msg.reply(locale[lang]['error'])
             elif music_info is False:  # If api doesn't return info about video

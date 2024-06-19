@@ -61,7 +61,7 @@ class ttapi:
                     res = await response.json()
                 except:
                     return None
-            if 'error' in res:
+            if 'error' in res or 'aweme_detail' not in res:
                 return False
             else:
                 return res['aweme_detail']
@@ -103,8 +103,6 @@ class ttapi:
         video_info = await self.rapid_get_video_data(video_link)
         if video_info in [None, False]:
             return video_info
-        if 'aweme_detail' not in video_info:
-            return None
         if video_info['aweme_type'] == 150:
             video_type = 'images'
             video_duration = None
