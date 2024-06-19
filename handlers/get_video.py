@@ -85,7 +85,16 @@ async def send_tiktok_video(message: Message):
             # Send upload video action
             await bot.send_chat_action(message.chat.id, 'upload_video')
             # Send video
-            await send_video_result(message, video_info, lang, file_mode, alt_mode)
+            try:
+                await send_video_result(message, video_info, lang, file_mode, alt_mode)
+            except:
+                if not group_chat:
+                    await message.reply(locale[lang]['error'])
+                    if not status_message:
+                        await message.react([ReactionTypeEmoji(emoji='😢')])
+                else:
+                    if not status_message:
+                        await message.react([])
         if status_message:
             await status_message.delete()
         else:
