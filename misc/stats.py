@@ -7,7 +7,7 @@ from time import ctime
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from data.config import upd_chat, upd_id
+from data.config import config
 from data.loader import cursor, bot
 from misc.utils import tCurrent
 
@@ -125,4 +125,4 @@ def get_stats_overall():
 async def stats_log():
     text = get_stats_overall()
     text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
-    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
+    await bot.edit_message_text(chat_id=config["logs"]["stats_chat"], message_id=config["logs"]["stats_message_id"], text=text)

@@ -7,7 +7,7 @@ from traceback import format_exception
 from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message
 
-from data.config import locale, logs, admin_ids, second_ids
+from data.config import locale, config
 from data.loader import cursor, sqlite, bot
 
 
@@ -60,7 +60,7 @@ async def start_manager(chat_id, message: Message, lang):
         username = f'@{message.chat.username}\n'
     text = f'<b><a href="tg://user?id={chat_id}">{message.chat.full_name}</a></b>' \
            f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
-    await bot.send_message(logs, text)
+    await bot.send_message(config["logs"]["join_logs"], text)
     username = username.replace('\n', ' ')
     logging.info(f'New User: {message.chat.full_name} {username}{chat_id} {args or ""}')
     if chat_id > 0:
@@ -73,7 +73,7 @@ async def start_manager(chat_id, message: Message, lang):
 
 class IsAdmin(Filter):
     async def __call__(self, message: Message) -> bool:
-        if message.from_user.id in admin_ids:
+        if message.from_user.id in config["bot"]["admin_ids"]:
             return True
         else:
             return False
@@ -81,7 +81,7 @@ class IsAdmin(Filter):
 
 class IsSecondAdmin(Filter):
     async def __call__(self, message: Message) -> bool:
-        if message.from_user.id in second_ids or message.from_user.id in admin_ids:
+        if message.from_user.id in config["bot"]["admin_ids"] or message.from_user.id in config["bot"]["second_ids"]:
             return True
         else:
             return False

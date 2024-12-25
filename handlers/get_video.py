@@ -3,7 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 
-from data.config import locale, admin_ids, alt_mode
+from data.config import locale, config, api_alt_mode
 from data.loader import cursor, sqlite, bot
 from misc.tiktok_api import ttapi
 from misc.utils import tCurrent, start_manager, error_catch, lang_func
@@ -45,7 +45,7 @@ async def send_tiktok_video(message: Message):
             await message.react([ReactionTypeEmoji(emoji='👀')], disable_notification=True)
         except:  # Send status message, if reaction is not allowed, and save it
             status_message = await message.reply('⏳', disable_notification=True)
-        if alt_mode:
+        if api_alt_mode:
             video_info = await api.rapid_video(video_link)
         else:
             video_info = await api.video(video_link)
@@ -86,7 +86,7 @@ async def send_tiktok_video(message: Message):
             await bot.send_chat_action(message.chat.id, 'upload_video')
             # Send video
             try:
-                await send_video_result(message, video_info, lang, file_mode, alt_mode)
+                await send_video_result(message, video_info, lang, file_mode, api_alt_mode)
             except:
                 if not group_chat:
                     await message.reply(locale[lang]['error'])
@@ -112,7 +112,7 @@ async def send_tiktok_video(message: Message):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if message.chat.id in admin_ids:
+        if message.chat.id in api_alt_mode:
             await message.reply('<code>{0}</code>'.format(error_text))
         try:
             if status_message:  # Remove status message if it exists
@@ -194,7 +194,7 @@ async def send_images_custon(callback_query: CallbackQuery):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if chat_id in admin_ids:
+        if chat_id in config["bot"]["admin_ids"]:
             await call_msg.reply('<code>{0}</code>'.format(error_text))
         try:
             if status_message:  # Remove status message if it exists
