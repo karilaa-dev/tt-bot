@@ -27,5 +27,5 @@ dp = Dispatcher(storage=MemoryStorage())
 
 scheduler = AsyncIOScheduler(timezone="Europe/Kiev")
 
-sqlite = sqlite3.connect('sqlite.db')
+sqlite = sqlite3.connect(config["bot"]["db_name"])
 cursor = sqlite.cursor()

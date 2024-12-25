@@ -7,7 +7,7 @@ from traceback import format_exception
 from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message
 
-from data.config import locale, config
+from data.config import locale, admin_ids, second_ids, config
 from data.loader import cursor, sqlite, bot
 
 
@@ -38,7 +38,7 @@ def lang_func(usrid: int, usrlang: str, no_request=False):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, FSInputFile('sqlite.db'),
+        await bot.send_document(chat_id, FSInputFile(config["bot"]["db_name"]),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
@@ -73,7 +73,7 @@ async def start_manager(chat_id, message: Message, lang):
 
 class IsAdmin(Filter):
     async def __call__(self, message: Message) -> bool:
-        if message.from_user.id in config["bot"]["admin_ids"]:
+        if message.from_user.id in admin_ids:
             return True
         else:
             return False
@@ -81,7 +81,7 @@ class IsAdmin(Filter):
 
 class IsSecondAdmin(Filter):
     async def __call__(self, message: Message) -> bool:
-        if message.from_user.id in config["bot"]["admin_ids"] or message.from_user.id in config["bot"]["second_ids"]:
+        if message.from_user.id in second_ids:
             return True
         else:
             return False

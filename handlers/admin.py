@@ -1,4 +1,5 @@
 from aiogram import Router
+from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 
@@ -8,7 +9,7 @@ from misc.utils import backup_dp, IsSecondAdmin
 admin_router = Router(name=__name__)
 
 
-@admin_router.message(Command('msg', 'tell', 'say', 'send'), IsSecondAdmin())
+@admin_router.message(Command('msg', 'tell', 'say', 'send'), F.chat.type == 'private', IsSecondAdmin())
 async def send_hi(message: Message):
     text = message.text.split(' ', 2)
     try:
@@ -18,7 +19,7 @@ async def send_hi(message: Message):
         await message.answer('ops')
 
 
-@admin_router.message(Command('export'), IsSecondAdmin())
+@admin_router.message(Command('export'), F.chat.type == 'private', IsSecondAdmin())
 async def export_users(message: Message):
     users = cursor.execute('SELECT id FROM users').fetchall()
     users_result = ''
@@ -28,7 +29,7 @@ async def export_users(message: Message):
     await message.answer_document(BufferedInputFile(users_result, 'users.txt'), caption='User list')
 
 
-@admin_router.message(Command('backup'), IsSecondAdmin())
+@admin_router.message(Command('backup'), F.chat.type == 'private', IsSecondAdmin())
 async def backup(message: Message):
     msg = await message.answer('<code>Backup started, please wait...</code>')
     await backup_dp(message.from_user.id)
