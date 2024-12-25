@@ -9,5 +9,4 @@ sqlite.db
 LICENSE.md
 
 #extensions
-/development/test.py
-/*.log
+*.log
