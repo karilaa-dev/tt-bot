@@ -1,6 +1,7 @@
 #folders
 venv/
 .idea/
+development/
 
 #files
 config.ini
@@ -8,5 +9,5 @@ sqlite.db
 LICENSE.md
 
 #extensions
-/*test*.py
+/development/test.py
 /*.log
