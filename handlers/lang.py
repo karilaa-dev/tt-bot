@@ -42,7 +42,7 @@ async def inline_lang(callback_query: CallbackQuery):
         cursor.execute('UPDATE users SET lang = ? WHERE id = ?',
                        (lang, chat_id))
         sqlite.commit()
-        await bot.edit_message_text(locale[lang]['lang'], chat_id, msg_id)
+        await bot.edit_message_text(text=locale[lang]['lang'], chat_id=chat_id, message_id=msg_id)
     except:
         pass
     return await callback_query.answer()
