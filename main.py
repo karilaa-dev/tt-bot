@@ -13,7 +13,7 @@ from handlers.user import user_router
 from misc.stats import stats_log
 from misc.utils import backup_dp
 
-if config["logs"]["stats_chat"] != 0:
+if config["logs"]["stats_chat"] != "0":
     scheduler.add_job(stats_log)
     scheduler.add_job(stats_log, "interval", seconds=300)
 scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0)
