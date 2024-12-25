@@ -3,7 +3,7 @@ import logging
 from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 
-from data.config import locale, config, api_alt_mode
+from data.config import locale, api_alt_mode, second_ids
 from data.loader import cursor, sqlite, bot
 from misc.tiktok_api import ttapi
 from misc.utils import tCurrent, start_manager, error_catch, lang_func
@@ -112,7 +112,7 @@ async def send_tiktok_video(message: Message):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if message.chat.id in api_alt_mode:
+        if message.chat.id in second_ids:
             await message.reply('<code>{0}</code>'.format(error_text))
         try:
             if status_message:  # Remove status message if it exists
@@ -194,7 +194,7 @@ async def send_images_custon(callback_query: CallbackQuery):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if chat_id in config["bot"]["admin_ids"]:
+        if chat_id in second_ids:
             await call_msg.reply('<code>{0}</code>'.format(error_text))
         try:
             if status_message:  # Remove status message if it exists

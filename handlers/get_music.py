@@ -3,7 +3,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
-from data.config import locale, config, api_alt_mode
+from data.config import locale, api_alt_mode, second_ids
 from data.loader import dp, bot, cursor, sqlite
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, error_catch
@@ -69,7 +69,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if call_msg.chat.id in config["bot"]["admin_ids"]:
+        if call_msg.chat.id in second_ids:
             await call_msg.reply('<code>{0}</code>'.format(error_text))
         try:
             await call_msg.edit_reply_markup(reply_markup=music_button(video_id, lang))
