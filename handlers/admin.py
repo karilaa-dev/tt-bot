@@ -32,5 +32,5 @@ async def export_users(message: Message):
 @admin_router.message(Command('backup'), F.chat.type == 'private', IsSecondAdmin())
 async def backup(message: Message):
     msg = await message.answer('<code>Backup started, please wait...</code>')
-    await backup_dp(message.from_user.id)
+    await backup_dp(message.chat.id)
     await msg.delete()
