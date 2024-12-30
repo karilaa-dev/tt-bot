@@ -7,7 +7,7 @@ from time import ctime
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from data.config import upd_chat, upd_id
+from data.config import config
 from data.loader import cursor, bot
 from misc.utils import tCurrent
 
@@ -83,7 +83,7 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
                 time > {period} and
                 {id_condition}"""
 
-    df = pd.read_sql_query(query, sqlite3.connect('sqlite.db'))
+    df = pd.read_sql_query(query, sqlite3.connect(config["bot"]["db_name"]))
     df["time"] = pd.to_datetime(df["time"], unit="s")
     df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
 
@@ -110,7 +110,7 @@ async def plot_async(graph_name, depth, period, id_condition, table):
         None, lambda: plot_user_graph(graph_name, depth, period, id_condition, table))
 
 
-def get_stats_overall():
+async def get_stats_overall():
     result = '<b>📊Overall Stats</b>\n'
     result += bot_stats(chat_type='users', stats_time=0)
     result += '\n<b>Groups</b>\n'
@@ -123,6 +123,6 @@ def get_stats_overall():
 
 
 async def stats_log():
-    text = get_stats_overall()
+    text = await get_stats_overall()
     text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
-    await bot.edit_message_text(chat_id=upd_chat, message_id=upd_id, text=text)
+    await bot.edit_message_text(chat_id=config["logs"]["stats_chat"], message_id=config["logs"]["stats_message_id"], text=text)

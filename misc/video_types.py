@@ -4,9 +4,9 @@ import aiohttp
 from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import locale, api_link
+from data.config import locale, config
 
-download_link = api_link + '/api/download'
+download_link = config["api"]["api_link"] + '/api/download'
 download_params = {'prefix': 'false', 'with_watermark': 'false'}
 
 

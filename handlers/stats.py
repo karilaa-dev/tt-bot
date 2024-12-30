@@ -255,7 +255,7 @@ async def stats_callback(call: CallbackQuery):
     await call.answer()
 
 
-@stats_router.message(Command('stats'), IsSecondAdmin())
+@stats_router.message(Command('stats'), F.chat.type == 'private', IsSecondAdmin())
 async def send_stats(message: Message, state: FSMContext):
     await state.clear()
     await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)

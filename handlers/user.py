@@ -32,7 +32,7 @@ async def change_mode(message: Message):
     chat_id = message.chat.id
     lang = lang_func(chat_id, message.from_user.language_code)
     if message.chat.type != 'private':
-        user_status = await bot.get_chat_member(message.chat.id, message.from_user.id)
+        user_status = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
         if user_status.status not in ['creator', 'administrator']:
             return await message.answer(locale[lang]['not_admin'])
     try:

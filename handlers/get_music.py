@@ -3,7 +3,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
-from data.config import locale, admin_ids, alt_mode
+from data.config import locale, api_alt_mode, second_ids
 from data.loader import dp, bot, cursor, sqlite
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, error_catch
@@ -33,7 +33,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         status_message = await call_msg.reply('⏳', disable_notification=True)
     try:
         # Get music info
-        if not alt_mode:
+        if not api_alt_mode:
             music_info = await api.music(video_id)
         else:
             music_info = await api.rapid_music(video_id)
@@ -47,7 +47,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
                 await call_msg.reply_markup(reply_markup=music_button(video_id, lang))
             return
         # Send upload action
-        await bot.send_chat_action(chat_id, 'upload_document')
+        await bot.send_chat_action(chat_id=chat_id, action='upload_document')
         if not group_chat:  # Send reaction if not group chat
             await call_msg.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
         # Generate caption
@@ -69,7 +69,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
-        if call_msg.chat.id in admin_ids:
+        if call_msg.chat.id in second_ids:
             await call_msg.reply('<code>{0}</code>'.format(error_text))
         try:
             await call_msg.edit_reply_markup(reply_markup=music_button(video_id, lang))

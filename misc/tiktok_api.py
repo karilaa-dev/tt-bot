@@ -2,15 +2,15 @@ import re
 
 import aiohttp
 
-from data.config import rapid_api, api_link
+from data.config import config
 
 
 class ttapi:
     def __init__(self):
-        self.url = api_link + '/api/hybrid/video_data'
+        self.url = config["api"]["api_link"] + '/api/hybrid/video_data'
         self.rapid_link = 'https://tokapi-mobile-version.p.rapidapi.com/v1/post'
         self.rapid_headers = {
-            "X-RapidAPI-Key": rapid_api,
+            "X-RapidAPI-Key": config["api"]["rapid_token"],
             "X-RapidAPI-Host": "tokapi-mobile-version.p.rapidapi.com"
         }
         self.video_info_params = {'minimal': 'false'}

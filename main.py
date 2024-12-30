@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from data.config import logs
+from data.config import config
 from data.loader import scheduler, sqlite, bot, dp
 from handlers.admin import admin_router
 from handlers.advert import advert_router
@@ -13,9 +13,10 @@ from handlers.user import user_router
 from misc.stats import stats_log
 from misc.utils import backup_dp
 
-scheduler.add_job(stats_log)
-scheduler.add_job(stats_log, "interval", seconds=300)
-scheduler.add_job(backup_dp, "cron", args=[logs], hour=0)
+if config["logs"]["stats_chat"] != "0":
+    scheduler.add_job(stats_log)
+    scheduler.add_job(stats_log, "interval", seconds=3600)
+scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0)
 
 
 async def main() -> None:
