@@ -13,7 +13,7 @@ admin_router = Router(name=__name__)
 async def send_hi(message: Message):
     text = message.text.split(' ', 2)
     try:
-        await bot.send_message(chat_id=[1], text=[2])
+        await bot.send_message(chat_id=text[1], text=text[2])
         await message.answer('Message sent')
     except:
         await message.answer('ops')
