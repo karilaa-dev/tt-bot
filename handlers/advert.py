@@ -47,7 +47,7 @@ async def send_clear_keyboard(message: Message):
     await message.answer('🔽You successfully hide the keyboard', reply_markup=ReplyKeyboardRemove())
 
 
-@advert_router.message(Command("admin"), IsAdmin())
+@advert_router.message(Command("admin"), IsAdmin(), F.chat.type == 'private')
 async def send_admin(message: Message):
     await message.answer('🤖You opened admin menu', reply_markup=admin_keyboard)
 
