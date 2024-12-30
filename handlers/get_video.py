@@ -75,7 +75,7 @@ async def send_tiktok_video(message: Message):
                                     reply_markup=image_ask_button(video_id, lang))
                 return await message.react([])
             # Send upload image action
-            await bot.send_chat_action(message.chat.id, 'upload_photo')
+            await bot.send_chat_action(chat_id=message.chat.id, action='upload_photo')
             if group_chat:
                 image_limit = 10
             else:
@@ -83,7 +83,7 @@ async def send_tiktok_video(message: Message):
             await send_image_result(message, video_info, lang, file_mode, image_limit)
         else:  # Process video, if video is video
             # Send upload video action
-            await bot.send_chat_action(message.chat.id, 'upload_video')
+            await bot.send_chat_action(chat_id=message.chat.id, action='upload_video')
             # Send video
             try:
                 await send_video_result(message, video_info, lang, file_mode, api_alt_mode)
@@ -165,7 +165,7 @@ async def send_images_custon(callback_query: CallbackQuery):
                 await call_msg.reply_markup(reply_markup=image_ask_button(video_id, lang))
             return
         # Send upload action
-        await bot.send_chat_action(chat_id, 'upload_photo')
+        await bot.send_chat_action(chat_id=chat_id, action='upload_photo')
         if not group_chat:  # Send reaction if not group chat
             await call_msg.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
             image_limit = None

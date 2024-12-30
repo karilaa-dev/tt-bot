@@ -38,7 +38,7 @@ def lang_func(usrid: int, usrlang: str, no_request=False):
 
 async def backup_dp(chat_id: int):
     try:
-        await bot.send_document(chat_id, FSInputFile(config["bot"]["db_name"]),
+        await bot.send_document(chat_id=chat_id, document=FSInputFile(config["bot"]["db_name"]),
                                 caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
     except:
         pass
@@ -60,7 +60,7 @@ async def start_manager(chat_id, message: Message, lang):
         username = f'@{message.chat.username}\n'
     text = f'<b><a href="tg://user?id={chat_id}">{message.chat.full_name}</a></b>' \
            f'\n{username}<code>{chat_id}</code>\n<i>{args or ""}</i>'
-    await bot.send_message(config["logs"]["join_logs"], text)
+    await bot.send_message(chat_id=config["logs"]["join_logs"], text=text)
     username = username.replace('\n', ' ')
     logging.info(f'New User: {message.chat.full_name} {username}{chat_id} {args or ""}')
     if chat_id > 0:

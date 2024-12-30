@@ -47,7 +47,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
                 await call_msg.reply_markup(reply_markup=music_button(video_id, lang))
             return
         # Send upload action
-        await bot.send_chat_action(chat_id, 'upload_document')
+        await bot.send_chat_action(chat_id=chat_id, action='upload_document')
         if not group_chat:  # Send reaction if not group chat
             await call_msg.react([ReactionTypeEmoji(emoji='👨‍💻')], disable_notification=True)
         # Generate caption
