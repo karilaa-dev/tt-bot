@@ -4,7 +4,8 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
 from data.config import locale, api_alt_mode, second_ids
-from data.loader import dp, bot, cursor, sqlite
+from data.loader import dp, bot
+from data.db_service import add_music
 from misc.tiktok_api import ttapi
 from misc.utils import lang_func, tCurrent, error_catch
 from misc.video_types import send_music_result, music_button
@@ -24,7 +25,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     # Group chat set
     group_chat = call_msg.chat.type != 'private'
     # Get chat language
-    lang = lang_func(chat_id, callback_query.from_user.language_code)
+    lang = await lang_func(chat_id, callback_query.from_user.language_code)
     # Remove music button
     await call_msg.edit_reply_markup()
     try:  # If reaction is allowed, send it
@@ -58,9 +59,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write into database
             # Write into database
-            cursor.execute('INSERT INTO music VALUES (?,?,?)',
-                           (chat_id, tCurrent(), video_id))
-            sqlite.commit()
+            await add_music(chat_id, video_id)
             # Log music download
             logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
         except:

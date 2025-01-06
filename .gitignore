@@ -5,8 +5,9 @@ development/
 
 #files
 config.ini
-sqlite.db
+sqlite*.db
 LICENSE.md
 
 #extensions
 *.log
+*.pyc

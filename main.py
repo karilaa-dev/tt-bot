@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from data.config import config
-from data.loader import scheduler, sqlite, bot, dp
+from data.loader import scheduler, bot, dp, setup_db
 from handlers.admin import admin_router
 from handlers.advert import advert_router
 from handlers.get_music import music_router
@@ -14,12 +14,13 @@ from misc.stats import stats_log
 from misc.utils import backup_dp
 
 if config["logs"]["stats_chat"] != "0":
-    scheduler.add_job(stats_log)
-    scheduler.add_job(stats_log, "interval", seconds=3600)
-scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0)
+    scheduler.add_job(stats_log, misfire_grace_time=None)  # Run once immediately
+    scheduler.add_job(stats_log, "interval", seconds=3600, misfire_grace_time=None)
+scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0, misfire_grace_time=None)
 
 
 async def main() -> None:
+    await setup_db()
     scheduler.start()
     dp.include_routers(
         user_router,
@@ -37,4 +38,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-    sqlite.close()

@@ -1,4 +1,6 @@
+import asyncio
 import csv
+import logging
 from datetime import datetime
 from io import StringIO
 
@@ -9,7 +11,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.loader import cursor
+from sqlalchemy import func
+
+from data.database import get_session
+from data.db_service import (
+    get_user_stats, get_user_videos, get_referral_stats,
+    get_other_stats, get_stats_by_period
+)
+from data.models import User, Video, Music
 from misc.stats import bot_stats, get_stats_overall, plot_async
 from misc.utils import tCurrent, IsSecondAdmin
 
@@ -102,31 +111,50 @@ async def stats_graphs(call: CallbackQuery):
 async def stats_graph(call: CallbackQuery):
     graph_type, graph_time = call.data.split(':')[1:]
     temp = await call.message.edit_text('<code>Generating, please wait...</code>')
-    time_now = tCurrent()
-    graph_name = graph_type.capitalize() + " " + graph_time.capitalize()
-    if graph_time == 'daily':
-        period = time_now - 86400 * 2
-        depth = '%Y-%m-%d %H'
-    elif graph_time == 'weekly':
-        period = time_now - 86400 * 8
-        depth = '%Y-%m-%d %H'
-    elif graph_time == 'monthly':
-        period = time_now - 86400 * 32
-        depth = '%Y-%m-%d'
-    elif graph_time == 'total':
-        period = cursor.execute(f"SELECT time FROM {graph_type} ORDER BY time ASC LIMIT 1").fetchone()[0]
-        depth = '%Y-%m-%d'
-    result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
-    await call.message.answer_photo(BufferedInputFile(result, f'graph.png'))
-    await temp.delete()
-    await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
-                              reply_markup=stats_graph_keyboard)
+    try:
+        time_now = tCurrent()
+        graph_name = graph_type.capitalize() + " " + graph_time.capitalize()
+        if graph_time == 'daily':
+            period = time_now - 86400 * 2
+            depth = '%Y-%m-%d %H'
+        elif graph_time == 'weekly':
+            period = time_now - 86400 * 8
+            depth = '%Y-%m-%d %H'
+        elif graph_time == 'monthly':
+            period = time_now - 86400 * 32
+            depth = '%Y-%m-%d'
+        elif graph_time == 'total':
+            async with await get_session() as db:
+                if graph_type == 'users':
+                    model = User
+                elif graph_type == 'videos':
+                    model = Video
+                else:
+                    model = Music
+                from sqlalchemy import select
+                stmt = select(func.min(model.time))
+                result = await db.execute(stmt)
+                first_record = result.scalar()
+                period = first_record if first_record is not None else time_now - 86400 * 365
+            depth = '%Y-%m-%d'
+        result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
+        await call.message.answer_photo(BufferedInputFile(result, f'graph.png'))
+        await temp.delete()
+        await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
+                                  reply_markup=stats_graph_keyboard)
+    except Exception as e:
+        logging.error(f"Error generating graph: {e}")
+        await temp.edit_text('<code>Error generating graph. Please try again later.</code>')
+        await asyncio.sleep(3)
+        await temp.delete()
+        await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
+                                  reply_markup=stats_graph_keyboard)
 
 
 @stats_router.callback_query(F.data == 'stats_overall')
 async def stats_overall(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
-    result = get_stats_overall()
+    result = await get_stats_overall()
     keyb = InlineKeyboardBuilder()
     keyb.button(text='🔄Reload', callback_data='stats_overall')
     keyb.button(text='↩️Return', callback_data='stats_menu')
@@ -147,24 +175,21 @@ async def stats_user(call: CallbackQuery, state: FSMContext):
 @stats_router.message(UserCheck.search)
 async def stats_user_search(message: Message, state: FSMContext):
     temp = await message.answer('<code>🔎Searching...</code>')
-    req = cursor.execute('SELECT * FROM users WHERE id = ?', (message.text,)).fetchone()
-    if req is None:
+    user, videos_count, images_count = await get_user_stats(int(message.text))
+    if not user:
         await temp.edit_text('❌User not found', reply_markup=stats_user_keyboard)
     else:
         result = '<b>👤User Stats</b>\n'
-        result += f'┗ <b>ID</b>: <code>{req[0]}</code>\n'
-        videos = cursor.execute('SELECT COUNT(1) FROM videos WHERE id = ?', (req[0],)).fetchone()[0]
-        result += f'┗ <b>Videos:</b> <code>{videos}</code>\n'
-        videos_images = \
-            cursor.execute('SELECT COUNT(1) FROM videos WHERE id = ? AND is_images = 1', (req[0],)).fetchone()[0]
-        result += f'    ┗ <b>Images:</b> <code>{videos_images}</code>\n'
-        result += f'┗ <b>Language:</b> <code>{req[2]}</code>\n'
-        reg_time = datetime.fromtimestamp(req[1])
-        if req[3] is not None:
-            result += f'┗ <b>Referral:</b> <code>{req[3]}</code>\n'
+        result += f'┗ <b>ID</b>: <code>{user.id}</code>\n'
+        result += f'┗ <b>Videos:</b> <code>{videos_count}</code>\n'
+        result += f'    ┗ <b>Images:</b> <code>{images_count}</code>\n'
+        result += f'┗ <b>Language:</b> <code>{user.lang}</code>\n'
+        reg_time = datetime.fromtimestamp(user.time)
+        if user.link:
+            result += f'┗ <b>Referral:</b> <code>{user.link}</code>\n'
         result += f'┗ <b>Registered:</b> <code>{reg_time.strftime("%d.%m.%Y %H:%M:%S")} UTC</code>\n'
         keyb = InlineKeyboardBuilder()
-        keyb.button(text='📥Download video history', callback_data=f'user:{req[0]}')
+        keyb.button(text='📥Download video history', callback_data=f'user:{user.id}')
         keyb.button(text='👤Find another user', callback_data='stats_user')
         keyb.button(text='↩️Return', callback_data='stats_menu')
         keyb.adjust(1)
@@ -176,16 +201,15 @@ async def stats_user_search(message: Message, state: FSMContext):
 @stats_router.callback_query(F.data.startswith('user:'))
 async def stats_user_download(call: CallbackQuery):
     user_id = call.data.split(':')[1]
-    videos = cursor.execute('SELECT time, video FROM videos WHERE id = ?', (user_id,)).fetchall()
-    if len(videos) == 0:
+    videos = await get_user_videos(int(user_id))
+    if not videos:
         await call.answer('❌User has no videos')
     else:
         file = StringIO()
         writer = csv.writer(file)
         writer.writerow(['Time', 'Video'])
-        for video in videos:
-            time_date = str(datetime.fromtimestamp(video[0]))
-            video = str(video[1])
+        for time, video in videos:
+            time_date = str(datetime.fromtimestamp(time))
             writer.writerow([time_date, video])
         file.seek(0)
         await call.message.answer_document(BufferedInputFile(file.read().encode(), f'user_{user_id}.csv'),
@@ -197,11 +221,9 @@ async def stats_user_download(call: CallbackQuery):
 async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗣Referral Stats</b>\n'
-    top_referrals = cursor.execute(
-        'SELECT link, COUNT(link) AS cnt FROM users GROUP BY link ORDER BY cnt DESC LIMIT 10').fetchall()
-    for referral in top_referrals:
-        if referral[0] is not None:
-            result += f'┗ {referral[0]}: <code>{referral[1]}</code>\n'
+    top_referrals = await get_referral_stats()
+    for link, count in top_referrals:
+        result += f'┗ {link}: <code>{count}</code>\n'
     keyb = InlineKeyboardBuilder()
     keyb.button(text='🔄Reload', callback_data='stats_referral')
     keyb.button(text='↩️Return', callback_data='stats_menu')
@@ -217,17 +239,14 @@ async def stats_other(call: CallbackQuery):
 async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗃Other Stats</b>\n'
-    file_mode = cursor.execute('SELECT COUNT(id) FROM users WHERE file_mode = 1').fetchone()[0]
-    result += f'<b>File mode users: <code>{file_mode}</code>\n</b>'
-    top_langs = cursor.execute('SELECT lang, COUNT(lang) AS cnt FROM users GROUP BY lang ORDER BY cnt DESC').fetchall()
+    file_mode_count, top_langs, top_users = await get_other_stats()
+    result += f'<b>File mode users: <code>{file_mode_count}</code>\n</b>'
     result += 'Top languages:\n'
-    for lang in top_langs:
-        result += f'┗ {lang[0]}: <code>{lang[1]}</code>\n'
-    top_10_users = cursor.execute(
-        'SELECT id, COUNT(id) AS cnt FROM videos GROUP BY id ORDER BY cnt DESC LIMIT 10').fetchall()
+    for lang, count in top_langs:
+        result += f'┗ {lang}: <code>{count}</code>\n'
     result += '<b>Top 10 users by downloads:</b>\n'
-    for user in top_10_users:
-        result += f'┗ {user[0]}: <code>{user[1]}</code>\n'
+    for user_id, count in top_users:
+        result += f'┗ {user_id}: <code>{count}</code>\n'
     keyb = InlineKeyboardBuilder()
     keyb.button(text='🔄Reload', callback_data='stats_other')
     keyb.button(text='↩️Return', callback_data='stats_menu')
@@ -242,7 +261,7 @@ async def stats_other(call: CallbackQuery):
 @stats_router.callback_query(F.data == 'stats_detailed')
 async def stats_detailed(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
-    await temp.edit_text(bot_stats(), reply_markup=stats_keyboard())
+    await temp.edit_text(await bot_stats(), reply_markup=stats_keyboard())
 
 
 @stats_router.callback_query(F.data.startswith('stats:'))
@@ -251,7 +270,7 @@ async def stats_callback(call: CallbackQuery):
     stats_time = int(stats_time)
     await call.message.edit_text('Loading...')
     keyb = stats_keyboard(group_type, stats_time)
-    await call.message.edit_text(bot_stats(group_type, stats_time), reply_markup=keyb)
+    await call.message.edit_text(await bot_stats(group_type, stats_time), reply_markup=keyb)
     await call.answer()
 
 

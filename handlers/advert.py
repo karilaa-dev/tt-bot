@@ -9,7 +9,7 @@ from aiogram.types import Message
 from aiogram.types import ReplyKeyboardRemove
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from data.loader import cursor
+from data.db_service import get_user_ids
 from misc.utils import IsAdmin
 
 advert_router = Router(name=__name__)
@@ -64,11 +64,11 @@ async def adb_check(message: Message):
 async def adv_go(message: Message):
     if advert_message is not None:
         msg = await message.answer('<code>Announcement started</code>')
-        users = cursor.execute("SELECT id from users WHERE id > 0").fetchall()
+        users = await get_user_ids()
         num = 0
-        for x in users:
+        for user_id in users:
             try:
-                await advert_message.send_copy(x[0])
+                await advert_message.send_copy(user_id)
                 num += 1
             except:
                 pass

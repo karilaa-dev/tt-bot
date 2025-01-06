@@ -4,7 +4,8 @@ from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 
 from data.config import locale, api_alt_mode, second_ids
-from data.loader import cursor, sqlite, bot
+from data.loader import bot
+from data.db_service import get_user_settings, add_video
 from misc.tiktok_api import ttapi
 from misc.utils import tCurrent, start_manager, error_catch, lang_func
 from misc.video_types import send_video_result, send_image_result, image_ask_button
@@ -21,16 +22,15 @@ async def send_tiktok_video(message: Message):
     # Group chat set
     group_chat = message.chat.type != 'private'
     # Get chat db info
-    req = cursor.execute('SELECT lang, file_mode FROM users WHERE id = ?',
-                         (message.chat.id,)).fetchone()
-    if req is None:  # Add new user if not in DB
+    settings = await get_user_settings(message.chat.id)
+    if not settings:  # Add new user if not in DB
         # Set lang and file mode for new chat
-        lang = lang_func(message.chat.id, message.from_user.language_code, True)
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
         file_mode = False
         # Start new chat manager
         await start_manager(message.chat.id, message, lang)
     else:  # Set lang and file mode if in DB
-        lang, file_mode = req[0], bool(req[1])
+        lang, file_mode = settings
 
     try:
         # Check if link is valid
@@ -101,9 +101,7 @@ async def send_tiktok_video(message: Message):
             await message.react([])
         try:  # Try to write log into database
             # Write log into database
-            cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
-                           (message.chat.id, tCurrent(), video_link, video_info['type'] == 'images'))
-            sqlite.commit()
+            await add_video(message.chat.id, video_link, video_info['type'] == 'images')
             # Log into console
             logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {video_link}')
         # If cant write log into database or log into console
@@ -143,9 +141,10 @@ async def send_images_custon(callback_query: CallbackQuery):
     group_chat = call_msg.chat.type != 'private'
     chat_id = call_msg.chat.id
     # Get chat db info
-    req = cursor.execute('SELECT lang, file_mode FROM users WHERE id = ?',
-                         (chat_id,)).fetchone()
-    lang, file_mode = req[0], bool(req[1])
+    settings = await get_user_settings(chat_id)
+    if not settings:
+        return
+    lang, file_mode = settings
     # Remove buttons
     await call_msg.edit_reply_markup()
     try:  # If reaction is allowed, send it
@@ -183,9 +182,7 @@ async def send_images_custon(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write log into database
             # Write log into database
-            cursor.execute(f'INSERT INTO videos VALUES (?,?,?,?)',
-                           (chat_id, tCurrent(), link, video_info['type'] == 'images'))
-            sqlite.commit()
+            await add_video(chat_id, link, video_info['type'] == 'images')
             # Log into console
             logging.info(f'Video Download: CHAT {chat_id} - VIDEO {link}')
             # If cant write log into database or log into console

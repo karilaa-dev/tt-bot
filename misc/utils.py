@@ -8,31 +8,28 @@ from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message
 
 from data.config import locale, admin_ids, second_ids, config
-from data.loader import cursor, sqlite, bot
+from data.loader import bot
+from data.db_service import get_user, create_user
 
 
 def tCurrent():
     return int(time())
 
 
-def lang_func(usrid: int, usrlang: str, no_request=False):
+async def lang_func(usrid: int, usrlang: str, no_request=False) -> str:
     try:
         if not no_request:
-            lang_req = cursor.execute("SELECT lang FROM users WHERE id = ?",
-                                      (usrid,)).fetchone()
-        else:
-            lang_req = None
+            try:
+                user = await get_user(usrid)
+                if user:
+                    return user.lang
+            except Exception:
+                pass
 
-        if lang_req is not None:
-            lang = lang_req[0]
-        else:
-            if usrlang not in locale['langs']:
-                lang = 'en'
-            else:
-                lang = usrlang
-
-        return lang
-    except:
+        if usrlang not in locale['langs']:
+            return 'en'
+        return usrlang
+    except Exception:
         return 'en'
 
 
@@ -52,9 +49,7 @@ async def start_manager(chat_id, message: Message, lang):
         args = ''
     if args == '':
         args = None
-    cursor.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)',
-                   (chat_id, tCurrent(), lang, args, 0))
-    sqlite.commit()
+    await create_user(chat_id, lang, args)
     username = ''
     if message.chat.username is not None:
         username = f'@{message.chat.username}\n'
