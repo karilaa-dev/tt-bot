@@ -5,7 +5,8 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale
-from data.loader import cursor, sqlite, bot
+from data.loader import bot
+from data.db_service import update_user_lang
 from misc.utils import lang_func
 
 lang_keyboard = InlineKeyboardBuilder()
@@ -39,9 +40,7 @@ async def inline_lang(callback_query: CallbackQuery):
             lang = lang_func(chat_id, callback_query.from_user.language_code)
             return await callback_query.answer(locale[lang]['not_admin'])
     try:
-        cursor.execute('UPDATE users SET lang = ? WHERE id = ?',
-                       (lang, chat_id))
-        sqlite.commit()
+        update_user_lang(chat_id, lang)
         await bot.edit_message_text(text=locale[lang]['lang'], chat_id=chat_id, message_id=msg_id)
     except:
         pass

@@ -3,7 +3,8 @@ from aiogram import F
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 
-from data.loader import bot, cursor
+from data.loader import bot
+from data.db_service import get_user_ids
 from misc.utils import backup_dp, IsSecondAdmin
 
 admin_router = Router(name=__name__)
@@ -21,10 +22,8 @@ async def send_hi(message: Message):
 
 @admin_router.message(Command('export'), F.chat.type == 'private', IsSecondAdmin())
 async def export_users(message: Message):
-    users = cursor.execute('SELECT id FROM users').fetchall()
-    users_result = ''
-    for x in users:
-        users_result += str(x[0]) + '\n'
+    users = get_user_ids(only_positive=False)
+    users_result = '\n'.join(str(user_id) for user_id in users)
     users_result = users_result.encode('utf-8')
     await message.answer_document(BufferedInputFile(users_result, 'users.txt'), caption='User list')
 

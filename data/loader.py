@@ -1,5 +1,4 @@
 import logging
-import sqlite3
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -10,6 +9,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
 
 from data.config import config
+from data.database import init_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[
@@ -25,7 +25,6 @@ bot = Bot(token=config["bot"]["token"], session=local_server, default=DefaultBot
 
 dp = Dispatcher(storage=MemoryStorage())
 
-scheduler = AsyncIOScheduler(timezone="Europe/Kiev")
+scheduler = AsyncIOScheduler(timezone="Europe/Kiev", job_defaults={"coalesce": True})
 
-sqlite = sqlite3.connect(config["bot"]["db_name"])
-cursor = sqlite.cursor()
+init_db()

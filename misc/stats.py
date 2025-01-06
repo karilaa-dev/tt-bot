@@ -1,46 +1,57 @@
 import asyncio
-import sqlite3
 from datetime import datetime
 from io import BytesIO
 from time import ctime
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from sqlalchemy import text, func
 
 from data.config import config
-from data.loader import cursor, bot
+from data.database import db_session
+from data.loader import bot
+from data.models import User, Video, Music
 from misc.utils import tCurrent
 
 
 def bot_stats(chat_type='all', stats_time=86400):
-    if stats_time == 0:
-        period = 0
-    else:
-        period = tCurrent() - stats_time
-    if chat_type == 'all':
-        chat_type = '!='
-    elif chat_type == 'groups':
-        chat_type = '<'
-    elif chat_type == 'users':
-        chat_type = '>'
+    with db_session() as db:
+        if stats_time == 0:
+            period = 0
+        else:
+            period = tCurrent() - stats_time
 
-    chats = cursor.execute(f"SELECT COUNT(id) FROM users WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
+        # Build filter conditions
+        if chat_type == 'all':
+            user_filter = User.id != 0
+            video_filter = Video.id != 0
+            music_filter = Music.id != 0
+        elif chat_type == 'groups':
+            user_filter = User.id < 0
+            video_filter = Video.id < 0
+            music_filter = Music.id < 0
+        else:  # users
+            user_filter = User.id > 0
+            video_filter = Video.id > 0
+            music_filter = Music.id > 0
 
-    vid = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-    vid_img = cursor.execute(f"SELECT COUNT(id) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
-                             (period,)).fetchone()[0]
+        # Add time filter
+        if period > 0:
+            user_filter = user_filter & (User.time > period)
+            video_filter = video_filter & (Video.time > period)
+            music_filter = music_filter & (Music.time > period)
 
-    vid_u = cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ?",
-                           (period,)).fetchone()[0]
-    vid_img_u = \
-        cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM videos WHERE id {chat_type} 0 and time > ? and is_images = 1",
-                       (period,)).fetchone()[0]
+        # Get stats
+        chats = db.query(func.count(User.id)).filter(user_filter).scalar()
 
-    music = cursor.execute(f"SELECT COUNT(id) FROM music WHERE id {chat_type} 0 and time > ?", (period,)).fetchone()[0]
-    music_u = \
-        cursor.execute(f"SELECT COUNT(DISTINCT(id)) FROM music WHERE id {chat_type} 0 and time > ?",
-                       (period,)).fetchone()[
-            0]
+        vid = db.query(func.count(Video.id)).filter(video_filter).scalar()
+        vid_img = db.query(func.count(Video.id)).filter(video_filter & (Video.is_images == 1)).scalar()
+
+        vid_u = db.query(func.count(func.distinct(Video.id))).filter(video_filter).scalar()
+        vid_img_u = db.query(func.count(func.distinct(Video.id))).filter(video_filter & (Video.is_images == 1)).scalar()
+
+        music = db.query(func.count(Music.video)).filter(music_filter).scalar()
+        music_u = db.query(func.count(func.distinct(Music.id))).filter(music_filter).scalar()
 
     text = \
         f'''Chats: <b>{chats}</b>
@@ -56,17 +67,26 @@ Videos: <b>{vid}</b>
 
 def plot_users_grouped(days, amounts, graph_name):
     plt.figure(figsize=(18, 9))
-    plt.plot(days, amounts, linestyle="-")
+    
+    if not days or not amounts:
+        plt.text(0.5, 0.5, 'No data available for this period', 
+                horizontalalignment='center', verticalalignment='center',
+                transform=plt.gca().transAxes, fontsize=14)
+        plt.grid(False)
+    else:
+        plt.plot(days, amounts, linestyle="-")
 
-    marker_days = [day for day, amount in zip(days, amounts) if amount > 0]
-    marker_amounts = [amount for amount in amounts if amount > 0]
-    plt.scatter(marker_days, marker_amounts, c='b')
+        marker_days = [day for day, amount in zip(days, amounts) if amount > 0]
+        marker_amounts = [amount for amount in amounts if amount > 0]
+        if marker_days and marker_amounts:
+            plt.scatter(marker_days, marker_amounts, c='b')
 
-    plt.xlabel("Date")
-    plt.ylabel("Number of Users")
-    plt.title(graph_name)
-    plt.xticks(rotation=45)
-    plt.grid()
+        plt.xlabel("Date")
+        plt.ylabel("Number of Users")
+        plt.title(graph_name)
+        plt.xticks(rotation=45)
+        plt.grid()
+
     buffer = BytesIO()
     plt.savefig(buffer, format='png')
     buffer.seek(0)
@@ -74,22 +94,31 @@ def plot_users_grouped(days, amounts, graph_name):
     return buffer.getvalue()
 
 
-def plot_user_graph(graph_name, depth, period, id_condition, table):
+def plot_user_graph(graph_name, depth, period, id_condition, table_name):
     time_now = tCurrent()
     last_day = time_now // 86400 * 86400
 
-    query = f"""SELECT time FROM {table} WHERE
-                time <= {last_day} and
-                time > {period} and
-                {id_condition}"""
+    with db_session() as db:
+        if table_name == 'users':
+            table = User
+        elif table_name == 'videos':
+            table = Video
+        else:
+            table = Music
 
-    df = pd.read_sql_query(query, sqlite3.connect(config["bot"]["db_name"]))
-    df["time"] = pd.to_datetime(df["time"], unit="s")
-    df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
+        query = db.query(table.time).filter(
+            table.time <= last_day,
+            table.time > period,
+            text(id_condition)
+        )
+        
+        df = pd.read_sql(query.statement, db.bind)
+        df["time"] = pd.to_datetime(df["time"], unit="s")
+        df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
 
     start_date = datetime.fromtimestamp(period)
     end_date = datetime.fromtimestamp(last_day)
-    date_range = pd.date_range(start=start_date, end=end_date, freq='H').strftime(depth)
+    date_range = pd.date_range(start=start_date, end=end_date, freq='h').strftime(depth)
     df_date_range = pd.DataFrame(date_range, columns=["time"])
 
     df_merged = df_date_range.merge(df_grouped, on="time", how="left").fillna(0)
@@ -98,6 +127,20 @@ def plot_user_graph(graph_name, depth, period, id_condition, table):
     df_merged = df_merged[df_merged["count"].ne(0)].reset_index(drop=True)
 
     day_amount_list = [(datetime.strptime(row[0], depth), row[1]) for row in df_merged.to_records(index=False)]
+    
+    if not day_amount_list:
+        # Create a simple graph showing "No data"
+        plt.figure(figsize=(18, 9))
+        plt.text(0.5, 0.5, 'No data available for this period', 
+                horizontalalignment='center', verticalalignment='center',
+                transform=plt.gca().transAxes, fontsize=14)
+        plt.grid(False)
+        buffer = BytesIO()
+        plt.savefig(buffer, format='png')
+        buffer.seek(0)
+        plt.clf()
+        return buffer.getvalue()
+    
     days, amounts = zip(*day_amount_list)
     days = [datetime.strptime(day.strftime(depth), depth) for day in days]
 
