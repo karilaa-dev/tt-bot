@@ -23,7 +23,7 @@ async def lang_change(message: Message):
     if message.chat.type != 'private':
         user_status = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
         if user_status.status not in ['creator', 'administrator']:
-            lang = lang_func(message.chat.id, message.from_user.language_code)
+            lang = await lang_func(message.chat.id, message.from_user.language_code)
             return await message.answer(locale[lang]['not_admin'])
     await message.answer('Select language:', reply_markup=lang_keyboard)
 
@@ -37,10 +37,10 @@ async def inline_lang(callback_query: CallbackQuery):
     if callback_query.message.chat.type != 'private':
         user_status = await bot.get_chat_member(chat_id=chat_id, from_id=from_id)
         if user_status.status not in ['creator', 'administrator']:
-            lang = lang_func(chat_id, callback_query.from_user.language_code)
+            lang = await lang_func(chat_id, callback_query.from_user.language_code)
             return await callback_query.answer(locale[lang]['not_admin'])
     try:
-        update_user_lang(chat_id, lang)
+        await update_user_lang(chat_id, lang)
         await bot.edit_message_text(text=locale[lang]['lang'], chat_id=chat_id, message_id=msg_id)
     except:
         pass

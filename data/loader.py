@@ -27,4 +27,6 @@ dp = Dispatcher(storage=MemoryStorage())
 
 scheduler = AsyncIOScheduler(timezone="Europe/Kiev", job_defaults={"coalesce": True})
 
-init_db()
+async def setup_db():
+    await init_db()
+

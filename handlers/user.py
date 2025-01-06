@@ -14,8 +14,8 @@ user_router = Router(name=__name__)
 @user_router.message(CommandStart(), F.chat.type == 'private')
 async def send_start(message: Message) -> None:
     chat_id = message.chat.id
-    lang = lang_func(chat_id, message.from_user.language_code)
-    user = get_user(chat_id)
+    lang = await lang_func(chat_id, message.from_user.language_code)
+    user = await get_user(chat_id)
     if not user:
         await start_manager(chat_id, message, lang)
     else:
@@ -30,17 +30,17 @@ async def send_start(message: Message) -> None:
 @user_router.message(Command('mode'))
 async def change_mode(message: Message):
     chat_id = message.chat.id
-    lang = lang_func(chat_id, message.from_user.language_code)
+    lang = await lang_func(chat_id, message.from_user.language_code)
     if message.chat.type != 'private':
         user_status = await bot.get_chat_member(chat_id=message.chat.id, user_id=message.from_user.id)
         if user_status.status not in ['creator', 'administrator']:
             return await message.answer(locale[lang]['not_admin'])
-    user = get_user(chat_id)
+    user = await get_user(chat_id)
     if not user:
         file_mode = False
     else:
         file_mode = user.file_mode
-    update_user_mode(chat_id, not file_mode)
+    await update_user_mode(chat_id, not file_mode)
     if file_mode:
         text = locale[lang]['file_mode_off']
     else:

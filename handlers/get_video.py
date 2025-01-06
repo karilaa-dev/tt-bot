@@ -22,10 +22,10 @@ async def send_tiktok_video(message: Message):
     # Group chat set
     group_chat = message.chat.type != 'private'
     # Get chat db info
-    settings = get_user_settings(message.chat.id)
+    settings = await get_user_settings(message.chat.id)
     if not settings:  # Add new user if not in DB
         # Set lang and file mode for new chat
-        lang = lang_func(message.chat.id, message.from_user.language_code, True)
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
         file_mode = False
         # Start new chat manager
         await start_manager(message.chat.id, message, lang)
@@ -101,7 +101,7 @@ async def send_tiktok_video(message: Message):
             await message.react([])
         try:  # Try to write log into database
             # Write log into database
-            add_video(message.chat.id, video_link, video_info['type'] == 'images')
+            await add_video(message.chat.id, video_link, video_info['type'] == 'images')
             # Log into console
             logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {video_link}')
         # If cant write log into database or log into console
@@ -141,7 +141,7 @@ async def send_images_custon(callback_query: CallbackQuery):
     group_chat = call_msg.chat.type != 'private'
     chat_id = call_msg.chat.id
     # Get chat db info
-    settings = get_user_settings(chat_id)
+    settings = await get_user_settings(chat_id)
     if not settings:
         return
     lang, file_mode = settings
@@ -182,7 +182,7 @@ async def send_images_custon(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write log into database
             # Write log into database
-            add_video(chat_id, link, video_info['type'] == 'images')
+            await add_video(chat_id, link, video_info['type'] == 'images')
             # Log into console
             logging.info(f'Video Download: CHAT {chat_id} - VIDEO {link}')
             # If cant write log into database or log into console

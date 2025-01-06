@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from data.config import config
-from data.loader import scheduler, bot, dp
+from data.loader import scheduler, bot, dp, setup_db
 from handlers.admin import admin_router
 from handlers.advert import advert_router
 from handlers.get_music import music_router
@@ -20,6 +20,7 @@ scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=
 
 
 async def main() -> None:
+    await setup_db()
     scheduler.start()
     dp.include_routers(
         user_router,

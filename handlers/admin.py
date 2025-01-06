@@ -22,7 +22,7 @@ async def send_hi(message: Message):
 
 @admin_router.message(Command('export'), F.chat.type == 'private', IsSecondAdmin())
 async def export_users(message: Message):
-    users = get_user_ids(only_positive=False)
+    users = await get_user_ids(only_positive=False)
     users_result = '\n'.join(str(user_id) for user_id in users)
     users_result = users_result.encode('utf-8')
     await message.answer_document(BufferedInputFile(users_result, 'users.txt'), caption='User list')

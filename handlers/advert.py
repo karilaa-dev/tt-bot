@@ -64,7 +64,7 @@ async def adb_check(message: Message):
 async def adv_go(message: Message):
     if advert_message is not None:
         msg = await message.answer('<code>Announcement started</code>')
-        users = get_user_ids()
+        users = await get_user_ids()
         num = 0
         for user_id in users:
             try:

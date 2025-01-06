@@ -13,7 +13,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from sqlalchemy import func
 
-from data.database import db_session
+from data.database import get_session
 from data.db_service import (
     get_user_stats, get_user_videos, get_referral_stats,
     get_other_stats, get_stats_by_period
@@ -124,14 +124,17 @@ async def stats_graph(call: CallbackQuery):
             period = time_now - 86400 * 32
             depth = '%Y-%m-%d'
         elif graph_time == 'total':
-            with db_session() as db:
+            async with await get_session() as db:
                 if graph_type == 'users':
                     model = User
                 elif graph_type == 'videos':
                     model = Video
                 else:
                     model = Music
-                first_record = db.query(func.min(model.time)).scalar()
+                from sqlalchemy import select
+                stmt = select(func.min(model.time))
+                result = await db.execute(stmt)
+                first_record = result.scalar()
                 period = first_record if first_record is not None else time_now - 86400 * 365
             depth = '%Y-%m-%d'
         result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
@@ -151,7 +154,7 @@ async def stats_graph(call: CallbackQuery):
 @stats_router.callback_query(F.data == 'stats_overall')
 async def stats_overall(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
-    result = get_stats_overall()
+    result = await get_stats_overall()
     keyb = InlineKeyboardBuilder()
     keyb.button(text='🔄Reload', callback_data='stats_overall')
     keyb.button(text='↩️Return', callback_data='stats_menu')
@@ -172,7 +175,7 @@ async def stats_user(call: CallbackQuery, state: FSMContext):
 @stats_router.message(UserCheck.search)
 async def stats_user_search(message: Message, state: FSMContext):
     temp = await message.answer('<code>🔎Searching...</code>')
-    user, videos_count, images_count = get_user_stats(int(message.text))
+    user, videos_count, images_count = await get_user_stats(int(message.text))
     if not user:
         await temp.edit_text('❌User not found', reply_markup=stats_user_keyboard)
     else:
@@ -198,7 +201,7 @@ async def stats_user_search(message: Message, state: FSMContext):
 @stats_router.callback_query(F.data.startswith('user:'))
 async def stats_user_download(call: CallbackQuery):
     user_id = call.data.split(':')[1]
-    videos = get_user_videos(int(user_id))
+    videos = await get_user_videos(int(user_id))
     if not videos:
         await call.answer('❌User has no videos')
     else:
@@ -218,7 +221,7 @@ async def stats_user_download(call: CallbackQuery):
 async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗣Referral Stats</b>\n'
-    top_referrals = get_referral_stats()
+    top_referrals = await get_referral_stats()
     for link, count in top_referrals:
         result += f'┗ {link}: <code>{count}</code>\n'
     keyb = InlineKeyboardBuilder()
@@ -236,7 +239,7 @@ async def stats_other(call: CallbackQuery):
 async def stats_other(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
     result = '<b>🗃Other Stats</b>\n'
-    file_mode_count, top_langs, top_users = get_other_stats()
+    file_mode_count, top_langs, top_users = await get_other_stats()
     result += f'<b>File mode users: <code>{file_mode_count}</code>\n</b>'
     result += 'Top languages:\n'
     for lang, count in top_langs:
@@ -258,7 +261,7 @@ async def stats_other(call: CallbackQuery):
 @stats_router.callback_query(F.data == 'stats_detailed')
 async def stats_detailed(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
-    await temp.edit_text(bot_stats(), reply_markup=stats_keyboard())
+    await temp.edit_text(await bot_stats(), reply_markup=stats_keyboard())
 
 
 @stats_router.callback_query(F.data.startswith('stats:'))
@@ -267,7 +270,7 @@ async def stats_callback(call: CallbackQuery):
     stats_time = int(stats_time)
     await call.message.edit_text('Loading...')
     keyb = stats_keyboard(group_type, stats_time)
-    await call.message.edit_text(bot_stats(group_type, stats_time), reply_markup=keyb)
+    await call.message.edit_text(await bot_stats(group_type, stats_time), reply_markup=keyb)
     await call.answer()
 
 

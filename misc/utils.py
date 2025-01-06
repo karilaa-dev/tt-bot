@@ -16,17 +16,20 @@ def tCurrent():
     return int(time())
 
 
-def lang_func(usrid: int, usrlang: str, no_request=False):
+async def lang_func(usrid: int, usrlang: str, no_request=False) -> str:
     try:
         if not no_request:
-            user = get_user(usrid)
-            if user:
-                return user.lang
+            try:
+                user = await get_user(usrid)
+                if user:
+                    return user.lang
+            except Exception:
+                pass
 
         if usrlang not in locale['langs']:
             return 'en'
         return usrlang
-    except:
+    except Exception:
         return 'en'
 
 
@@ -46,7 +49,7 @@ async def start_manager(chat_id, message: Message, lang):
         args = ''
     if args == '':
         args = None
-    create_user(chat_id, lang, args)
+    await create_user(chat_id, lang, args)
     username = ''
     if message.chat.username is not None:
         username = f'@{message.chat.username}\n'

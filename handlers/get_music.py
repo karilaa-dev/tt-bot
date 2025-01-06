@@ -25,7 +25,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     # Group chat set
     group_chat = call_msg.chat.type != 'private'
     # Get chat language
-    lang = lang_func(chat_id, callback_query.from_user.language_code)
+    lang = await lang_func(chat_id, callback_query.from_user.language_code)
     # Remove music button
     await call_msg.edit_reply_markup()
     try:  # If reaction is allowed, send it
@@ -59,7 +59,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write into database
             # Write into database
-            add_music(chat_id, video_id)
+            await add_music(chat_id, video_id)
             # Log music download
             logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
         except:
