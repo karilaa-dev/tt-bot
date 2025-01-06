@@ -19,7 +19,7 @@ from data.db_service import (
     get_other_stats, get_stats_by_period
 )
 from data.models import User, Video, Music
-from misc.stats import bot_stats, get_stats_overall, plot_async
+from misc.stats import bot_stats, get_overall_stats, get_daily_stats, plot_async
 from misc.utils import tCurrent, IsSecondAdmin
 
 stats_router = Router(name=__name__)
@@ -154,7 +154,9 @@ async def stats_graph(call: CallbackQuery):
 @stats_router.callback_query(F.data == 'stats_overall')
 async def stats_overall(call: CallbackQuery):
     temp = await call.message.edit_text('<code>Loading...</code>')
-    result = await get_stats_overall()
+    overall = await get_overall_stats()
+    daily = await get_daily_stats()
+    result = overall + "\n\n" + daily
     keyb = InlineKeyboardBuilder()
     keyb.button(text='🔄Reload', callback_data='stats_overall')
     keyb.button(text='↩️Return', callback_data='stats_menu')

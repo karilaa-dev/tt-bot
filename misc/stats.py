@@ -1,7 +1,8 @@
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from io import BytesIO
-from time import ctime
+
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -180,19 +181,42 @@ async def plot_async(graph_name, depth, period, id_condition, table):
         raise
 
 
-async def get_stats_overall():
+async def get_overall_stats():
     result = '<b>📊Overall Stats</b>\n'
     result += await bot_stats(chat_type='users', stats_time=0)
     result += '\n<b>Groups</b>\n'
     result += await bot_stats(chat_type='groups', stats_time=0)
-    result += '\n\n<b>In 24 hours</b>\n'
+    return result
+
+
+async def get_daily_stats():
+    result = '<b>📊Last 24 Hours</b>\n'
     result += await bot_stats(chat_type='users', stats_time=86400)
     result += '\n<b>Groups</b>\n'
     result += await bot_stats(chat_type='groups', stats_time=86400)
     return result
 
 
-async def stats_log():
-    text = await get_stats_overall()
-    text += f'\n\n<code>{ctime(tCurrent())[:-5]}</code>'
-    await bot.edit_message_text(chat_id=config["logs"]["stats_chat"], message_id=config["logs"]["stats_message_id"], text=text)
+def get_formatted_timestamp():
+    ts = datetime.fromtimestamp(tCurrent())
+    prague_time = ts.astimezone(ZoneInfo("Europe/Prague")).strftime("%H:%M:%S / %d %B %Y")
+    la_time = ts.astimezone(ZoneInfo("America/Los_Angeles")).strftime("%I:%M:%S %p / %d %B %Y")
+    return f'\n\n<code>🇨🇿 {prague_time}\n🇺🇸 {la_time}</code>'
+
+
+async def update_overall_stats():
+    overall_text = await get_overall_stats()
+    await bot.edit_message_text(
+        chat_id=config["logs"]["stats_chat"],
+        message_id=config["logs"]["stats_message_id"],
+        text=overall_text + get_formatted_timestamp()
+    )
+
+
+async def update_daily_stats():
+    daily_text = await get_daily_stats()
+    await bot.edit_message_text(
+        chat_id=config["logs"]["stats_chat"],
+        message_id=config["logs"]["daily_stats_message_id"],
+        text=daily_text + get_formatted_timestamp()
+    )

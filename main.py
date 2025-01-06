@@ -10,12 +10,18 @@ from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.stats import stats_router
 from handlers.user import user_router
-from misc.stats import stats_log
+from misc.stats import update_overall_stats, update_daily_stats
 from misc.utils import backup_dp
 
 if config["logs"]["stats_chat"] != "0":
-    scheduler.add_job(stats_log, misfire_grace_time=None)  # Run once immediately
-    scheduler.add_job(stats_log, "interval", seconds=3600, misfire_grace_time=None)
+    # Split message mode - run both immediately
+    scheduler.add_job(update_overall_stats, misfire_grace_time=None)
+    scheduler.add_job(update_daily_stats, misfire_grace_time=None)
+    # Schedule separate updates
+    scheduler.add_job(update_overall_stats, "interval", hours=1, id='stats_overall', misfire_grace_time=None)
+    scheduler.add_job(update_daily_stats, "interval", minutes=5, id='stats_daily', misfire_grace_time=None)
+
+# Schedule daily backup at midnight
 scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0, misfire_grace_time=None)
 
 

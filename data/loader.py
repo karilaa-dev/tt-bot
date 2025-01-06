@@ -25,7 +25,7 @@ bot = Bot(token=config["bot"]["token"], session=local_server, default=DefaultBot
 
 dp = Dispatcher(storage=MemoryStorage())
 
-scheduler = AsyncIOScheduler(timezone="Europe/Kiev", job_defaults={"coalesce": True})
+scheduler = AsyncIOScheduler(timezone="America/Los_Angeles", job_defaults={"coalesce": True})
 
 async def setup_db():
     await init_db()
