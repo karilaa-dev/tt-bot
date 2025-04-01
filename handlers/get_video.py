@@ -105,8 +105,9 @@ async def send_tiktok_video(message: Message):
             # Log into console
             logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {video_link}')
         # If cant write log into database or log into console
-        except:
+        except Exception as e:
             logging.error('Cant write into database')
+            logging.error(e)
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
@@ -186,8 +187,9 @@ async def send_images_custon(callback_query: CallbackQuery):
             # Log into console
             logging.info(f'Video Download: CHAT {chat_id} - VIDEO {link}')
             # If cant write log into database or log into console
-        except:
+        except Exception as e:
             logging.error('Cant write into database')
+            logging.error(e)
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)

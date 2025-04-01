@@ -62,9 +62,9 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             await add_music(chat_id, video_id)
             # Log music download
             logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
-        except:
-            # Log error
+        except Exception as e:
             logging.error('Cant write into database')
+            logging.error(e)
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
