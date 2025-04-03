@@ -6,11 +6,12 @@ from data.database import Base
 class Video(Base):
     __tablename__ = "videos"
 
-    id = Column(BigInteger, ForeignKey("users.id"))
-    time = Column(Integer)
+    pk_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    downloaded_at = Column(BigInteger)
     video = Column(String)
-    is_images = Column(Integer, default=0)
-    # Using composite primary key of id and video since a user can have multiple videos
+    is_images = Column(Boolean, default=False, nullable=False)
+
     __table_args__ = (
-        PrimaryKeyConstraint("id", "video"),
+        PrimaryKeyConstraint("pk_id"),
     )

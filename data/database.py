@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from data.config import config
 
 # SQLite doesn't support async operations natively, so we'll use aiosqlite
-DATABASE_URL = f"sqlite+aiosqlite:///{config['bot']['db_name']}"
+DATABASE_URL = config['bot']['db_name']
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 async_session = sessionmaker(

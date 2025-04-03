@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, BigInteger, PrimaryKeyConstraint
+from sqlalchemy import Column, Integer, String, BigInteger, PrimaryKeyConstraint, ForeignKey
 
 from data.database import Base
 
@@ -6,10 +6,11 @@ from data.database import Base
 class Music(Base):
     __tablename__ = "music"
 
-    id = Column(BigInteger)
-    time = Column(Integer)
+    pk_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    downloaded_at = Column(BigInteger)
     video = Column(String)
-    # Using composite primary key of id and music since a user can have multiple music entries
+
     __table_args__ = (
-        PrimaryKeyConstraint("id", "video"),
+        PrimaryKeyConstraint("pk_id"),
     )

@@ -18,7 +18,7 @@ from data.db_service import (
     get_user_stats, get_user_videos, get_referral_stats,
     get_other_stats, get_stats_by_period
 )
-from data.models import User, Video, Music
+from data.models import Users, Video, Music
 from misc.stats import bot_stats, get_overall_stats, get_daily_stats, plot_async
 from misc.utils import tCurrent, IsSecondAdmin
 
@@ -126,13 +126,13 @@ async def stats_graph(call: CallbackQuery):
         elif graph_time == 'total':
             async with await get_session() as db:
                 if graph_type == 'users':
-                    model = User
+                    model = Users
                 elif graph_type == 'videos':
                     model = Video
                 else:
                     model = Music
                 from sqlalchemy import select
-                stmt = select(func.min(model.time))
+                stmt = select(func.min(model.registered_at))
                 result = await db.execute(stmt)
                 first_record = result.scalar()
                 period = first_record if first_record is not None else time_now - 86400 * 365
@@ -186,7 +186,7 @@ async def stats_user_search(message: Message, state: FSMContext):
         result += f'┗ <b>Videos:</b> <code>{videos_count}</code>\n'
         result += f'    ┗ <b>Images:</b> <code>{images_count}</code>\n'
         result += f'┗ <b>Language:</b> <code>{user.lang}</code>\n'
-        reg_time = datetime.fromtimestamp(user.time)
+        reg_time = datetime.fromtimestamp(user.registered_at)
         if user.link:
             result += f'┗ <b>Referral:</b> <code>{user.link}</code>\n'
         result += f'┗ <b>Registered:</b> <code>{reg_time.strftime("%d.%m.%Y %H:%M:%S")} UTC</code>\n'
