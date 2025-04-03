@@ -9,7 +9,7 @@ class Music(Base):
     pk_id = Column(BigInteger, primary_key=True, autoincrement=True)
     id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     downloaded_at = Column(BigInteger)
-    video = Column(String)
+    video = Column(BigInteger)
 
     __table_args__ = (
         PrimaryKeyConstraint("pk_id"),
