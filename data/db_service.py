@@ -18,7 +18,7 @@ async def get_user(user_id: int) -> Optional[Users]:
 
 async def create_user(user_id: int, lang: str, link: Optional[str] = None) -> Users:
     async with await get_session() as db:
-        user = Users(id=user_id, time=int(datetime.now().timestamp()), lang=lang, link=link)
+        user = Users(id=user_id, registered_at=int(datetime.now().timestamp()), lang=lang, link=link)
         db.add(user)
         await db.commit()
         return user
@@ -39,17 +39,17 @@ async def get_user_stats(user_id: int) -> Tuple[Optional[Users], int, int]:
         user = result.scalar_one_or_none()
         if not user:
             return None, 0, 0
-        
+
         # Get video count
         stmt = select(func.count(Video.video)).where(Video.id == user_id)
         result = await db.execute(stmt)
         videos_count = result.scalar()
-        
+
         # Get images count
         stmt = select(func.count(Video.video)).where(Video.id == user_id, Video.is_images == True)
         result = await db.execute(stmt)
         images_count = result.scalar()
-        
+
         return user, videos_count, images_count
 
 
@@ -79,7 +79,7 @@ async def get_other_stats() -> Tuple[int, List[Tuple[str, int]], List[Tuple[int,
         stmt = select(func.count(Users.id)).where(Users.file_mode is True)
         result = await db.execute(stmt)
         file_mode_count = result.scalar()
-        
+
         # Get top languages
         stmt = (
             select(Users.lang, func.count(Users.lang).label('cnt'))
@@ -88,7 +88,7 @@ async def get_other_stats() -> Tuple[int, List[Tuple[str, int]], List[Tuple[int,
         )
         result = await db.execute(stmt)
         top_langs = result.all()
-        
+
         # Get top users
         stmt = (
             select(Video.id, func.count(Video.id).label('cnt'))
@@ -98,27 +98,27 @@ async def get_other_stats() -> Tuple[int, List[Tuple[str, int]], List[Tuple[int,
         )
         result = await db.execute(stmt)
         top_users = result.all()
-        
+
         return file_mode_count, top_langs, top_users
 
 
 async def get_stats_by_period(period: int = 0, chat_type: str = 'all') -> List[Tuple[int, str]]:
     async with await get_session() as db:
         conditions = []
-        
+
         if period > 0:
             current_time = int(datetime.now().timestamp())
             conditions.append(Video.downloaded_at >= current_time - period)
-            
+
         if chat_type == 'users':
             conditions.append(Video.id > 0)
         elif chat_type == 'groups':
             conditions.append(Video.id < 0)
-            
+
         stmt = select(Video.downloaded_at, Video.video)
         if conditions:
             stmt = stmt.where(*conditions)
-            
+
         result = await db.execute(stmt)
         return result.all()
 
@@ -135,14 +135,14 @@ async def get_user_settings(user_id: int) -> Optional[Tuple[str, bool]]:
 
 async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
     async with await get_session() as db:
-        video = Video(id=user_id, time=int(datetime.now().timestamp()), video=video_link, is_images=is_images)
+        video = Video(id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_link, is_images=is_images)
         db.add(video)
         await db.commit()
 
 
 async def add_music(user_id: int, video_id: str) -> None:
     async with await get_session() as db:
-        music = Music(id=user_id, time=int(datetime.now().timestamp()), video=video_id)
+        music = Music(id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_id)
         db.add(music)
         await db.commit()
 
