@@ -1,8 +1,7 @@
 import asyncio
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from io import BytesIO
-
+from zoneinfo import ZoneInfo
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -90,8 +89,8 @@ def plot_users_grouped(days, amounts, graph_name):
 
     if not days or not amounts:
         plt.text(0.5, 0.5, 'No data available for this period',
-                horizontalalignment='center', verticalalignment='center',
-                transform=plt.gca().transAxes, fontsize=14)
+                 horizontalalignment='center', verticalalignment='center',
+                 transform=plt.gca().transAxes, fontsize=14)
         plt.grid(False)
     else:
         plt.plot(days, amounts, linestyle="-")

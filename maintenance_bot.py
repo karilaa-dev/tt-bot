@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 from configparser import ConfigParser
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -25,7 +24,7 @@ with open('locale.json', 'r', encoding='utf-8') as locale_file:
 
 # Setup bot
 local_server = AiohttpSession(api=TelegramAPIServer.from_base(config["bot"]["tg_server"]))
-bot = Bot(token=config["bot"]["token"], session=local_server, 
+bot = Bot(token=config["bot"]["token"], session=local_server,
           default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 # Create dispatcher
@@ -47,11 +46,11 @@ async def get_user_language(user_id, language_code):
 @maintenance_router.message(F.text.startswith("/start"))
 async def start_command(message: Message):
     lang = await get_user_language(message.from_user.id, message.from_user.language_code)
-    
+
     # If language doesn't have maintenance message, use English
     if 'maintenance' not in locale[lang]:
         lang = 'en'
-    
+
     await message.answer(locale[lang]['maintenance'])
 
 
@@ -59,11 +58,11 @@ async def start_command(message: Message):
 @maintenance_router.message(F.text.startswith("/lang"))
 async def lang_command(message: Message):
     lang = await get_user_language(message.from_user.id, message.from_user.language_code)
-    
+
     # If language doesn't have maintenance message, use English
     if 'maintenance' not in locale[lang]:
         lang = 'en'
-    
+
     await message.answer(locale[lang]['maintenance'])
 
 
@@ -71,18 +70,18 @@ async def lang_command(message: Message):
 @maintenance_router.message()
 async def maintenance_message(message: Message):
     lang = await get_user_language(message.from_user.id, message.from_user.language_code)
-    
+
     # If language doesn't have maintenance message, use English
     if 'maintenance' not in locale[lang]:
         lang = 'en'
-    
+
     await message.answer(locale[lang]['maintenance'])
 
 
 async def main() -> None:
     # Include maintenance router
     dp.include_router(maintenance_router)
-    
+
     # Start bot
     bot_info = await bot.get_me()
     logging.info(f'MAINTENANCE MODE: {bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')

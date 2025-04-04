@@ -14,9 +14,11 @@ async_session = sessionmaker(
 
 Base = declarative_base()
 
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 async def get_db() -> AsyncSession:
     async with async_session() as session:
@@ -24,6 +26,7 @@ async def get_db() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
 
 # Context manager for database sessions
 async def get_session() -> AsyncSession:

@@ -8,8 +8,8 @@ from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message
 
 from data.config import locale, admin_ids, second_ids, config
-from data.loader import bot
 from data.db_service import get_user, create_user
+from data.loader import bot
 
 
 def tCurrent():

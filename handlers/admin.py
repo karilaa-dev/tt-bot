@@ -1,10 +1,10 @@
-from aiogram import Router
 from aiogram import F
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import BufferedInputFile, Message
 
-from data.loader import bot
 from data.db_service import get_user_ids
+from data.loader import bot
 from misc.utils import backup_dp, IsSecondAdmin
 
 admin_router = Router(name=__name__)

@@ -2,12 +2,11 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 
 from sqlalchemy import func, desc
+from sqlalchemy import select, update
 
 from data.database import get_session
 from data.models import Users, Video, Music
 
-
-from sqlalchemy import select, update
 
 async def get_user(user_id: int) -> Optional[Users]:
     async with await get_session() as db:

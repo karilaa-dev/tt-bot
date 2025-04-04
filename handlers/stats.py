@@ -10,13 +10,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from sqlalchemy import func
 
 from data.database import get_session
 from data.db_service import (
     get_user_stats, get_user_videos, get_referral_stats,
-    get_other_stats, get_stats_by_period
+    get_other_stats
 )
 from data.models import Users, Video, Music
 from misc.stats import bot_stats, get_overall_stats, get_daily_stats, plot_async

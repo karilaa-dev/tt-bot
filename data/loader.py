@@ -2,11 +2,11 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from aiogram.client.session.aiohttp import AiohttpSession
-from aiogram.client.telegram import TelegramAPIServer
 
 from data.config import config
 from data.database import init_db
@@ -27,6 +27,6 @@ dp = Dispatcher(storage=MemoryStorage())
 
 scheduler = AsyncIOScheduler(timezone="America/Los_Angeles", job_defaults={"coalesce": True})
 
+
 async def setup_db():
     await init_db()
-

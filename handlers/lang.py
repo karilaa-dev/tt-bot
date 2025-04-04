@@ -5,8 +5,8 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale
-from data.loader import bot
 from data.db_service import update_user_lang
+from data.loader import bot
 from misc.utils import lang_func
 
 lang_keyboard = InlineKeyboardBuilder()
@@ -45,4 +45,3 @@ async def inline_lang(callback_query: CallbackQuery):
     except:
         pass
     return await callback_query.answer()
-

@@ -4,10 +4,10 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
 from data.config import locale, api_alt_mode, second_ids
-from data.loader import dp, bot
 from data.db_service import add_music
+from data.loader import dp, bot
 from misc.tiktok_api import ttapi
-from misc.utils import lang_func, tCurrent, error_catch
+from misc.utils import lang_func, error_catch
 from misc.video_types import send_music_result, music_button
 
 music_router = Router(name=__name__)
