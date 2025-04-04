@@ -131,12 +131,18 @@ async def stats_graph(call: CallbackQuery):
                 else:
                     model = Music
                 from sqlalchemy import select
-                stmt = select(func.min(model.registered_at))
+                # Use the appropriate column name based on the model
+                if graph_type == 'users':
+                    time_column = model.registered_at
+                else:
+                    time_column = model.downloaded_at
+
+                stmt = select(func.min(time_column))
                 result = await db.execute(stmt)
                 first_record = result.scalar()
                 period = first_record if first_record is not None else time_now - 86400 * 365
             depth = '%Y-%m-%d'
-        result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
+        result = await plot_async(graph_name, depth, period, 'user_id != 0', graph_type)
         await call.message.answer_photo(BufferedInputFile(result, f'graph.png'))
         await temp.delete()
         await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',

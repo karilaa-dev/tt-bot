@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
@@ -129,7 +130,11 @@ async def plot_user_graph(graph_name, depth, period, id_condition, table_name):
     async with await get_session() as db:
         from sqlalchemy import select
         # Use the appropriate column name based on the table
-        time_column = table.registered_at if table_name == 'users' else table.downloaded_at
+        if table_name == 'users':
+            time_column = table.registered_at
+        else:
+            time_column = table.downloaded_at
+
         stmt = select(time_column).where(
             time_column <= last_day,
             time_column > period,
