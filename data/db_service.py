@@ -17,7 +17,7 @@ async def get_user(user_id: int) -> Optional[Users]:
 
 async def create_user(user_id: int, lang: str, link: Optional[str] = None) -> Users:
     async with await get_session() as db:
-        user = Users(id=user_id, registered_at=int(datetime.now().timestamp()), lang=lang, link=link)
+        user = Users(user_id=user_id, registered_at=int(datetime.now().timestamp()), lang=lang, link=link)
         db.add(user)
         await db.commit()
         return user
@@ -134,14 +134,14 @@ async def get_user_settings(user_id: int) -> Optional[Tuple[str, bool]]:
 
 async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
     async with await get_session() as db:
-        video = Video(id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_link, is_images=is_images)
+        video = Video(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_link, is_images=is_images)
         db.add(video)
         await db.commit()
 
 
 async def add_music(user_id: int, video_id: int) -> None:
     async with await get_session() as db:
-        music = Music(id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_id)
+        music = Music(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_id)
         db.add(music)
         await db.commit()
 
