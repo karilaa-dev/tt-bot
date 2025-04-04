@@ -53,7 +53,7 @@ async def bot_stats(chat_type='all', stats_time=86400):
         result = await db.execute(stmt)
         vid = result.scalar()
 
-        stmt = select(func.count(Video.id)).where(video_filter & (Video.is_images is True))
+        stmt = select(func.count(Video.id)).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img = result.scalar()
 
@@ -61,7 +61,7 @@ async def bot_stats(chat_type='all', stats_time=86400):
         result = await db.execute(stmt)
         vid_u = result.scalar()
 
-        stmt = select(func.count(func.distinct(Video.id))).where(video_filter & (Video.is_images is True))
+        stmt = select(func.count(func.distinct(Video.id))).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img_u = result.scalar()
 

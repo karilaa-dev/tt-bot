@@ -59,7 +59,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write into database
             # Write into database
-            await add_music(chat_id, video_id)
+            await add_music(chat_id, int(video_id))
             # Log music download
             logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
         except Exception as e:

@@ -76,7 +76,7 @@ async def get_referral_stats() -> List[Tuple[str, int]]:
 async def get_other_stats() -> Tuple[int, List[Tuple[str, int]], List[Tuple[int, int]]]:
     async with await get_session() as db:
         # Get file mode count
-        stmt = select(func.count(Users.id)).where(Users.file_mode is True)
+        stmt = select(func.count(Users.id)).where(Users.file_mode == True)
         result = await db.execute(stmt)
         file_mode_count = result.scalar()
 
@@ -140,7 +140,7 @@ async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
         await db.commit()
 
 
-async def add_music(user_id: int, video_id: str) -> None:
+async def add_music(user_id: int, video_id: int) -> None:
     async with await get_session() as db:
         music = Music(id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_id)
         db.add(music)
