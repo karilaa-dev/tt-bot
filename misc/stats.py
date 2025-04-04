@@ -23,17 +23,17 @@ async def bot_stats(chat_type='all', stats_time=86400):
 
         # Build filter conditions
         if chat_type == 'all':
-            user_filter = Users.id != 0
-            video_filter = Video.id != 0
-            music_filter = Music.id != 0
+            user_filter = Users.user_id != 0
+            video_filter = Video.user_id != 0
+            music_filter = Music.user_id != 0
         elif chat_type == 'groups':
-            user_filter = Users.id < 0
-            video_filter = Video.id < 0
-            music_filter = Music.id < 0
+            user_filter = Users.user_id < 0
+            video_filter = Video.user_id < 0
+            music_filter = Music.user_id < 0
         else:  # users
-            user_filter = Users.id > 0
-            video_filter = Video.id > 0
-            music_filter = Music.id > 0
+            user_filter = Users.user_id > 0
+            video_filter = Video.user_id > 0
+            music_filter = Music.user_id > 0
 
         # Add time filter
         if period > 0:
@@ -44,23 +44,23 @@ async def bot_stats(chat_type='all', stats_time=86400):
         from sqlalchemy import select
 
         # Get stats
-        stmt = select(func.count(Users.id)).where(user_filter)
+        stmt = select(func.count(Users.user_id)).where(user_filter)
         result = await db.execute(stmt)
         chats = result.scalar()
 
-        stmt = select(func.count(Video.id)).where(video_filter)
+        stmt = select(func.count(Video.user_id)).where(video_filter)
         result = await db.execute(stmt)
         vid = result.scalar()
 
-        stmt = select(func.count(Video.id)).where(video_filter & (Video.is_images == True))
+        stmt = select(func.count(Video.user_id)).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img = result.scalar()
 
-        stmt = select(func.count(func.distinct(Video.id))).where(video_filter)
+        stmt = select(func.count(func.distinct(Video.user_id))).where(video_filter)
         result = await db.execute(stmt)
         vid_u = result.scalar()
 
-        stmt = select(func.count(func.distinct(Video.id))).where(video_filter & (Video.is_images == True))
+        stmt = select(func.count(func.distinct(Video.user_id))).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img_u = result.scalar()
 
@@ -68,7 +68,7 @@ async def bot_stats(chat_type='all', stats_time=86400):
         result = await db.execute(stmt)
         music = result.scalar()
 
-        stmt = select(func.count(func.distinct(Music.id))).where(music_filter)
+        stmt = select(func.count(func.distinct(Music.user_id))).where(music_filter)
         result = await db.execute(stmt)
         music_u = result.scalar()
 

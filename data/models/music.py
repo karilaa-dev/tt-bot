@@ -7,6 +7,6 @@ class Music(Base):
     __tablename__ = "music"
 
     pk_id = Column(BigInteger, primary_key=True, autoincrement=True, nullable=False)
-    id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     downloaded_at = Column(BigInteger, nullable=True)
     video = Column(BigInteger, nullable=False)

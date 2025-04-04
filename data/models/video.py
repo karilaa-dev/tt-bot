@@ -7,7 +7,7 @@ class Video(Base):
     __tablename__ = "videos"
 
     pk_id = Column(BigInteger, primary_key=True, autoincrement=True, nullable=False)
-    id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     downloaded_at = Column(BigInteger, nullable=True)
     video = Column(String, nullable=False)
     is_images = Column(Boolean, default=False, nullable=False)

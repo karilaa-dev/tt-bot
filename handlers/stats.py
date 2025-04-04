@@ -181,7 +181,7 @@ async def stats_user_search(message: Message, state: FSMContext):
         await temp.edit_text('❌User not found', reply_markup=stats_user_keyboard)
     else:
         result = '<b>👤User Stats</b>\n'
-        result += f'┗ <b>ID</b>: <code>{user.id}</code>\n'
+        result += f'┗ <b>ID</b>: <code>{user.user_id}</code>\n'
         result += f'┗ <b>Videos:</b> <code>{videos_count}</code>\n'
         result += f'    ┗ <b>Images:</b> <code>{images_count}</code>\n'
         result += f'┗ <b>Language:</b> <code>{user.lang}</code>\n'
@@ -190,7 +190,7 @@ async def stats_user_search(message: Message, state: FSMContext):
             result += f'┗ <b>Referral:</b> <code>{user.link}</code>\n'
         result += f'┗ <b>Registered:</b> <code>{reg_time.strftime("%d.%m.%Y %H:%M:%S")} UTC</code>\n'
         keyb = InlineKeyboardBuilder()
-        keyb.button(text='📥Download video history', callback_data=f'user:{user.id}')
+        keyb.button(text='📥Download video history', callback_data=f'user:{user.user_id}')
         keyb.button(text='👤Find another user', callback_data='stats_user')
         keyb.button(text='↩️Return', callback_data='stats_menu')
         keyb.adjust(1)
