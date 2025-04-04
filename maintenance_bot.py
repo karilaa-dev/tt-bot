@@ -23,9 +23,7 @@ with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json.loads(locale_file.read())
 
 # Setup bot
-local_server = AiohttpSession(api=TelegramAPIServer.from_base(config["bot"]["tg_server"]))
-bot = Bot(token=config["bot"]["token"], session=local_server,
-          default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=config["bot"]["token"], default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 # Create dispatcher
 dp = Dispatcher()
