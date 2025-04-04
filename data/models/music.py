@@ -10,7 +10,3 @@ class Music(Base):
     id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
     downloaded_at = Column(BigInteger, nullable=True)
     video = Column(BigInteger, nullable=False)
-
-    __table_args__ = (
-        PrimaryKeyConstraint("pk_id"),
-    )

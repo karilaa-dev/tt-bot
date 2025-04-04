@@ -11,7 +11,3 @@ class Video(Base):
     downloaded_at = Column(BigInteger, nullable=True)
     video = Column(String, nullable=False)
     is_images = Column(Boolean, default=False, nullable=False)
-
-    __table_args__ = (
-        PrimaryKeyConstraint("pk_id"),
-    )
