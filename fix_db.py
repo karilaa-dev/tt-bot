@@ -67,7 +67,7 @@ def add_missing_users(db_path):
             # Based on SQLite DDL [2], columns are: id, time, lang, link, file_mode
             insert_sql = """
                 INSERT INTO users (id, time, lang, link, file_mode)
-                VALUES (?, NULL, "en", NULL, False);
+                VALUES (?, NULL, 'en', NULL, 0);
             """
 
             # Perform insertions in a transaction
