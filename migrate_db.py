@@ -25,7 +25,7 @@ CHUNK_SIZE = 1000
 def transform_user_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite users to PostgreSQL users format."""
     return {
-        'id': sqlite_row_dict.get('id'),
+        'user_id': sqlite_row_dict.get('id'),
         'registered_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
         'lang': sqlite_row_dict.get('lang'),
         'link': sqlite_row_dict.get('link'),
@@ -49,14 +49,14 @@ def transform_music_data(sqlite_row_dict):
             # Log a warning if conversion fails
             logging.warning(
                 f"Could not convert music.video value '{sqlite_video}' to int "
-                f"for id {sqlite_row_dict.get('id')}. Setting to NULL."
+                f"for user_id {sqlite_row_dict.get('id')}. Setting to NULL."
             )
             # pg_video remains None
 
     return {
-        'id': sqlite_row_dict.get('id'), # Foreign Key [1]
+        'user_id': sqlite_row_dict.get('id'), # Foreign Key [1]
         'downloaded_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
-        'video': pg_video # Use the converted integer or None
+        'video_id': pg_video # Use the converted integer or None
         # pk_id is auto-generated in PostgreSQL [user DDL]
     }
 
@@ -64,9 +64,9 @@ def transform_video_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite videos to PostgreSQL videos format."""
     is_images_val = sqlite_row_dict.get('is_images')
     return {
-        'id': sqlite_row_dict.get('id'), # Foreign Key [1]
+        'user_id': sqlite_row_dict.get('id'), # Foreign Key [1]
         'downloaded_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
-        'video': sqlite_row_dict.get('video'),
+        'video_link': sqlite_row_dict.get('video'),
         # Convert SQLite INTEGER (0/1) to Boolean, default False if None (PG NOT NULL) [1, 2]
         'is_images': bool(is_images_val) if is_images_val is not None else False
         # pk_id is auto-generated in PostgreSQL [1]
@@ -194,9 +194,9 @@ async def reset_postgres_sequences(pg_pool):
     logging.info("Attempting to reset PostgreSQL sequences...")
     # Using new DDL for music table [user DDL]
     sequences_to_reset = {
-        'users': 'id',
+        'users': 'user_id',
         'music': 'pk_id', # pk_id is the serial key for music [user DDL]
-        'videos': 'pk_id' [1]
+        'videos': 'pk_id' # pk_id is the serial key for videos [1]
     }
     async with pg_pool.acquire() as conn:
         try:
@@ -243,7 +243,7 @@ async def main():
         logging.info("PostgreSQL connection pool created successfully.")
 
         # --- Migrate users table (Sequentially first due to FKs) ---
-        users_pg_columns = ['id', 'registered_at', 'lang', 'link', 'file_mode']
+        users_pg_columns = ['user_id', 'registered_at', 'lang', 'link', 'file_mode']
         await run_migration_with_timing(
             'users', # Alias for logging
             SQLITE_DB_PATH, pg_pool, 'users', 'users', users_pg_columns, transform_user_data
@@ -254,8 +254,8 @@ async def main():
         parallel_start_time = time.perf_counter()
 
         # Define columns based on PostgreSQL DDL [1, user DDL]
-        music_pg_columns = ['id', 'downloaded_at', 'video'] # pk_id is auto-gen
-        videos_pg_columns = ['id', 'downloaded_at', 'video', 'is_images'] # pk_id is auto-gen
+        music_pg_columns = ['user_id', 'downloaded_at', 'video_id'] # pk_id is auto-gen
+        videos_pg_columns = ['user_id', 'downloaded_at', 'video_link', 'is_images'] # pk_id is auto-gen
 
         # Create tasks for concurrent execution
         music_task = asyncio.create_task(

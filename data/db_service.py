@@ -40,12 +40,12 @@ async def get_user_stats(user_id: int) -> Tuple[Optional[Users], int, int]:
             return None, 0, 0
 
         # Get video count
-        stmt = select(func.count(Video.video)).where(Video.user_id == user_id)
+        stmt = select(func.count(Video.video_link)).where(Video.user_id == user_id)
         result = await db.execute(stmt)
         videos_count = result.scalar()
 
         # Get images count
-        stmt = select(func.count(Video.video)).where(Video.user_id == user_id, Video.is_images == True)
+        stmt = select(func.count(Video.video_link)).where(Video.user_id == user_id, Video.is_images == True)
         result = await db.execute(stmt)
         images_count = result.scalar()
 
@@ -54,7 +54,7 @@ async def get_user_stats(user_id: int) -> Tuple[Optional[Users], int, int]:
 
 async def get_user_videos(user_id: int) -> List[Tuple[int, str]]:
     async with await get_session() as db:
-        stmt = select(Video.downloaded_at, Video.video).where(Video.user_id == user_id)
+        stmt = select(Video.downloaded_at, Video.video_link).where(Video.user_id == user_id)
         result = await db.execute(stmt)
         return result.all()
 
@@ -114,7 +114,7 @@ async def get_stats_by_period(period: int = 0, chat_type: str = 'all') -> List[T
         elif chat_type == 'groups':
             conditions.append(Video.user_id < 0)
 
-        stmt = select(Video.downloaded_at, Video.video)
+        stmt = select(Video.downloaded_at, Video.video_link)
         if conditions:
             stmt = stmt.where(*conditions)
 
@@ -134,14 +134,14 @@ async def get_user_settings(user_id: int) -> Optional[Tuple[str, bool]]:
 
 async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
     async with await get_session() as db:
-        video = Video(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_link, is_images=is_images)
+        video = Video(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video_link=video_link, is_images=is_images)
         db.add(video)
         await db.commit()
 
 
 async def add_music(user_id: int, video_id: int) -> None:
     async with await get_session() as db:
-        music = Music(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video=video_id)
+        music = Music(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video_id=video_id)
         db.add(music)
         await db.commit()
 

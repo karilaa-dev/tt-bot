@@ -9,5 +9,5 @@ class Video(Base):
     pk_id = Column(BigInteger, primary_key=True, autoincrement=True, nullable=False)
     user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     downloaded_at = Column(BigInteger, nullable=True)
-    video = Column(String, nullable=False)
+    video_link = Column(String, nullable=False)
     is_images = Column(Boolean, default=False, nullable=False)

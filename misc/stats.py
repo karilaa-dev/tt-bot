@@ -64,7 +64,7 @@ async def bot_stats(chat_type='all', stats_time=86400):
         result = await db.execute(stmt)
         vid_img_u = result.scalar()
 
-        stmt = select(func.count(Music.video)).where(music_filter)
+        stmt = select(func.count(Music.video_id)).where(music_filter)
         result = await db.execute(stmt)
         music = result.scalar()
 
