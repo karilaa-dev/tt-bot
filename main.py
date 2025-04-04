@@ -38,7 +38,7 @@ async def main() -> None:
         music_router
     )
     bot_info = await bot.get_me()
-    logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.user_id}]')
+    logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')
     await dp.start_polling(bot)
 
 
