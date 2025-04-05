@@ -1,6 +1,6 @@
-import sqlite3
 import logging
 import os
+import sqlite3
 from contextlib import closing
 
 # --- Configuration ---
@@ -9,6 +9,7 @@ SQLITE_DB_PATH = 'sqlite.db'  # Path to your SQLite database file
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 
 def add_missing_users(db_path):
     """
@@ -41,7 +42,8 @@ def add_missing_users(db_path):
 
             # Combine IDs from both tables
             required_user_ids = music_ids.union(videos_ids)
-            logging.info(f"Found {len(required_user_ids)} distinct IDs required in 'users' based on 'music' and 'videos'.")
+            logging.info(
+                f"Found {len(required_user_ids)} distinct IDs required in 'users' based on 'music' and 'videos'.")
 
             # 2. Get all existing IDs from the users table
             logging.info("Fetching existing IDs from 'users' table...")
@@ -74,23 +76,24 @@ def add_missing_users(db_path):
             try:
                 logging.info("Executing bulk insert for missing users...")
                 cursor.executemany(insert_sql, data_to_insert)
-                conn.commit() # Commit the transaction
+                conn.commit()  # Commit the transaction
                 missing_ids_added = len(missing_ids)
                 logging.info(f"Successfully inserted {missing_ids_added} missing user records.")
             except sqlite3.Error as insert_error:
                 logging.error(f"Error during bulk insert of missing users: {insert_error}", exc_info=True)
                 logging.warning("Rolling back transaction due to insertion error.")
-                conn.rollback() # Rollback on error
-                return 0 # Return 0 as no users were successfully added in the end
+                conn.rollback()  # Rollback on error
+                return 0  # Return 0 as no users were successfully added in the end
 
     except sqlite3.Error as e:
         logging.error(f"An SQLite error occurred: {e}", exc_info=True)
-        return 0 # Indicate failure or no users added due to error
+        return 0  # Indicate failure or no users added due to error
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return 0 # Indicate failure
+        return 0  # Indicate failure
 
     return missing_ids_added
+
 
 if __name__ == "__main__":
     added_count = add_missing_users(SQLITE_DB_PATH)

@@ -6,12 +6,12 @@ This script can be run independently to set up the database schema.
 
 import asyncio
 import logging
-from sqlalchemy.ext.asyncio import create_async_engine
 from configparser import ConfigParser
+
+from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import the Base and models to ensure they're registered
 from data.database import Base
-from data.models import Users, Video, Music
 
 # Setup logging
 logging.basicConfig(
@@ -33,17 +33,17 @@ async def create_tables():
     """Create all database tables defined in the models."""
     config = load_config()
     database_url = config['bot']['db_url']
-    
+
     logger.info(f"Connecting to database: {database_url}")
     engine = create_async_engine(database_url, echo=True)
-    
+
     logger.info("Creating tables...")
     async with engine.begin() as conn:
         # This will create all tables that inherit from Base
         await conn.run_sync(Base.metadata.create_all)
-    
+
     logger.info("Tables created successfully!")
-    
+
     # Close the engine
     await engine.dispose()
 

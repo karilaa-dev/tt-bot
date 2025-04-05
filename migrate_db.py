@@ -1,13 +1,13 @@
 import asyncio
-from configparser import ConfigParser
-
-import asyncpg
-import sqlite3
 import logging
 import os
 import re
-import time # Import the time module
+import sqlite3
+import time  # Import the time module
+from configparser import ConfigParser
 from contextlib import closing
+
+import asyncpg
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,6 +20,8 @@ config.read("config.ini")
 SQLITE_DB_PATH = 'sqlite.db'
 POSTGRES_DSN = config['bot']['db_url']
 CHUNK_SIZE = 50000
+
+
 # --- End Configuration ---
 
 # --- Transformation Functions ---
@@ -28,12 +30,13 @@ def transform_user_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite users to PostgreSQL users format."""
     return {
         'user_id': sqlite_row_dict.get('id'),
-        'registered_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
+        'registered_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
         'lang': sqlite_row_dict.get('lang'),
         'link': sqlite_row_dict.get('link'),
         # Convert SQLite INTEGER (assuming 0/1) to Boolean, handle None [1, 2]
         'file_mode': bool(sqlite_row_dict['file_mode']) if sqlite_row_dict.get('file_mode') is not None else None
     }
+
 
 def transform_music_data(sqlite_row_dict):
     """
@@ -42,7 +45,7 @@ def transform_music_data(sqlite_row_dict):
     Returns None for records where 'video' column contains text (non-numeric values).
     """
     sqlite_video = sqlite_row_dict.get('video')
-    pg_video = None # Default to NULL if conversion fails or source is NULL
+    pg_video = None  # Default to NULL if conversion fails or source is NULL
 
     if sqlite_video is not None:
         try:
@@ -58,23 +61,25 @@ def transform_music_data(sqlite_row_dict):
             return None
 
     return {
-        'user_id': sqlite_row_dict.get('id'), # Foreign Key [1]
-        'downloaded_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
-        'video_id': pg_video # Use the converted integer or None
+        'user_id': sqlite_row_dict.get('id'),  # Foreign Key [1]
+        'downloaded_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
+        'video_id': pg_video  # Use the converted integer or None
         # pk_id is auto-generated in PostgreSQL [user DDL]
     }
+
 
 def transform_video_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite videos to PostgreSQL videos format."""
     is_images_val = sqlite_row_dict.get('is_images')
     return {
-        'user_id': sqlite_row_dict.get('id'), # Foreign Key [1]
-        'downloaded_at': sqlite_row_dict.get('time'), # INTEGER -> bigint/int8 [1, 2]
+        'user_id': sqlite_row_dict.get('id'),  # Foreign Key [1]
+        'downloaded_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
         'video_link': sqlite_row_dict.get('video'),
         # Convert SQLite INTEGER (0/1) to Boolean, default False if None (PG NOT NULL) [1, 2]
         'is_images': bool(is_images_val) if is_images_val is not None else False
         # pk_id is auto-generated in PostgreSQL [1]
     }
+
 
 # --- Thread-Safe SQLite Fetching Function ---
 def fetch_sqlite_chunk_thread_safe(db_path, table_name, chunk_size, offset):
@@ -96,6 +101,7 @@ def fetch_sqlite_chunk_thread_safe(db_path, table_name, chunk_size, offset):
     except Exception as e:
         logging.error(f"[Thread] Unexpected error fetching chunk from {table_name}: {e}", exc_info=True)
         return None
+
 
 # --- Core Migration Logic ---
 async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_name, pg_columns, transform_func):
@@ -122,8 +128,8 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
             )
 
             if sqlite_rows_dicts is None:
-                 logging.error(f"Migration failed for {sqlite_table_name} due to fetch error.")
-                 break
+                logging.error(f"Migration failed for {sqlite_table_name} due to fetch error.")
+                break
 
             if not sqlite_rows_dicts:
                 logging.debug(f"No more rows found in {sqlite_table_name} at offset {current_offset}.")
@@ -145,7 +151,7 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
                     continue
 
             if data_to_insert:
-                placeholders = ', '.join([f'${i+1}' for i in range(len(pg_columns))])
+                placeholders = ', '.join([f'${i + 1}' for i in range(len(pg_columns))])
                 insert_sql = f"INSERT INTO {pg_table_name} ({', '.join(pg_columns)}) VALUES ({placeholders})"
 
                 async with pg_pool.acquire() as conn:
@@ -154,31 +160,34 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
                             await conn.executemany(insert_sql, data_to_insert)
                             chunk_rows = len(data_to_insert)
                             processed_rows_total += chunk_rows
-                            logging.debug(f"Inserted chunk ({chunk_rows} rows) into {pg_table_name}. Total: {processed_rows_total}")
-                            current_offset += chunk_rows # Use actual inserted rows count
+                            logging.debug(
+                                f"Inserted chunk ({chunk_rows} rows) into {pg_table_name}. Total: {processed_rows_total}")
+                            current_offset += chunk_rows  # Use actual inserted rows count
                         except Exception as e:
                             logging.error(f"Error inserting chunk into {pg_table_name}: {e}", exc_info=True)
-                            logging.error(f"Failed data sample (first row): {data_to_insert[0] if data_to_insert else 'N/A'}")
+                            logging.error(
+                                f"Failed data sample (first row): {data_to_insert[0] if data_to_insert else 'N/A'}")
                             logging.error(f"Transaction rolled back for {pg_table_name}.")
                             # Stop processing this table on insertion error
-                            return processed_rows_total # Return rows processed so far
+                            return processed_rows_total  # Return rows processed so far
             else:
-                 logging.warning(f"No valid data to insert into {pg_table_name} from the fetched chunk (offset {current_offset}).")
-                 # Advance offset even if transformations failed for all rows in chunk
-                 current_offset += len(sqlite_rows_dicts)
+                logging.warning(
+                    f"No valid data to insert into {pg_table_name} from the fetched chunk (offset {current_offset}).")
+                # Advance offset even if transformations failed for all rows in chunk
+                current_offset += len(sqlite_rows_dicts)
 
-
-        logging.info(f"Migration process finished for {sqlite_table_name} -> {pg_table_name}. Total rows migrated: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-        return processed_rows_total # Return total count on success
+        logging.info(
+            f"Migration process finished for {sqlite_table_name} -> {pg_table_name}. Total rows migrated: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
+        return processed_rows_total  # Return total count on success
 
     except asyncpg.PostgresError as e:
-         logging.error(f"PostgreSQL error during migration of {sqlite_table_name}: {e}", exc_info=True)
-         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-         return processed_rows_total # Return count before error
+        logging.error(f"PostgreSQL error during migration of {sqlite_table_name}: {e}", exc_info=True)
+        logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
+        return processed_rows_total  # Return count before error
     except Exception as e:
-         logging.error(f"Unexpected error during migration of {sqlite_table_name}: {e}", exc_info=True)
-         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-         return processed_rows_total # Return count before error
+        logging.error(f"Unexpected error during migration of {sqlite_table_name}: {e}", exc_info=True)
+        logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
+        return processed_rows_total  # Return count before error
 
 
 # --- Timing Wrapper ---
@@ -196,7 +205,8 @@ async def run_migration_with_timing(table_alias, *migration_args):
         # Catch potential errors bubbled up from migrate_table if not handled internally
         end_time = time.perf_counter()
         duration = end_time - start_time
-        logging.error(f"--- Migration failed for table: {table_alias} after {duration:.2f} seconds. Error: {e} ---", exc_info=True)
+        logging.error(f"--- Migration failed for table: {table_alias} after {duration:.2f} seconds. Error: {e} ---",
+                      exc_info=True)
 
 
 # --- Sequence Reset Function ---
@@ -277,7 +287,8 @@ async def reset_postgres_sequences(pg_pool):
                                 seq_name = await conn.fetchval(sequence_name_sql)
 
                                 if seq_name:
-                                    logging.info(f"Found sequence '{seq_name}' for {table}.{column} using pg_get_serial_sequence")
+                                    logging.info(
+                                        f"Found sequence '{seq_name}' for {table}.{column} using pg_get_serial_sequence")
                                     reset_sql = f"""
                                         SELECT setval(
                                             '{seq_name}',
@@ -288,7 +299,8 @@ async def reset_postgres_sequences(pg_pool):
                                     await conn.execute(reset_sql)
                                     logging.info(f"Sequence '{seq_name}' reset successfully.")
                                 else:
-                                    logging.warning(f"Could not determine sequence name for {table}.{column}. Skipping reset.")
+                                    logging.warning(
+                                        f"Could not determine sequence name for {table}.{column}. Skipping reset.")
                     else:
                         logging.warning(f"Column {table}.{column} does not appear to use a sequence. Skipping.")
 
@@ -309,8 +321,8 @@ async def main():
     overall_start_time = time.perf_counter()
 
     if not os.path.exists(SQLITE_DB_PATH):
-         logging.error(f"SQLite database file not found at: {SQLITE_DB_PATH}")
-         return
+        logging.error(f"SQLite database file not found at: {SQLITE_DB_PATH}")
+        return
 
     try:
         logging.info(f"Creating PostgreSQL connection pool for {POSTGRES_DSN}...")
@@ -320,7 +332,7 @@ async def main():
         # --- Migrate users table (Sequentially first due to FKs) ---
         users_pg_columns = ['user_id', 'registered_at', 'lang', 'link', 'file_mode']
         await run_migration_with_timing(
-            'users', # Alias for logging
+            'users',  # Alias for logging
             SQLITE_DB_PATH, pg_pool, 'users', 'users', users_pg_columns, transform_user_data
         )
 
@@ -329,19 +341,19 @@ async def main():
         parallel_start_time = time.perf_counter()
 
         # Define columns based on PostgreSQL DDL [1, user DDL]
-        music_pg_columns = ['user_id', 'downloaded_at', 'video_id'] # pk_id is auto-gen
-        videos_pg_columns = ['user_id', 'downloaded_at', 'video_link', 'is_images'] # pk_id is auto-gen
+        music_pg_columns = ['user_id', 'downloaded_at', 'video_id']  # pk_id is auto-gen
+        videos_pg_columns = ['user_id', 'downloaded_at', 'video_link', 'is_images']  # pk_id is auto-gen
 
         # Create tasks for concurrent execution
         music_task = asyncio.create_task(
             run_migration_with_timing(
-                'music', # Alias
+                'music',  # Alias
                 SQLITE_DB_PATH, pg_pool, 'music', 'music', music_pg_columns, transform_music_data
             )
         )
         videos_task = asyncio.create_task(
             run_migration_with_timing(
-                'videos', # Alias
+                'videos',  # Alias
                 SQLITE_DB_PATH, pg_pool, 'videos', 'videos', videos_pg_columns, transform_video_data
             )
         )
@@ -359,9 +371,9 @@ async def main():
     except asyncpg.exceptions.InvalidPasswordError:
         logging.error("PostgreSQL connection error: Invalid password.")
     except asyncpg.exceptions.CannotConnectNowError:
-         logging.error("PostgreSQL connection error: Cannot connect now. Is the server running?")
+        logging.error("PostgreSQL connection error: Cannot connect now. Is the server running?")
     except ConnectionRefusedError:
-         logging.error(f"PostgreSQL connection error: Connection refused. Check host '{POSTGRES_DSN}'.")
+        logging.error(f"PostgreSQL connection error: Connection refused. Check host '{POSTGRES_DSN}'.")
     except Exception as e:
         logging.error(f"An critical error occurred during the main migration orchestration: {e}", exc_info=True)
     finally:
@@ -371,7 +383,8 @@ async def main():
             logging.info("PostgreSQL connection pool closed.")
 
         overall_end_time = time.perf_counter()
-        logging.info(f"--- Database migration script finished. Total elapsed time: {overall_end_time - overall_start_time:.2f} seconds ---")
+        logging.info(
+            f"--- Database migration script finished. Total elapsed time: {overall_end_time - overall_start_time:.2f} seconds ---")
 
 
 if __name__ == "__main__":
@@ -381,6 +394,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except RuntimeError as e:
         if "Cannot run the event loop while another loop is running" in str(e):
-             print("Detected running event loop. Please run this script in a context without an active asyncio loop.")
+            print("Detected running event loop. Please run this script in a context without an active asyncio loop.")
         else:
-             raise # Re-raise other runtime errors
+            raise  # Re-raise other runtime errors
