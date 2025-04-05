@@ -38,6 +38,7 @@ def transform_music_data(sqlite_row_dict):
     """
     Transforms a single row dictionary from SQLite music to PostgreSQL music format.
     Handles conversion of 'video' from TEXT/VARCHAR [2] to int8 [user DDL].
+    Returns None for records where 'video' column contains text (non-numeric values).
     """
     sqlite_video = sqlite_row_dict.get('video')
     pg_video = None # Default to NULL if conversion fails or source is NULL
@@ -47,12 +48,13 @@ def transform_music_data(sqlite_row_dict):
             # Attempt conversion to integer, assuming it's a numeric string in SQLite
             pg_video = int(sqlite_video)
         except (ValueError, TypeError):
-            # Log a warning if conversion fails
+            # Log a warning if conversion fails and skip this record
             logging.warning(
-                f"Could not convert music.video value '{sqlite_video}' to int "
-                f"for user_id {sqlite_row_dict.get('id')}. Setting to NULL."
+                f"Skipping record: music.video value '{sqlite_video}' is text "
+                f"for user_id {sqlite_row_dict.get('id')}."
             )
-            # pg_video remains None
+            # Return None to indicate this record should be skipped
+            return None
 
     return {
         'user_id': sqlite_row_dict.get('id'), # Foreign Key [1]
@@ -104,6 +106,7 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
     # Logging internally focuses on progress and potential issues.
     logging.info(f"Migration process started for: {sqlite_table_name} -> {pg_table_name}")
     processed_rows_total = 0
+    skipped_rows_total = 0  # Counter for skipped records
     current_offset = 0
 
     try:
@@ -130,6 +133,10 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
             for row_dict in sqlite_rows_dicts:
                 try:
                     transformed_data = transform_func(row_dict)
+                    # Skip records where transformation returns None (e.g., text in video column for music table)
+                    if transformed_data is None:
+                        skipped_rows_total += 1
+                        continue
                     ordered_values = tuple(transformed_data.get(col) for col in pg_columns)
                     data_to_insert.append(ordered_values)
                 except Exception as e:
@@ -160,14 +167,16 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
                  current_offset += len(sqlite_rows_dicts)
 
 
-        logging.info(f"Migration process finished for {sqlite_table_name} -> {pg_table_name}. Total rows migrated: {processed_rows_total}")
+        logging.info(f"Migration process finished for {sqlite_table_name} -> {pg_table_name}. Total rows migrated: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
         return processed_rows_total # Return total count on success
 
     except asyncpg.PostgresError as e:
          logging.error(f"PostgreSQL error during migration of {sqlite_table_name}: {e}", exc_info=True)
+         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
          return processed_rows_total # Return count before error
     except Exception as e:
          logging.error(f"Unexpected error during migration of {sqlite_table_name}: {e}", exc_info=True)
+         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
          return processed_rows_total # Return count before error
 
 
