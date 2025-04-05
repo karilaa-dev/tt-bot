@@ -3,6 +3,7 @@ import asyncpg
 import sqlite3
 import logging
 import os
+import re
 import time # Import the time module
 from contextlib import closing
 
@@ -17,7 +18,7 @@ POSTGRES_HOST = 'postgres-dev.orb.local'
 POSTGRES_DB = 'ttgrab'
 POSTGRES_PORT = 5432
 POSTGRES_DSN = f'postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}'
-CHUNK_SIZE = 1000
+CHUNK_SIZE = 50000
 # --- End Configuration ---
 
 # --- Transformation Functions ---
@@ -192,39 +193,103 @@ async def run_migration_with_timing(table_alias, *migration_args):
 async def reset_postgres_sequences(pg_pool):
     """Resets PostgreSQL sequences for serial/bigserial columns."""
     logging.info("Attempting to reset PostgreSQL sequences...")
-    # Using new DDL for music table [user DDL]
-    sequences_to_reset = {
-        'users': 'user_id',
-        'music': 'pk_id', # pk_id is the serial key for music [user DDL]
-        'videos': 'pk_id' # pk_id is the serial key for videos [1]
+    # Tables and columns that might have sequences
+    tables_to_check = {
+        'music': 'pk_id',
+        'videos': 'pk_id'
     }
+
     async with pg_pool.acquire() as conn:
+        # First, check which tables exist in the database
         try:
-            async with conn.transaction():
-                for table, column in sequences_to_reset.items():
-                    try:
-                        sequence_name_sql = f"SELECT pg_get_serial_sequence('{table}', '{column}');"
-                        seq_name = await conn.fetchval(sequence_name_sql)
-                        if seq_name:
-                            logging.info(f"Resetting sequence '{seq_name}' for {table}.{column}...")
-                            reset_sql = f"""
-                                SELECT setval(
-                                    pg_catalog.quote_ident('{seq_name}'),
-                                    COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
-                                    (SELECT MAX({column}) IS NOT NULL FROM {table})
-                                );
-                            """
-                            await conn.execute(reset_sql)
-                            logging.info(f"Sequence '{seq_name}' reset successfully.")
+            table_check_sql = """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                AND table_type = 'BASE TABLE'
+                AND table_name = ANY($1);
+            """
+            existing_tables = await conn.fetch(table_check_sql, list(tables_to_check.keys()))
+            existing_table_names = [t['table_name'] for t in existing_tables]
+
+            if not existing_table_names:
+                logging.warning("None of the specified tables exist in the database. Skipping sequence reset.")
+                return
+
+            logging.info(f"Found existing tables: {existing_table_names}")
+
+            # For each existing table, try to reset its sequence
+            for table in existing_table_names:
+                column = tables_to_check[table]
+
+                try:
+                    # Check if the column exists and get its data type
+                    column_check_sql = """
+                        SELECT column_name, data_type, column_default
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                        AND table_name = $1
+                        AND column_name = $2;
+                    """
+                    column_info = await conn.fetchrow(column_check_sql, table, column)
+
+                    if not column_info:
+                        logging.warning(f"Column {column} does not exist in table {table}. Skipping.")
+                        continue
+
+                    # Check if the column has a default value that uses a sequence
+                    if column_info['column_default'] and 'nextval' in column_info['column_default']:
+                        # Extract sequence name from default value
+                        # Format is typically: nextval('sequence_name'::regclass)
+                        default_value = column_info['column_default']
+                        seq_name_match = re.search(r"nextval\('([^']+)'::regclass\)", default_value)
+
+                        if seq_name_match:
+                            seq_name = seq_name_match.group(1)
+                            logging.info(f"Found sequence '{seq_name}' for {table}.{column} from column default")
+
+                            # Reset the sequence
+                            async with conn.transaction():
+                                logging.info(f"Resetting sequence '{seq_name}' for {table}.{column}...")
+                                reset_sql = f"""
+                                    SELECT setval(
+                                        '{seq_name}',
+                                        COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
+                                        (SELECT MAX({column}) IS NOT NULL FROM {table})
+                                    );
+                                """
+                                await conn.execute(reset_sql)
+                                logging.info(f"Sequence '{seq_name}' reset successfully.")
                         else:
-                            logging.warning(f"Could not determine sequence name for {table}.{column}. Skipping reset.")
-                    except asyncpg.PostgresError as e:
-                         logging.error(f"Error resetting sequence for {table}.{column}: {e}", exc_info=True)
-                    except Exception as e:
-                         logging.error(f"Unexpected error resetting sequence for {table}.{column}: {e}", exc_info=True)
-            logging.info("Sequence reset process completed successfully.")
+                            # Try to find the sequence using pg_get_serial_sequence as a fallback
+                            async with conn.transaction():
+                                sequence_name_sql = f"SELECT pg_get_serial_sequence('public.{table}', '{column}');"
+                                seq_name = await conn.fetchval(sequence_name_sql)
+
+                                if seq_name:
+                                    logging.info(f"Found sequence '{seq_name}' for {table}.{column} using pg_get_serial_sequence")
+                                    reset_sql = f"""
+                                        SELECT setval(
+                                            '{seq_name}',
+                                            COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
+                                            (SELECT MAX({column}) IS NOT NULL FROM {table})
+                                        );
+                                    """
+                                    await conn.execute(reset_sql)
+                                    logging.info(f"Sequence '{seq_name}' reset successfully.")
+                                else:
+                                    logging.warning(f"Could not determine sequence name for {table}.{column}. Skipping reset.")
+                    else:
+                        logging.warning(f"Column {table}.{column} does not appear to use a sequence. Skipping.")
+
+                except asyncpg.PostgresError as e:
+                    logging.error(f"Error processing sequence for {table}.{column}: {e}", exc_info=True)
+                except Exception as e:
+                    logging.error(f"Unexpected error processing sequence for {table}.{column}: {e}", exc_info=True)
         except Exception as e:
-            logging.error(f"Error during sequence reset transaction: {e}", exc_info=True)
+            logging.error(f"Error checking database tables: {e}", exc_info=True)
+
+        logging.info("Sequence reset process completed.")
 
 
 # --- Main Orchestration ---
