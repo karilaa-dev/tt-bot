@@ -11,7 +11,7 @@ from contextlib import closing
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- Configuration ---
-SQLITE_DB_PATH = 'sqlite-full.db'
+SQLITE_DB_PATH = 'sqlite.db'
 POSTGRES_USER = 'postgres'
 POSTGRES_PASSWORD = 'postgres'
 POSTGRES_HOST = 'postgres-dev.orb.local'

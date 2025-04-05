@@ -4,7 +4,7 @@ import os
 from contextlib import closing
 
 # --- Configuration ---
-SQLITE_DB_PATH = 'sqlite-full.db'  # Path to your SQLite database file
+SQLITE_DB_PATH = 'sqlite.db'  # Path to your SQLite database file
 # --- End Configuration ---
 
 # Setup logging
