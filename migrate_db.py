@@ -1,4 +1,6 @@
 import asyncio
+from configparser import ConfigParser
+
 import asyncpg
 import sqlite3
 import logging
@@ -10,14 +12,13 @@ from contextlib import closing
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# Load configuration
+config = ConfigParser()
+config.read("config.ini")
+
 # --- Configuration ---
 SQLITE_DB_PATH = 'sqlite.db'
-POSTGRES_USER = 'postgres'
-POSTGRES_PASSWORD = 'postgres'
-POSTGRES_HOST = 'postgres-dev.orb.local'
-POSTGRES_DB = 'ttgrab'
-POSTGRES_PORT = 5432
-POSTGRES_DSN = f'postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}'
+POSTGRES_DSN = config['bot']['db_url']
 CHUNK_SIZE = 50000
 # --- End Configuration ---
 
@@ -360,7 +361,7 @@ async def main():
     except asyncpg.exceptions.CannotConnectNowError:
          logging.error("PostgreSQL connection error: Cannot connect now. Is the server running?")
     except ConnectionRefusedError:
-         logging.error(f"PostgreSQL connection error: Connection refused. Check host '{POSTGRES_HOST}' and port '{POSTGRES_PORT}'.")
+         logging.error(f"PostgreSQL connection error: Connection refused. Check host '{POSTGRES_DSN}'.")
     except Exception as e:
         logging.error(f"An critical error occurred during the main migration orchestration: {e}", exc_info=True)
     finally:
