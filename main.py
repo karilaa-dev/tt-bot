@@ -21,9 +21,6 @@ if config["logs"]["stats_chat"] != "0":
     scheduler.add_job(update_overall_stats, "interval", hours=1, id='stats_overall', misfire_grace_time=None)
     scheduler.add_job(update_daily_stats, "interval", minutes=5, id='stats_daily', misfire_grace_time=None)
 
-# Schedule daily backup at midnight
-scheduler.add_job(backup_dp, "cron", args=[config["logs"]["backup_logs"]], hour=0, misfire_grace_time=None)
-
 
 async def main() -> None:
     await setup_db()
