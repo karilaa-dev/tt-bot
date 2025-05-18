@@ -4,8 +4,8 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
 
 from data.config import locale
+from data.db_service import get_user, update_user_mode
 from data.loader import bot
-from data.db_service import get_user, create_user, update_user_mode
 from misc.utils import lang_func, start_manager
 
 user_router = Router(name=__name__)

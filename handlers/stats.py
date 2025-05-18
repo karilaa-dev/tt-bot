@@ -10,15 +10,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from sqlalchemy import func
 
 from data.database import get_session
 from data.db_service import (
     get_user_stats, get_user_videos, get_referral_stats,
-    get_other_stats, get_stats_by_period
+    get_other_stats
 )
-from data.models import User, Video, Music
+from data.models import Users, Video, Music
 from misc.stats import bot_stats, get_overall_stats, get_daily_stats, plot_async
 from misc.utils import tCurrent, IsSecondAdmin
 
@@ -126,18 +125,24 @@ async def stats_graph(call: CallbackQuery):
         elif graph_time == 'total':
             async with await get_session() as db:
                 if graph_type == 'users':
-                    model = User
+                    model = Users
                 elif graph_type == 'videos':
                     model = Video
                 else:
                     model = Music
                 from sqlalchemy import select
-                stmt = select(func.min(model.time))
+                # Use the appropriate column name based on the model
+                if graph_type == 'users':
+                    time_column = model.registered_at
+                else:
+                    time_column = model.downloaded_at
+
+                stmt = select(func.min(time_column))
                 result = await db.execute(stmt)
                 first_record = result.scalar()
                 period = first_record if first_record is not None else time_now - 86400 * 365
             depth = '%Y-%m-%d'
-        result = await plot_async(graph_name, depth, period, 'id != 0', graph_type)
+        result = await plot_async(graph_name, depth, period, 'user_id != 0', graph_type)
         await call.message.answer_photo(BufferedInputFile(result, f'graph.png'))
         await temp.delete()
         await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
@@ -182,16 +187,16 @@ async def stats_user_search(message: Message, state: FSMContext):
         await temp.edit_text('❌User not found', reply_markup=stats_user_keyboard)
     else:
         result = '<b>👤User Stats</b>\n'
-        result += f'┗ <b>ID</b>: <code>{user.id}</code>\n'
+        result += f'┗ <b>ID</b>: <code>{user.user_id}</code>\n'
         result += f'┗ <b>Videos:</b> <code>{videos_count}</code>\n'
         result += f'    ┗ <b>Images:</b> <code>{images_count}</code>\n'
         result += f'┗ <b>Language:</b> <code>{user.lang}</code>\n'
-        reg_time = datetime.fromtimestamp(user.time)
+        reg_time = datetime.fromtimestamp(user.registered_at)
         if user.link:
             result += f'┗ <b>Referral:</b> <code>{user.link}</code>\n'
         result += f'┗ <b>Registered:</b> <code>{reg_time.strftime("%d.%m.%Y %H:%M:%S")} UTC</code>\n'
         keyb = InlineKeyboardBuilder()
-        keyb.button(text='📥Download video history', callback_data=f'user:{user.id}')
+        keyb.button(text='📥Download video history', callback_data=f'user:{user.user_id}')
         keyb.button(text='👤Find another user', callback_data='stats_user')
         keyb.button(text='↩️Return', callback_data='stats_menu')
         keyb.adjust(1)

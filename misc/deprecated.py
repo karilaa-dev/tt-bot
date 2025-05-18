@@ -4,6 +4,7 @@ import aiohttp
 
 redirect_regex = re.compile(r'https?:\/\/[^\s]+tiktok.com\/[^\s]+?\/([0-9]+)')
 
+
 async def get_id_from_mobile(link: str):
     async with aiohttp.ClientSession() as client:
         async with client.get(link) as response:

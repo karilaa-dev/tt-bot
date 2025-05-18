@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, BigInteger, Boolean, ForeignKey, PrimaryKeyConstraint
+from sqlalchemy import Column, String, BigInteger, Boolean, ForeignKey
 
 from data.database import Base
 
@@ -6,11 +6,8 @@ from data.database import Base
 class Video(Base):
     __tablename__ = "videos"
 
-    id = Column(BigInteger, ForeignKey("users.id"))
-    time = Column(Integer)
-    video = Column(String)
-    is_images = Column(Integer, default=0)
-    # Using composite primary key of id and video since a user can have multiple videos
-    __table_args__ = (
-        PrimaryKeyConstraint("id", "video"),
-    )
+    pk_id = Column(BigInteger, primary_key=True, autoincrement=True, nullable=False)
+    user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
+    downloaded_at = Column(BigInteger, nullable=True)
+    video_link = Column(String, nullable=False)
+    is_images = Column(Boolean, default=False, nullable=False)

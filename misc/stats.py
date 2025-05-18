@@ -1,17 +1,19 @@
 import asyncio
+import logging
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from io import BytesIO
-
+from zoneinfo import ZoneInfo
 
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 import pandas as pd
 from sqlalchemy import text, func
 
 from data.config import config
 from data.database import get_session
 from data.loader import bot
-from data.models import User, Video, Music
+from data.models import Users, Video, Music
 from misc.utils import tCurrent
 
 
@@ -24,52 +26,52 @@ async def bot_stats(chat_type='all', stats_time=86400):
 
         # Build filter conditions
         if chat_type == 'all':
-            user_filter = User.id != 0
-            video_filter = Video.id != 0
-            music_filter = Music.id != 0
+            user_filter = Users.user_id != 0
+            video_filter = Video.user_id != 0
+            music_filter = Music.user_id != 0
         elif chat_type == 'groups':
-            user_filter = User.id < 0
-            video_filter = Video.id < 0
-            music_filter = Music.id < 0
+            user_filter = Users.user_id < 0
+            video_filter = Video.user_id < 0
+            music_filter = Music.user_id < 0
         else:  # users
-            user_filter = User.id > 0
-            video_filter = Video.id > 0
-            music_filter = Music.id > 0
+            user_filter = Users.user_id > 0
+            video_filter = Video.user_id > 0
+            music_filter = Music.user_id > 0
 
         # Add time filter
         if period > 0:
-            user_filter = user_filter & (User.time > period)
-            video_filter = video_filter & (Video.time > period)
-            music_filter = music_filter & (Music.time > period)
+            user_filter = user_filter & (Users.registered_at > period)
+            video_filter = video_filter & (Video.downloaded_at > period)
+            music_filter = music_filter & (Music.downloaded_at > period)
 
         from sqlalchemy import select
 
         # Get stats
-        stmt = select(func.count(User.id)).where(user_filter)
+        stmt = select(func.count(Users.user_id)).where(user_filter)
         result = await db.execute(stmt)
         chats = result.scalar()
 
-        stmt = select(func.count(Video.id)).where(video_filter)
+        stmt = select(func.count(Video.user_id)).where(video_filter)
         result = await db.execute(stmt)
         vid = result.scalar()
-        
-        stmt = select(func.count(Video.id)).where(video_filter & (Video.is_images == 1))
+
+        stmt = select(func.count(Video.user_id)).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img = result.scalar()
 
-        stmt = select(func.count(func.distinct(Video.id))).where(video_filter)
+        stmt = select(func.count(func.distinct(Video.user_id))).where(video_filter)
         result = await db.execute(stmt)
         vid_u = result.scalar()
-        
-        stmt = select(func.count(func.distinct(Video.id))).where(video_filter & (Video.is_images == 1))
+
+        stmt = select(func.count(func.distinct(Video.user_id))).where(video_filter & (Video.is_images == True))
         result = await db.execute(stmt)
         vid_img_u = result.scalar()
 
-        stmt = select(func.count(Music.video)).where(music_filter)
+        stmt = select(func.count(Music.video_id)).where(music_filter)
         result = await db.execute(stmt)
         music = result.scalar()
-        
-        stmt = select(func.count(func.distinct(Music.id))).where(music_filter)
+
+        stmt = select(func.count(func.distinct(Music.user_id))).where(music_filter)
         result = await db.execute(stmt)
         music_u = result.scalar()
 
@@ -87,11 +89,11 @@ Videos: <b>{vid}</b>
 
 def plot_users_grouped(days, amounts, graph_name):
     plt.figure(figsize=(18, 9))
-    
+
     if not days or not amounts:
-        plt.text(0.5, 0.5, 'No data available for this period', 
-                horizontalalignment='center', verticalalignment='center',
-                transform=plt.gca().transAxes, fontsize=14)
+        plt.text(0.5, 0.5, 'No data available for this period',
+                 horizontalalignment='center', verticalalignment='center',
+                 transform=plt.gca().transAxes, fontsize=14)
         plt.grid(False)
     else:
         plt.plot(days, amounts, linestyle="-")
@@ -120,7 +122,7 @@ async def plot_user_graph(graph_name, depth, period, id_condition, table_name):
 
     # Get the appropriate table
     if table_name == 'users':
-        table = User
+        table = Users
     elif table_name == 'videos':
         table = Video
     else:
@@ -129,9 +131,15 @@ async def plot_user_graph(graph_name, depth, period, id_condition, table_name):
     # Get data from database
     async with await get_session() as db:
         from sqlalchemy import select
-        stmt = select(table.time).where(
-            table.time <= last_day,
-            table.time > period,
+        # Use the appropriate column name based on the table
+        if table_name == 'users':
+            time_column = table.registered_at
+        else:
+            time_column = table.downloaded_at
+
+        stmt = select(time_column).where(
+            time_column <= last_day,
+            time_column > period,
             text(id_condition)
         )
         result = await db.execute(stmt)

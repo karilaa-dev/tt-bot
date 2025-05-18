@@ -4,10 +4,10 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
 from data.config import locale, api_alt_mode, second_ids
-from data.loader import dp, bot
 from data.db_service import add_music
+from data.loader import dp, bot
 from misc.tiktok_api import ttapi
-from misc.utils import lang_func, tCurrent, error_catch
+from misc.utils import lang_func, error_catch
 from misc.video_types import send_music_result, music_button
 
 music_router = Router(name=__name__)
@@ -59,12 +59,12 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             await call_msg.react([])
         try:  # Try to write into database
             # Write into database
-            await add_music(chat_id, video_id)
+            await add_music(chat_id, int(video_id))
             # Log music download
             logging.info(f'Music Download: CHAT {chat_id} - MUSIC {video_id}')
-        except:
-            # Log error
+        except Exception as e:
             logging.error('Cant write into database')
+            logging.error(e)
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
