@@ -11,3 +11,4 @@ LICENSE.md
 #extensions
 *.log
 *.pyc
+.DS_Store
