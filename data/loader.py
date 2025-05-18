@@ -9,7 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from data.config import config
-from data.database import init_db
+from data.database import init_db, initialize_database_components
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[
@@ -28,5 +28,6 @@ dp = Dispatcher(storage=MemoryStorage())
 scheduler = AsyncIOScheduler(timezone="America/Los_Angeles", job_defaults={"coalesce": True})
 
 
-async def setup_db():
+async def setup_db(db_url: str):
+    initialize_database_components(db_url)
     await init_db()
