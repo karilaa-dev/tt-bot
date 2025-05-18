@@ -5,6 +5,8 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
 import pandas as pd
 from sqlalchemy import text, func
 
