@@ -8,14 +8,10 @@ from handlers.advert import advert_router
 from handlers.get_music import music_router
 from handlers.get_video import video_router
 from handlers.lang import lang_router
-from handlers.stats import stats_router
 from handlers.user import user_router
-from misc.stats import update_overall_stats, update_daily_stats
-from misc.utils import backup_dp
 
 async def main() -> None:
-    DATABASE_URL_FROM_CONFIG = config['bot']['db_url']
-    await setup_db(DATABASE_URL_FROM_CONFIG)
+    await setup_db(config['bot']['db_url'])
     scheduler.start()
     dp.include_routers(
         user_router,
