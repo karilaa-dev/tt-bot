@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import Message
+from aiogram.filters import ChatTypeFilter
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
@@ -28,6 +29,7 @@ dp = Dispatcher()
 
 # Create maintenance router
 maintenance_router = Router(name="maintenance")
+maintenance_router.message.filter(ChatTypeFilter(chat_type="private"))
 
 
 # Helper function to determine user language
@@ -36,31 +38,6 @@ async def get_user_language(user_id, language_code):
     if language_code not in locale['langs']:
         return 'en'
     return language_code
-
-
-# Handler for /start command
-@maintenance_router.message(F.text.startswith("/start"))
-async def start_command(message: Message):
-    lang = await get_user_language(message.from_user.id, message.from_user.language_code)
-
-    # If language doesn't have maintenance message, use English
-    if 'maintenance' not in locale[lang]:
-        lang = 'en'
-
-    await message.answer(locale[lang]['maintenance'])
-
-
-# Handler for /lang command
-@maintenance_router.message(F.text.startswith("/lang"))
-async def lang_command(message: Message):
-    lang = await get_user_language(message.from_user.id, message.from_user.language_code)
-
-    # If language doesn't have maintenance message, use English
-    if 'maintenance' not in locale[lang]:
-        lang = 'en'
-
-    await message.answer(locale[lang]['maintenance'])
-
 
 # Handler for all other messages
 @maintenance_router.message()
