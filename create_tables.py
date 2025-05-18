@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import the Base and models to ensure they're registered
 from data.database import Base
+from data import models # Ensure all models are imported via data.models.__init__
 
 # Setup logging
 logging.basicConfig(
