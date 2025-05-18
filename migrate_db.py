@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import sqlite3
-import time  # Import the time module
+import time
 from configparser import ConfigParser
 from contextlib import closing
 
@@ -19,9 +19,7 @@ config.read("config.ini")
 # --- Configuration ---
 SQLITE_DB_PATH = 'sqlite.db'
 POSTGRES_DSN = config['bot']['db_url']
-CHUNK_SIZE = 50000
-
-
+CHUNK_SIZE = 100000
 # --- End Configuration ---
 
 # --- Transformation Functions ---
@@ -30,54 +28,48 @@ def transform_user_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite users to PostgreSQL users format."""
     return {
         'user_id': sqlite_row_dict.get('id'),
-        'registered_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
+        'registered_at': sqlite_row_dict.get('time'),
         'lang': sqlite_row_dict.get('lang'),
         'link': sqlite_row_dict.get('link'),
-        # Convert SQLite INTEGER (assuming 0/1) to Boolean, handle None [1, 2]
-        'file_mode': bool(sqlite_row_dict['file_mode']) if sqlite_row_dict.get('file_mode') is not None else None
+        'file_mode': bool(sqlite_row_dict.get('file_mode'))
     }
 
 
 def transform_music_data(sqlite_row_dict):
     """
     Transforms a single row dictionary from SQLite music to PostgreSQL music format.
-    Handles conversion of 'video' from TEXT/VARCHAR [2] to int8 [user DDL].
-    Returns None for records where 'video' column contains text (non-numeric values).
+    Handles conversion of 'video' from TEXT/VARCHAR to int8.
+    Returns None for records where 'video' column contains non-numeric values.
     """
     sqlite_video = sqlite_row_dict.get('video')
-    pg_video = None  # Default to NULL if conversion fails or source is NULL
+    pg_video = None
 
     if sqlite_video is not None:
         try:
-            # Attempt conversion to integer, assuming it's a numeric string in SQLite
             pg_video = int(sqlite_video)
         except (ValueError, TypeError):
-            # Log a warning if conversion fails and skip this record
             logging.warning(
                 f"Skipping record: music.video value '{sqlite_video}' is text "
                 f"for user_id {sqlite_row_dict.get('id')}."
             )
-            # Return None to indicate this record should be skipped
             return None
 
     return {
-        'user_id': sqlite_row_dict.get('id'),  # Foreign Key [1]
-        'downloaded_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
-        'video_id': pg_video  # Use the converted integer or None
-        # pk_id is auto-generated in PostgreSQL [user DDL]
+        'user_id': sqlite_row_dict.get('id'),
+        'downloaded_at': sqlite_row_dict.get('time'),
+        'video_id': pg_video
+        # pk_id is auto-generated in PostgreSQL
     }
 
 
 def transform_video_data(sqlite_row_dict):
     """Transforms a single row dictionary from SQLite videos to PostgreSQL videos format."""
-    is_images_val = sqlite_row_dict.get('is_images')
     return {
-        'user_id': sqlite_row_dict.get('id'),  # Foreign Key [1]
-        'downloaded_at': sqlite_row_dict.get('time'),  # INTEGER -> bigint/int8 [1, 2]
+        'user_id': sqlite_row_dict.get('id'),
+        'downloaded_at': sqlite_row_dict.get('time'),
         'video_link': sqlite_row_dict.get('video'),
-        # Convert SQLite INTEGER (0/1) to Boolean, default False if None (PG NOT NULL) [1, 2]
-        'is_images': bool(is_images_val) if is_images_val is not None else False
-        # pk_id is auto-generated in PostgreSQL [1]
+        'is_images': bool(sqlite_row_dict.get('is_images', False)) # Default to False if None, as PG column is NOT NULL
+        # pk_id is auto-generated in PostgreSQL
     }
 
 
@@ -91,29 +83,32 @@ def fetch_sqlite_chunk_thread_safe(db_path, table_name, chunk_size, offset):
         with closing(sqlite3.connect(db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            logging.debug(f"[Thread] Executing SELECT * FROM {table_name} LIMIT {chunk_size} OFFSET {offset}")
+
+            # Add PRAGMA settings for potentially faster reads
+            cursor.execute("PRAGMA journal_mode = WAL;")
+            cursor.execute("PRAGMA synchronous = NORMAL;")
+            cursor.execute("PRAGMA temp_store = MEMORY;")
+            cursor.execute("PRAGMA cache_size = -200000;")  # Advise SQLite to use 200,000 KiB (~195.3 MiB) for cache
+            cursor.execute("PRAGMA mmap_size = 268435456;") # Enable memory-mapped I/O up to 256MB
+
+            logging.debug(f"Executing SELECT * FROM {table_name} LIMIT {chunk_size} OFFSET {offset}")
             cursor.execute(f"SELECT * FROM {table_name} LIMIT ? OFFSET ?", (chunk_size, offset))
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     except sqlite3.Error as e:
-        logging.error(f"[Thread] SQLite error fetching chunk from {table_name}: {e}", exc_info=True)
+        logging.error(f"SQLite error fetching chunk from {table_name}: {e}", exc_info=True)
         return None
     except Exception as e:
-        logging.error(f"[Thread] Unexpected error fetching chunk from {table_name}: {e}", exc_info=True)
+        logging.error(f"Unexpected error fetching chunk from {table_name}: {e}", exc_info=True)
         return None
 
 
 # --- Core Migration Logic ---
 async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_name, pg_columns, transform_func):
-    """
-    Migrates data from an SQLite table to a PostgreSQL table asynchronously.
-    (Now includes internal logging for start/finish, but timing is handled externally)
-    """
-    # Note: External timing wrapper will log start/end and duration.
-    # Logging internally focuses on progress and potential issues.
+    """Migrates data from an SQLite table to a PostgreSQL table asynchronously."""
     logging.info(f"Migration process started for: {sqlite_table_name} -> {pg_table_name}")
     processed_rows_total = 0
-    skipped_rows_total = 0  # Counter for skipped records
+    skipped_rows_total = 0
     current_offset = 0
 
     try:
@@ -140,7 +135,6 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
             for row_dict in sqlite_rows_dicts:
                 try:
                     transformed_data = transform_func(row_dict)
-                    # Skip records where transformation returns None (e.g., text in video column for music table)
                     if transformed_data is None:
                         skipped_rows_total += 1
                         continue
@@ -151,43 +145,48 @@ async def migrate_table(sqlite_db_path, pg_pool, sqlite_table_name, pg_table_nam
                     continue
 
             if data_to_insert:
-                placeholders = ', '.join([f'${i + 1}' for i in range(len(pg_columns))])
-                insert_sql = f"INSERT INTO {pg_table_name} ({', '.join(pg_columns)}) VALUES ({placeholders})"
-
                 async with pg_pool.acquire() as conn:
-                    async with conn.transaction():
-                        try:
-                            await conn.executemany(insert_sql, data_to_insert)
-                            chunk_rows = len(data_to_insert)
-                            processed_rows_total += chunk_rows
-                            logging.debug(
-                                f"Inserted chunk ({chunk_rows} rows) into {pg_table_name}. Total: {processed_rows_total}")
-                            current_offset += chunk_rows  # Use actual inserted rows count
-                        except Exception as e:
-                            logging.error(f"Error inserting chunk into {pg_table_name}: {e}", exc_info=True)
-                            logging.error(
-                                f"Failed data sample (first row): {data_to_insert[0] if data_to_insert else 'N/A'}")
-                            logging.error(f"Transaction rolled back for {pg_table_name}.")
-                            # Stop processing this table on insertion error
-                            return processed_rows_total  # Return rows processed so far
+                    try:
+                        await conn.copy_records_to_table(
+                            pg_table_name,
+                            records=data_to_insert,
+                            columns=pg_columns,
+                            timeout=300
+                        )
+                        chunk_rows = len(data_to_insert)
+                        processed_rows_total += chunk_rows
+                        logging.debug(
+                            f"Copied chunk ({chunk_rows} rows) into {pg_table_name}. Total: {processed_rows_total}")
+                        current_offset += len(sqlite_rows_dicts)
+
+                    except asyncpg.PostgresError as e:
+                        logging.error(f"Error using COPY for chunk into {pg_table_name}: {e}", exc_info=True)
+                        logging.error(
+                            f"Failed data sample (first row if available): {data_to_insert[0] if data_to_insert else 'N/A'}")
+                        # Consider how to handle errors with COPY.
+                        # For simplicity, this example stops processing the current table on error.
+                        # You might implement retries or skip problematic chunks.
+                        return processed_rows_total
+                    except Exception as e:
+                        logging.error(f"Unexpected error during COPY for {pg_table_name}: {e}", exc_info=True)
+                        return processed_rows_total
             else:
                 logging.warning(
                     f"No valid data to insert into {pg_table_name} from the fetched chunk (offset {current_offset}).")
-                # Advance offset even if transformations failed for all rows in chunk
                 current_offset += len(sqlite_rows_dicts)
 
         logging.info(
             f"Migration process finished for {sqlite_table_name} -> {pg_table_name}. Total rows migrated: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-        return processed_rows_total  # Return total count on success
+        return processed_rows_total
 
     except asyncpg.PostgresError as e:
         logging.error(f"PostgreSQL error during migration of {sqlite_table_name}: {e}", exc_info=True)
         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-        return processed_rows_total  # Return count before error
+        return processed_rows_total
     except Exception as e:
         logging.error(f"Unexpected error during migration of {sqlite_table_name}: {e}", exc_info=True)
         logging.info(f"Rows processed before error: {processed_rows_total}, Skipped rows: {skipped_rows_total}")
-        return processed_rows_total  # Return count before error
+        return processed_rows_total
 
 
 # --- Timing Wrapper ---
@@ -202,7 +201,6 @@ async def run_migration_with_timing(table_alias, *migration_args):
         logging.info(f"--- Finished migration for table: {table_alias}. "
                      f"Migrated {total_rows} rows. Took {duration:.2f} seconds. ---")
     except Exception as e:
-        # Catch potential errors bubbled up from migrate_table if not handled internally
         end_time = time.perf_counter()
         duration = end_time - start_time
         logging.error(f"--- Migration failed for table: {table_alias} after {duration:.2f} seconds. Error: {e} ---",
@@ -213,14 +211,12 @@ async def run_migration_with_timing(table_alias, *migration_args):
 async def reset_postgres_sequences(pg_pool):
     """Resets PostgreSQL sequences for serial/bigserial columns."""
     logging.info("Attempting to reset PostgreSQL sequences...")
-    # Tables and columns that might have sequences
     tables_to_check = {
         'music': 'pk_id',
         'videos': 'pk_id'
     }
 
     async with pg_pool.acquire() as conn:
-        # First, check which tables exist in the database
         try:
             table_check_sql = """
                 SELECT table_name
@@ -233,83 +229,64 @@ async def reset_postgres_sequences(pg_pool):
             existing_table_names = [t['table_name'] for t in existing_tables]
 
             if not existing_table_names:
-                logging.warning("None of the specified tables exist in the database. Skipping sequence reset.")
+                logging.warning("None of the specified tables exist for sequence reset. Skipping.")
                 return
 
-            logging.info(f"Found existing tables: {existing_table_names}")
+            logging.info(f"Found existing tables for sequence reset: {existing_table_names}")
 
-            # For each existing table, try to reset its sequence
             for table in existing_table_names:
                 column = tables_to_check[table]
-
+                sequence_name = None
                 try:
-                    # Check if the column exists and get its data type
-                    column_check_sql = """
-                        SELECT column_name, data_type, column_default
+                    # Check if the column exists and get its default value
+                    column_info_sql = """
+                        SELECT column_default
                         FROM information_schema.columns
                         WHERE table_schema = 'public'
                         AND table_name = $1
                         AND column_name = $2;
                     """
-                    column_info = await conn.fetchrow(column_check_sql, table, column)
+                    column_info = await conn.fetchrow(column_info_sql, table, column)
 
                     if not column_info:
-                        logging.warning(f"Column {column} does not exist in table {table}. Skipping.")
+                        logging.warning(f"Column {column} not found in table {table}. Skipping sequence reset for this column.")
                         continue
 
-                    # Check if the column has a default value that uses a sequence
                     if column_info['column_default'] and 'nextval' in column_info['column_default']:
-                        # Extract sequence name from default value
-                        # Format is typically: nextval('sequence_name'::regclass)
-                        default_value = column_info['column_default']
-                        seq_name_match = re.search(r"nextval\('([^']+)'::regclass\)", default_value)
+                        match = re.search(r"nextval\('([^']+)'::regclass\)", column_info['column_default'])
+                        if match:
+                            sequence_name = match.group(1)
+                            logging.info(f"Found sequence '{sequence_name}' for {table}.{column} from column default.")
 
-                        if seq_name_match:
-                            seq_name = seq_name_match.group(1)
-                            logging.info(f"Found sequence '{seq_name}' for {table}.{column} from column default")
-
-                            # Reset the sequence
-                            async with conn.transaction():
-                                logging.info(f"Resetting sequence '{seq_name}' for {table}.{column}...")
-                                reset_sql = f"""
-                                    SELECT setval(
-                                        '{seq_name}',
-                                        COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
-                                        (SELECT MAX({column}) IS NOT NULL FROM {table})
-                                    );
-                                """
-                                await conn.execute(reset_sql)
-                                logging.info(f"Sequence '{seq_name}' reset successfully.")
+                    if not sequence_name:
+                        # Fallback: try to get sequence name using pg_get_serial_sequence
+                        sequence_name_sql = f"SELECT pg_get_serial_sequence('public.{table}', '{column}');"
+                        sequence_name = await conn.fetchval(sequence_name_sql)
+                        if sequence_name:
+                             logging.info(f"Found sequence '{sequence_name}' for {table}.{column} using pg_get_serial_sequence.")
                         else:
-                            # Try to find the sequence using pg_get_serial_sequence as a fallback
-                            async with conn.transaction():
-                                sequence_name_sql = f"SELECT pg_get_serial_sequence('public.{table}', '{column}');"
-                                seq_name = await conn.fetchval(sequence_name_sql)
-
-                                if seq_name:
-                                    logging.info(
-                                        f"Found sequence '{seq_name}' for {table}.{column} using pg_get_serial_sequence")
-                                    reset_sql = f"""
-                                        SELECT setval(
-                                            '{seq_name}',
-                                            COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
-                                            (SELECT MAX({column}) IS NOT NULL FROM {table})
-                                        );
-                                    """
-                                    await conn.execute(reset_sql)
-                                    logging.info(f"Sequence '{seq_name}' reset successfully.")
-                                else:
-                                    logging.warning(
-                                        f"Could not determine sequence name for {table}.{column}. Skipping reset.")
-                    else:
-                        logging.warning(f"Column {table}.{column} does not appear to use a sequence. Skipping.")
+                            logging.warning(f"Could not determine sequence name for {table}.{column}. Skipping reset.")
+                            continue
+                    
+                    # Reset the sequence
+                    async with conn.transaction():
+                        logging.info(f"Resetting sequence '{sequence_name}' for {table}.{column}...")
+                        reset_sql = f"""
+                            SELECT setval(
+                                '{sequence_name}',
+                                COALESCE((SELECT MAX({column}) FROM {table}), 0) + 1,
+                                (SELECT MAX({column}) IS NOT NULL FROM {table})
+                            );
+                        """
+                        await conn.execute(reset_sql)
+                        logging.info(f"Sequence '{sequence_name}' reset successfully.")
 
                 except asyncpg.PostgresError as e:
-                    logging.error(f"Error processing sequence for {table}.{column}: {e}", exc_info=True)
+                    logging.error(f"PostgreSQL error processing sequence for {table}.{column}: {e}", exc_info=True)
                 except Exception as e:
                     logging.error(f"Unexpected error processing sequence for {table}.{column}: {e}", exc_info=True)
         except Exception as e:
-            logging.error(f"Error checking database tables: {e}", exc_info=True)
+            logging.error(f"Error checking database tables for sequence reset: {e}", exc_info=True)
 
         logging.info("Sequence reset process completed.")
 
@@ -325,14 +302,14 @@ async def main():
         return
 
     try:
-        logging.info(f"Creating PostgreSQL connection pool for {POSTGRES_DSN}...")
+        logging.info(f"Creating PostgreSQL connection pool for DSN starting with: {POSTGRES_DSN[:POSTGRES_DSN.find('@') if '@' in POSTGRES_DSN else 20]}...") # Log DSN prefix for security
         pg_pool = await asyncpg.create_pool(dsn=POSTGRES_DSN, min_size=1, max_size=10)
         logging.info("PostgreSQL connection pool created successfully.")
 
         # --- Migrate users table (Sequentially first due to FKs) ---
         users_pg_columns = ['user_id', 'registered_at', 'lang', 'link', 'file_mode']
         await run_migration_with_timing(
-            'users',  # Alias for logging
+            'users',
             SQLITE_DB_PATH, pg_pool, 'users', 'users', users_pg_columns, transform_user_data
         )
 
@@ -340,32 +317,28 @@ async def main():
         logging.info("--- Starting parallel migration phase for music and videos ---")
         parallel_start_time = time.perf_counter()
 
-        # Define columns based on PostgreSQL DDL [1, user DDL]
-        music_pg_columns = ['user_id', 'downloaded_at', 'video_id']  # pk_id is auto-gen
-        videos_pg_columns = ['user_id', 'downloaded_at', 'video_link', 'is_images']  # pk_id is auto-gen
+        music_pg_columns = ['user_id', 'downloaded_at', 'video_id']
+        videos_pg_columns = ['user_id', 'downloaded_at', 'video_link', 'is_images']
 
-        # Create tasks for concurrent execution
         music_task = asyncio.create_task(
             run_migration_with_timing(
-                'music',  # Alias
+                'music',
                 SQLITE_DB_PATH, pg_pool, 'music', 'music', music_pg_columns, transform_music_data
             )
         )
         videos_task = asyncio.create_task(
             run_migration_with_timing(
-                'videos',  # Alias
+                'videos',
                 SQLITE_DB_PATH, pg_pool, 'videos', 'videos', videos_pg_columns, transform_video_data
             )
         )
 
-        # Wait for both concurrent tasks to complete
         await asyncio.gather(music_task, videos_task)
 
         parallel_end_time = time.perf_counter()
         logging.info(f"--- Parallel migration phase (music, videos) finished. "
                      f"Took {parallel_end_time - parallel_start_time:.2f} seconds overall. ---")
 
-        # --- Reset sequences (After all data is inserted) ---
         await reset_postgres_sequences(pg_pool)
 
     except asyncpg.exceptions.InvalidPasswordError:
@@ -373,7 +346,21 @@ async def main():
     except asyncpg.exceptions.CannotConnectNowError:
         logging.error("PostgreSQL connection error: Cannot connect now. Is the server running?")
     except ConnectionRefusedError:
-        logging.error(f"PostgreSQL connection error: Connection refused. Check host '{POSTGRES_DSN}'.")
+        # Construct DSN prefix for logging, being careful if '@' is not present
+        dsn_prefix_match = re.match(r"postgresql://([^:]+):[^@]+@([^/]+)/(.+)", POSTGRES_DSN)
+        host_info = "host information not parsed"
+        if dsn_prefix_match:
+            host_info = f"user '{dsn_prefix_match.group(1)}' at host '{dsn_prefix_match.group(2)}' for database '{dsn_prefix_match.group(3)}'"
+        else: # Fallback if DSN format is unexpected
+             at_index = POSTGRES_DSN.find('@')
+             if at_index != -1:
+                 host_info = POSTGRES_DSN[at_index+1:] # Get part after @
+                 slash_index = host_info.find('/')
+                 if slash_index != -1:
+                     host_info = host_info[:slash_index] # Get part before / in the host string
+
+
+        logging.error(f"PostgreSQL connection error: Connection refused. Check connection to {host_info}.")
     except Exception as e:
         logging.error(f"An critical error occurred during the main migration orchestration: {e}", exc_info=True)
     finally:
@@ -388,12 +375,13 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Ensure any previous loops are handled if run in certain environments,
-    # but typically asyncio.run() is sufficient for scripts.
     try:
         asyncio.run(main())
     except RuntimeError as e:
         if "Cannot run the event loop while another loop is running" in str(e):
-            print("Detected running event loop. Please run this script in a context without an active asyncio loop.")
+            # Provide a more user-friendly message for this common asyncio issue.
+            logging.error("Failed to start migration: Detected an already running event loop. "
+                          "This script should be run in a context without an active asyncio loop.")
         else:
-            raise  # Re-raise other runtime errors
+            # Re-raise other runtime errors for standard traceback.
+            raise
