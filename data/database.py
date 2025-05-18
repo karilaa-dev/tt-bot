@@ -1,13 +1,24 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+import logging
 
 from data.config import config
+from data.db_utils import get_async_db_url
 
-# SQLite doesn't support async operations natively, so we'll use aiosqlite
-DATABASE_URL = config['bot']['db_url']
+# Setup logging for this module (optional, but good practice)
+logger = logging.getLogger(__name__)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+DATABASE_URL_FROM_CONFIG = config['bot']['db_url']
+
+# Get the processed URL for the engine
+engine_url = get_async_db_url(DATABASE_URL_FROM_CONFIG)
+
+# The logger in get_async_db_url already logs the original and effective URL.
+# We can add a specific log for this context if needed, e.g.:
+logger.info(f"Using database URL for engine in data/database.py: {str(engine_url)}")
+
+engine = create_async_engine(engine_url, echo=False)
 async_session = sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
