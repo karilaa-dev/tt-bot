@@ -4,20 +4,27 @@ import os
 import re
 import sqlite3
 import time
+import sys
 from configparser import ConfigParser
 from contextlib import closing
 
 import asyncpg
+
+# Add the project root to sys.path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Load configuration
 config = ConfigParser()
-config.read("config.ini")
+config.read("migration/config.ini")
 
 # --- Configuration ---
-SQLITE_DB_PATH = 'sqlite.db'
+SQLITE_DB_PATH = config['bot']['db_path']
 POSTGRES_DSN = config['bot']['db_url']
 CHUNK_SIZE = 100000
 # --- End Configuration ---
@@ -384,4 +391,4 @@ if __name__ == "__main__":
                           "This script should be run in a context without an active asyncio loop.")
         else:
             # Re-raise other runtime errors for standard traceback.
-            raise
+            raise 

@@ -2,9 +2,15 @@ import logging
 import os
 import sqlite3
 from contextlib import closing
+from configparser import ConfigParser
+
+# Load configuration
+config = ConfigParser()
+# Ensure this path is correct if running fix_db.py from project root
+config.read("migration/config.ini")
 
 # --- Configuration ---
-SQLITE_DB_PATH = 'sqlite.db'  # Path to your SQLite database file
+SQLITE_DB_PATH = config['bot']['db_path']
 # --- End Configuration ---
 
 # Setup logging
@@ -97,4 +103,4 @@ def add_missing_users(db_path):
 
 if __name__ == "__main__":
     added_count = add_missing_users(SQLITE_DB_PATH)
-    logging.info(f"--- Script finished. Total missing users added: {added_count} ---")
+    logging.info(f"--- Script finished. Total missing users added: {added_count} ---") 

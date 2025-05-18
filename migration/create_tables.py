@@ -6,7 +6,15 @@ This script can be run independently to set up the database schema.
 
 import asyncio
 import logging
+import os
+import sys
 from configparser import ConfigParser
+
+# Add the project root to sys.path
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from sqlalchemy.ext.asyncio import create_async_engine
 # Removed: from sqlalchemy import make_url
@@ -28,7 +36,7 @@ logger = logging.getLogger(__name__)
 def load_config():
     """Load configuration from config.ini file."""
     config = ConfigParser()
-    config.read("config.ini")
+    config.read("migration/config.ini")
     return config
 
 
@@ -69,4 +77,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main()) 
