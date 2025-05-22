@@ -5,10 +5,10 @@ from time import time
 from traceback import format_exception
 
 from aiogram.filters import Filter
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, Message, BufferedInputFile
 
 from data.config import locale, admin_ids, second_ids, config
-from data.db_service import get_user, create_user
+from data.db_service import get_user, create_user, get_user_ids
 from data.loader import bot
 
 
@@ -87,3 +87,10 @@ def error_catch(e):
     tb_str = format_exception(error_type, error_instance, tb)
     error_message = "".join(tb_str)
     return error_message
+
+async def get_users_file(only_positive: bool = False):
+    users = await get_user_ids(only_positive=only_positive)
+    users_result = '\n'.join(str(user_id) for user_id in users)
+    users_result = users_result.encode('utf-8')
+    request_file = BufferedInputFile(users_result, filename='users.txt')
+    return request_file

@@ -1,11 +1,11 @@
 from aiogram import F
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import Message
+from misc.botstat import Botstat
 
-from data.db_service import get_user_ids
 from data.loader import bot
-from misc.utils import backup_dp, IsSecondAdmin
+from misc.utils import IsSecondAdmin, IsAdmin
 
 admin_router = Router(name=__name__)
 
@@ -22,14 +22,15 @@ async def send_hi(message: Message):
 
 @admin_router.message(Command('export'), F.chat.type == 'private', IsSecondAdmin())
 async def export_users(message: Message):
-    users = await get_user_ids(only_positive=False)
-    users_result = '\n'.join(str(user_id) for user_id in users)
-    users_result = users_result.encode('utf-8')
-    await message.answer_document(BufferedInputFile(users_result, 'users.txt'), caption='User list')
+    users_file = await get_users_file()
+    await message.answer_document(users_file, caption='User list')
 
 
-@admin_router.message(Command('backup'), F.chat.type == 'private', IsSecondAdmin())
-async def backup(message: Message):
-    msg = await message.answer('<code>Backup started, please wait...</code>')
-    await backup_dp(message.chat.id)
-    await msg.delete()
+@admin_router.message(Command('botstat'), F.chat.type == 'private', IsAdmin())
+async def botstat(message: Message):
+    try:
+        botstat = Botstat()
+        await botstat.start_task()
+        await message.answer('BotSafe stats verification started')
+    except Exception as e:
+        await message.answer(f'BotSafe stats verification unsuccessful: <code>{str(e)}</code>')
