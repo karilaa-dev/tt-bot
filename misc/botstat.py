@@ -37,6 +37,9 @@ class Botstat:
                         logging.error(f"API error code: {code}")
                         raise Exception(f'API error code:{code}')
             logging.info("Botstat task completed successfully.")
-        except Exception as e:
-            logging.error(f"Exception during botstat task: {e}", exc_info=True)
+        except aiohttp.ClientError as e:
+            logging.error(f"HTTP error during botstat task: {e}", exc_info=True)
+            raise e
+        except OSError as e:
+            logging.error(f"File-related error during botstat task: {e}", exc_info=True)
             raise e
