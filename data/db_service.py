@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 
 from data.database import get_session
 from data.models import Users, Video, Music
+from data.config import ad_video_count_threshold, ad_time_threshold_seconds
 
 
 async def get_user(user_id: int) -> Optional[Users]:
@@ -175,8 +176,9 @@ async def should_show_ad(user_id: int) -> bool:
     """
     Check if an ad should be shown to the user.
     Returns True if:
-    1. User has downloaded 5 or more videos since last ad, OR
-    2. User has downloaded less than 5 videos but last ad was shown more than 24 hours ago
+    1. User has downloaded video_count_threshold or more videos since last ad, OR
+    2. User has downloaded less than video_count_threshold videos but last ad was shown more than time_threshold_seconds ago, OR
+    3. User has never been shown an ad (latest_ad_shown is None)
     """
     async with await get_session() as db:
         stmt = select(Users.latest_ad_shown, Users.latest_ad_msgs).where(Users.user_id == user_id)
@@ -188,15 +190,14 @@ async def should_show_ad(user_id: int) -> bool:
             
         latest_ad_shown, latest_ad_msgs = user_data
         
-        # If user has downloaded 5 or more videos since last ad
-        if latest_ad_msgs >= 5:
+        # If user has downloaded video_count_threshold or more videos since last ad
+        if latest_ad_msgs >= ad_video_count_threshold:
             return True
             
-        # If less than 5 videos, check if last ad was shown more than 24 hours ago
+        # If less than video_count_threshold videos, check if last ad was shown more than time_threshold_seconds ago
         if latest_ad_shown is not None:
             current_time = int(datetime.now().timestamp())
-            twenty_four_hours = 24 * 60 * 60  # 24 hours in seconds
-            if current_time - latest_ad_shown > twenty_four_hours:
+            if current_time - latest_ad_shown > ad_time_threshold_seconds:
                 return True
         elif latest_ad_shown is None:
             return True
