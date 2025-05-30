@@ -145,7 +145,7 @@ async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
             stmt = update(Users).where(Users.user_id == user_id).values(
                 latest_ad_msgs=Users.latest_ad_msgs + 1
             )
-        await db.execute(stmt)
+            await db.execute(stmt)
         
         await db.commit()
 
