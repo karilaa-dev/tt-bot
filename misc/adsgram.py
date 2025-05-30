@@ -25,5 +25,4 @@ async def request_ad(chat_id: int, lang: str):
                 raise Exception('Banner not available')
             json_data = await response.json()
 
-    json_data = json.loads(json_data)
     return json_data['text_html'], json_data['click_url'], json_data['button_name'], json_data['image_url']
