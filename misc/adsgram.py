@@ -21,8 +21,9 @@ async def request_ad(chat_id: int, lang: str):
     url = f"https://api.adsgram.ai/advbot?tgid={chat_id}&blockid={adsgram_block_id}&language={lang}"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
-            if await response.text() == 'No available advertisement at the moment, try again later!':
+            response_text = await response.text()
+            if response_text == 'No available advertisement at the moment, try again later!':
                 raise Exception('Banner not available')
-            json_data = await response.json()
+    json_data = json.loads(response_text)
 
     return json_data['text_html'], json_data['click_url'], json_data['button_name'], json_data['image_url']
