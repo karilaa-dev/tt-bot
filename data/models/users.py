@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, BigInteger, Boolean
+from sqlalchemy import Column, String, BigInteger, Boolean, SmallInteger
 
 from data.database import Base
 
@@ -12,4 +12,4 @@ class Users(Base):
     link = Column(String, nullable=True)
     file_mode = Column(Boolean, default=False, nullable=False)
     latest_ad_shown = Column(BigInteger, nullable=True)
-    latest_ad_msgs = Column(BigInteger, default=0, nullable=False)
+    latest_ad_msgs = Column(SmallInteger, default=0, nullable=False)

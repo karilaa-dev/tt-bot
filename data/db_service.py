@@ -141,9 +141,10 @@ async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
         db.add(video)
         
         # Increment ad message counter
-        stmt = update(Users).where(Users.user_id == user_id).values(
-            latest_ad_msgs=Users.latest_ad_msgs + 1
-        )
+        if user_id > 0:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                latest_ad_msgs=Users.latest_ad_msgs + 1
+            )
         await db.execute(stmt)
         
         await db.commit()
@@ -189,7 +190,6 @@ async def should_show_ad(user_id: int) -> bool:
             return False
             
         latest_ad_shown, latest_ad_msgs = user_data
-        
         # If user has downloaded video_count_threshold or more videos since last ad
         if latest_ad_msgs >= ad_video_count_threshold:
             return True

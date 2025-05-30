@@ -62,7 +62,7 @@ async def add_ad_columns():
             logging.info("Adding latest_ad_msgs column...")
             await conn.execute("""
                 ALTER TABLE users 
-                ADD COLUMN latest_ad_msgs BIGINT NOT NULL DEFAULT 0;
+                ADD COLUMN latest_ad_msgs SMALLINT NOT NULL DEFAULT 0;
             """)
             logging.info("✓ latest_ad_msgs column added successfully")
         else:
