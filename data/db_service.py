@@ -6,6 +6,7 @@ from sqlalchemy import select, update
 
 from data.database import get_session
 from data.models import Users, Video, Music
+from data.config import ad_video_count_threshold, ad_time_threshold_seconds
 
 
 async def get_user(user_id: int) -> Optional[Users]:
@@ -134,9 +135,18 @@ async def get_user_settings(user_id: int) -> Optional[Tuple[str, bool]]:
 
 async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
     async with await get_session() as db:
+        # Add the video
         video = Video(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video_link=video_link,
                       is_images=is_images)
         db.add(video)
+        
+        # Increment ad message counter
+        if user_id > 0:
+            stmt = update(Users).where(Users.user_id == user_id).values(
+                latest_ad_msgs=Users.latest_ad_msgs + 1
+            )
+        await db.execute(stmt)
+        
         await db.commit()
 
 
@@ -161,3 +171,62 @@ async def get_user_ids(only_positive: bool = True) -> List[int]:
             stmt = stmt.where(Users.user_id > 0)
         result = await db.execute(stmt)
         return [id[0] for id in result.all()]
+
+
+async def should_show_ad(user_id: int) -> bool:
+    """
+    Check if an ad should be shown to the user.
+    Returns True if:
+    1. User has downloaded video_count_threshold or more videos since last ad, OR
+    2. User has downloaded less than video_count_threshold videos but last ad was shown more than time_threshold_seconds ago, OR
+    3. User has never been shown an ad (latest_ad_shown is None)
+    """
+    async with await get_session() as db:
+        stmt = select(Users.latest_ad_shown, Users.latest_ad_msgs).where(Users.user_id == user_id)
+        result = await db.execute(stmt)
+        user_data = result.first()
+        
+        if not user_data:
+            return False
+            
+        latest_ad_shown, latest_ad_msgs = user_data
+        # If user has downloaded video_count_threshold or more videos since last ad
+        if latest_ad_msgs >= ad_video_count_threshold:
+            return True
+            
+        # If less than video_count_threshold videos, check if last ad was shown more than time_threshold_seconds ago
+        if latest_ad_shown is not None:
+            current_time = int(datetime.now().timestamp())
+            if current_time - latest_ad_shown > ad_time_threshold_seconds:
+                return True
+        elif latest_ad_shown is None:
+            return True
+                
+        return False
+
+
+async def increment_ad_msgs(user_id: int) -> None:
+    """
+    Increment the count of messages/videos downloaded since last ad.
+    """
+    async with await get_session() as db:
+        stmt = update(Users).where(Users.user_id == user_id).values(
+            latest_ad_msgs=Users.latest_ad_msgs + 1
+        )
+        await db.execute(stmt)
+        await db.commit()
+
+
+async def reset_ad_counter(user_id: int) -> None:
+    """
+    Reset the ad counter after showing an ad.
+    Sets latest_ad_shown to current timestamp and latest_ad_msgs to 0.
+    """
+    async with await get_session() as db:
+        current_time = int(datetime.now().timestamp())
+        stmt = update(Users).where(Users.user_id == user_id).values(
+            latest_ad_shown=current_time,
+            latest_ad_msgs=0
+        )
+        await db.execute(stmt)
+        await db.commit()
