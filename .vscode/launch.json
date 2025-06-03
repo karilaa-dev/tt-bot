@@ -1,0 +1,10 @@
+{
+    "configurations": [
+        {
+            "name": "Start bot",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "main.py"
+        }
+    ]
+}
