@@ -1,10 +1,23 @@
 from asyncio import sleep
+import asyncio
+import io
+import concurrent.futures
 
 import aiohttp
 from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale, config
+
+# Add PIL imports for image processing
+try:
+    from PIL import Image
+    import pillow_heif
+    # Register HEIF opener with pillow
+    pillow_heif.register_heif_opener()
+    IMAGE_CONVERSION_AVAILABLE = True
+except ImportError:
+    IMAGE_CONVERSION_AVAILABLE = False
 
 download_link = config["api"]["api_link"] + '/api/download'
 download_params = {'prefix': 'false', 'with_watermark': 'false'}
@@ -101,10 +114,11 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
         media_group = []
         for image_link in part:
             image_number += 1
-            data = await get_image_data(image_link, f'{video_id}_{image_number}.jpg')
             if file_mode:
+                data = await get_image_data_raw(image_link, file_name=f'{video_id}_{image_number}')
                 media_group.append(InputMediaDocument(media=data, disable_content_type_detection=True))
             else:
+                data = await get_image_data(image_link, f'{video_id}_{image_number}.jpg')
                 media_group.append(InputMediaPhoto(media=data, disable_content_type_detection=True))
         if num < last_part:
             await sleep(sleep_time)
@@ -115,6 +129,86 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
                          reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
 
+def convert_image_to_jpeg_optimized(image_data):
+    """
+    Convert any image data to JPEG format with a focus on minimizing
+    computing power and achieving a good size/quality ratio.
+    """
+    try:
+        # Register HEIF opener with Pillow
+        pillow_heif.register_heif_opener()
+
+        with Image.open(io.BytesIO(image_data)) as img:
+            # 1. Handle Mode Conversion (as in your script, good for minimizing processing)
+            #    Pillow-heif usually loads HEIC into RGB or RGBA directly.
+            #    If it's RGBA and you don't need transparency, convert to RGB.
+            if img.mode == 'RGBA':
+                # Create a new RGB image and paste the RGBA image onto it
+                # using the alpha channel as a mask. This is generally faster
+                # than img.convert('RGB') if you don't care about blending
+                # with a specific background color. For HEIC to JPEG,
+                # a white background is common if transparency is discarded.
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
+                img = background
+            elif img.mode != 'RGB': # Ensure it's RGB for JPEG
+                img = img.convert('RGB')
+
+            # 2. Save to JPEG
+            output = io.BytesIO()
+            img.save(
+                output,
+                format='JPEG',
+                quality=75,          # Good balance. Adjust 70-85 as needed.
+                optimize=False,      # Saves a bit of CPU by not making an extra pass.
+                subsampling=2,       # Corresponds to 4:2:0 chroma subsampling - good compression.
+                progressive=False    # Generally faster to encode non-progressive.
+            )
+            return output.getvalue()
+    except Exception as e:
+        print(f"Image to JPEG conversion failed: {e}")
+        # Depending on your error handling strategy, you might want to:
+        # return None, or raise the exception, or return original_data
+        return image_data # Returning original data as in your example
+
+def detect_image_format(image_data):
+    """Detect image format from magic bytes and return appropriate extension."""
+    if image_data.startswith(b'\xff\xd8\xff'):
+        # JPEG
+        return '.jpg'
+    elif image_data.startswith(b'RIFF') and image_data[8:12] == b'WEBP':
+        # WebP
+        return '.webp'
+    elif image_data[4:12] == b'ftypheic' or image_data[4:12] == b'ftypmif1':
+        # HEIC
+        return '.heic'
+    else:
+        # Unknown format, default to jpg
+        return '.jpg'
+
+async def get_image_data_raw(image_link, file_name):
+    """
+    Download image data and create BufferedInputFile with correct extension
+    based on the actual image format, without any conversion.
+    """
+    async with aiohttp.ClientSession() as client:
+        async with client.get(image_link, allow_redirects=True) as image_request:
+            if image_request.status < 200 or image_request.status >= 300:
+                raise aiohttp.ClientResponseError(
+                    status=image_request.status,
+                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
+                )
+            image_data = await image_request.read()
+    
+    # Detect image format and get correct extension
+    extension = detect_image_format(image_data)
+    
+    # Create filename with correct extension
+    final_filename = f"{file_name}{extension}"
+    
+    image_bytes = BufferedInputFile(image_data, final_filename)
+    return image_bytes
+
 async def get_image_data(image_link, file_name):
     async with aiohttp.ClientSession() as client:
         async with client.get(image_link, allow_redirects=True) as image_request:
@@ -124,5 +218,30 @@ async def get_image_data(image_link, file_name):
                     message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
                 )
             image_data = await image_request.read()
-    image_bytes = BufferedInputFile(image_data, file_name)
+    
+    # Detect image format
+    extension = detect_image_format(image_data)
+    
+    # Only convert if it's not JPEG or WebP
+    if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in ['.jpg', '.webp']:
+        # Not a JPEG or WebP, convert it in a separate process for speed
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            try:
+                # Run conversion in separate process
+                converted_data = await loop.run_in_executor(
+                    executor, 
+                    convert_image_to_jpeg_optimized, 
+                    image_data
+                )
+                image_data = converted_data
+                extension = '.jpg'  # After conversion, it's always JPEG
+            except Exception as e:
+                print(f"Failed to convert image {file_name}: {e}")
+                # Continue with original data if conversion fails
+    
+    # Create filename with correct extension
+    final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
+    
+    image_bytes = BufferedInputFile(image_data, final_filename)
     return image_bytes
