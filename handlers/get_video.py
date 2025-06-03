@@ -81,6 +81,7 @@ async def send_tiktok_video(message: Message):
                 image_limit = 10
             else:
                 image_limit = None
+            logging.info(f'Sending images: {video_info}')
             await send_image_result(message, video_info, lang, file_mode, image_limit)
         else:  # Process video, if video is video
             # Send upload video action
