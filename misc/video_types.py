@@ -103,9 +103,9 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
             image_number += 1
             data = await get_image_data(image_link, f'{video_id}_{image_number}.jpg')
             if file_mode:
-                media_group.append(InputMediaDocument(media=data))
+                media_group.append(InputMediaDocument(media=data, disable_content_type_detection=True))
             else:
-                media_group.append(InputMediaPhoto(media=data))
+                media_group.append(InputMediaPhoto(media=data, disable_content_type_detection=True))
         if num < last_part:
             await sleep(sleep_time)
             await user_msg.reply_media_group(media_group, disable_notification=True)
