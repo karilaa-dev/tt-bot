@@ -133,11 +133,11 @@ async def get_user_settings(user_id: int) -> Optional[Tuple[str, bool]]:
         return None
 
 
-async def add_video(user_id: int, video_link: str, is_images: bool) -> None:
+async def add_video(user_id: int, video_link: str, is_images: bool, is_processed: bool = False) -> None:
     async with await get_session() as db:
         # Add the video
         video = Video(user_id=user_id, downloaded_at=int(datetime.now().timestamp()), video_link=video_link,
-                      is_images=is_images)
+                      is_images=is_images, is_processed=is_processed)
         db.add(video)
         
         # Increment ad message counter

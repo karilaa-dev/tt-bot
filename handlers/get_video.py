@@ -81,7 +81,7 @@ async def send_tiktok_video(message: Message):
                 image_limit = 10
             else:
                 image_limit = None
-            await send_image_result(message, video_info, lang, file_mode, image_limit)
+            was_processed = await send_image_result(message, video_info, lang, file_mode, image_limit)
         else:  # Process video, if video is video
             # Send upload video action
             await bot.send_chat_action(chat_id=message.chat.id, action='upload_video')
@@ -96,6 +96,7 @@ async def send_tiktok_video(message: Message):
                 else:
                     if not status_message:
                         await message.react([])
+            was_processed = False  # Videos are not processed
         if status_message:
             await status_message.delete()
         else:
@@ -110,7 +111,7 @@ async def send_tiktok_video(message: Message):
                     logging.error(f'Error while showing an ad: {e}')
         try:  # Try to write log into database
             # Write log into database
-            await add_video(message.chat.id, video_link, video_info['type'] == 'images')
+            await add_video(message.chat.id, video_link, video_info['type'] == 'images', was_processed)
             # Log into console
             logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {video_link}')
         # If cant write log into database or log into console
@@ -182,17 +183,19 @@ async def send_images_custon(callback_query: CallbackQuery):
             image_limit = 10
         # Generate link
         link = f'https://www.tiktok.com/@{video_info["author"]}/video/{video_info["id"]}'
+        # Set the link in video_info for the result_caption function
+        video_info['link'] = link
         if download_mode == 'last10':  # Check download mode
             video_info['data'] = video_info['data'][-10:]
         # Send images
-        await send_image_result(call_msg, video_info, lang, file_mode, link, image_limit)
+        was_processed = await send_image_result(call_msg, video_info, lang, file_mode, image_limit)
         if status_message:
             await status_message.delete()
         else:
             await call_msg.react([])
         try:  # Try to write log into database
             # Write log into database
-            await add_video(chat_id, link, video_info['type'] == 'images')
+            await add_video(chat_id, link, video_info['type'] == 'images', was_processed)
             # Log into console
             logging.info(f'Video Download: CHAT {chat_id} - VIDEO {link}')
             # If cant write log into database or log into console

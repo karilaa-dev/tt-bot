@@ -119,6 +119,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     processing_needed = False
     processing_message = None
     force_processing = False  # Flag to force processing on retry
+    was_processed = False  # Track if any processing actually occurred
     
     # Only check and send message if we're in photo mode (conversion mode) and not in groups
     is_private_chat = user_msg.chat.type == 'private'
@@ -141,7 +142,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     
     # Function to process images with optional forced processing
     async def process_images_batch(force_all=False):
-        nonlocal processing_needed, processing_message
+        nonlocal processing_needed, processing_message, was_processed
         
         # Send processing message only in private chats if processing is needed
         if (processing_needed or force_all) and is_private_chat and not processing_message:
@@ -151,6 +152,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
         
         if processing_needed or force_all:
             logger.info(f"Starting parallel processing of {total_images} images in {len(images)} batches for video {video_id}")
+            was_processed = True  # Mark that processing occurred
         
         # Create a single thread pool for all image processing
         loop = asyncio.get_event_loop()
@@ -202,7 +204,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     except Exception as e:
         # Check if it's the IMAGE_PROCESS_FAILED error
         if "IMAGE_PROCESS_FAILED" in str(e):
-            logger.info(f"IMAGE_PROCESS_FAILED error detected for video {video_id}, retrying with forced processing")
+            logger.warning(f"IMAGE_PROCESS_FAILED error detected for video {video_id}, retrying with forced processing")
             try:
                 # Retry with forced processing for all images
                 final = await process_images_batch(force_all=True)
@@ -223,6 +225,8 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     await final[0].reply(result_caption(lang, video_info['link'], bool(image_limit)),
                          reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
+    
+    return was_processed
 
 async def get_image_data_with_executor(image_link, file_name, executor, loop):
     """Get image data using shared executor for conversion if needed"""

@@ -11,3 +11,4 @@ class Video(Base):
     downloaded_at = Column(BigInteger, nullable=True)
     video_link = Column(String, nullable=False)
     is_images = Column(Boolean, default=False, nullable=False)
+    is_processed = Column(Boolean, default=False, nullable=False)
