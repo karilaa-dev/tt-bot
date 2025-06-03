@@ -118,6 +118,11 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
 async def get_image_data(image_link, file_name):
     async with aiohttp.ClientSession() as client:
         async with client.get(image_link, allow_redirects=True) as image_request:
+            if image_request.status < 200 or image_request.status >= 300:
+                raise aiohttp.ClientResponseError(
+                    status=image_request.status,
+                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
+                )
             image_data = await image_request.read()
     image_bytes = BufferedInputFile(image_data, file_name)
     return image_bytes
