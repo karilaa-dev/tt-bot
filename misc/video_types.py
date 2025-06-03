@@ -101,7 +101,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
         media_group = []
         for image_link in part:
             image_number += 1
-            data = image_link
+            data = await get_image_data(image_link, f'{video_id}_{image_number}.jpg')
             if file_mode:
                 media_group.append(InputMediaDocument(media=data))
             else:
@@ -114,3 +114,10 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     await final[0].reply(result_caption(lang, video_info['link'], bool(image_limit)),
                          reply_markup=music_button(video_id, lang),
                          disable_web_page_preview=True)
+
+async def get_image_data(image_link, file_name):
+    async with aiohttp.ClientSession() as client:
+        async with client.get(image_link, allow_redirects=True) as image_request:
+            image_data = await image_request.read()
+    image_bytes = BufferedInputFile(image_data, file_name)
+    return image_bytes
