@@ -11,6 +11,7 @@ api_alt_mode = config["api"].getboolean("alt_mode")
 adsgram_block_id = config["ads"].get("adsgrab_block_id")
 ad_video_count_threshold = config["ads"].getint("video_count_threshold")
 ad_time_threshold_seconds = config["ads"].getint("time_threshold_seconds")
+registration_ad_suppression_seconds = config["ads"].getint("registration_ad_suppression_seconds")
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())

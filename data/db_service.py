@@ -6,7 +6,7 @@ from sqlalchemy import select, update
 
 from data.database import get_session
 from data.models import Users, Video, Music
-from data.config import ad_video_count_threshold, ad_time_threshold_seconds
+from data.config import ad_video_count_threshold, ad_time_threshold_seconds, registration_ad_suppression_seconds
 
 
 async def get_user(user_id: int) -> Optional[Users]:
@@ -18,7 +18,8 @@ async def get_user(user_id: int) -> Optional[Users]:
 
 async def create_user(user_id: int, lang: str, link: Optional[str] = None) -> Users:
     async with await get_session() as db:
-        user = Users(user_id=user_id, registered_at=int(datetime.now().timestamp()), lang=lang, link=link)
+        time_now = int(datetime.now().timestamp())
+        user = Users(user_id=user_id, registered_at=time_now, lang=lang, link=link, latest_ad_shown=time_now+registration_ad_suppression_seconds)
         db.add(user)
         await db.commit()
         return user
