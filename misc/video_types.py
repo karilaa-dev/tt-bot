@@ -50,24 +50,35 @@ def result_caption(lang, link, group_warning=None):
 
 async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=False):
     video_id = video_info['id']
+
+    if file_mode is False:
+        # Download and process cover image using new modular functions
+        cover_data = await download_image(video_info['cover'])
+        # For covers, we can process them without an executor since it's just one image
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+            processed_cover_data, cover_extension = await check_and_convert_image(
+                cover_data, executor, loop
+            )
+        cover_file = BufferedInputFile(processed_cover_data, f'thumb{cover_extension}')
+
+    if alt_mode:
+        url = video_info['data']
+        params = {}
+        video_duration = video_info['duration'] // 1000
+    else:
+        url = download_link
+        download_params['url'] = video_info['link']
+        params = download_params
+        video_duration = video_info['duration']
+
     async with aiohttp.ClientSession() as client:
-        if file_mode is False:
-            async with client.get(video_info['cover'], allow_redirects=True) as cover_request:
-                cover_bytes = await cover_request.read()
-        if alt_mode:
-            url = video_info['data']
-            params = {}
-            video_duration = video_info['duration'] // 1000
-        else:
-            url = download_link
-            download_params['url'] = video_info['link']
-            params = download_params
-            video_duration = video_info['duration']
         async with client.get(url, allow_redirects=True, params=params) as video_request:
             video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
+
     if file_mode is False:
         await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, video_info['link']),
-                                   thumb=BufferedInputFile(cover_bytes, 'thumb.jpg'),
+                                   thumb=cover_file,
                                    height=video_info['height'],
                                    width=video_info['width'],
                                    duration=video_duration, reply_markup=music_button(video_id, lang))
@@ -94,6 +105,103 @@ async def send_music_result(query_msg, music_info, lang, group_chat):
                                 duration=music_info['duration'], thumbnail=cover,
                                 disable_notification=group_chat)
 
+
+async def detect_image_processing_needed(image_link):
+    """
+    Check if an image needs processing by examining its format.
+    Returns True if the image is not in JPEG or WebP format.
+    """
+    try:
+        async with aiohttp.ClientSession() as client:
+            async with client.get(image_link, headers={'Range': 'bytes=0-20'}) as response:
+                if response.status == 206:  # Partial content
+                    header_bytes = await response.read()
+                    extension = detect_image_format(header_bytes)
+                    return extension not in ['.jpg', '.webp']
+    except:
+        # If we can't check, assume processing might be needed
+        return True
+    return False
+
+async def download_image(image_link):
+    """
+    Download image data from a URL.
+    
+    Args:
+        image_link: URL of the image to download
+    
+    Returns:
+        bytes: Raw image data
+    
+    Raises:
+        aiohttp.ClientResponseError: If the download fails
+    """
+    async with aiohttp.ClientSession() as client:
+        async with client.get(image_link, allow_redirects=True) as image_request:
+            if image_request.status < 200 or image_request.status >= 300:
+                raise aiohttp.ClientResponseError(
+                    status=image_request.status,
+                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
+                )
+            return await image_request.read()
+
+async def check_and_convert_image(image_data, executor, loop):
+    """
+    Check image type and convert to JPEG if it's not WebP or JPEG.
+    
+    Args:
+        image_data: Raw image data bytes
+        executor: ProcessPoolExecutor for image conversion
+        loop: Event loop for running executor tasks
+    
+    Returns:
+        tuple: (converted_image_data, extension)
+    """
+    # Detect image format
+    extension = detect_image_format(image_data)
+    
+    # Convert to JPEG if it's not WebP or JPEG
+    if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in ['.jpg', '.webp']:
+        try:
+            # Run conversion in shared executor
+            converted_data = await loop.run_in_executor(
+                executor, 
+                convert_image_to_jpeg_optimized, 
+                image_data
+            )
+            return converted_data, '.jpg'  # After conversion, it's always JPEG
+        except Exception as e:
+            logger.error(f"Failed to convert image: {e}")
+            # Continue with original data if conversion fails
+            return image_data, extension
+    
+    # Return original data if no conversion needed or not available
+    return image_data, extension
+
+async def convert_single_image(image_link, file_name, executor, loop):
+    """
+    Download and convert a single image to JPEG format if needed.
+    
+    Args:
+        image_link: URL of the image to download
+        file_name: Base filename for the image
+        executor: ProcessPoolExecutor for image conversion
+        loop: Event loop for running executor tasks
+    
+    Returns:
+        BufferedInputFile with the processed image data
+    """
+    # Download image data
+    image_data = await download_image(image_link)
+    
+    # Check and convert image if needed
+    processed_data, extension = await check_and_convert_image(image_data, executor, loop)
+    
+    # Create filename with correct extension
+    final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
+    
+    image_bytes = BufferedInputFile(processed_data, final_filename)
+    return image_bytes
 
 async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
     video_id = video_info['id']
@@ -127,17 +235,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
         # Quick check if processing is needed by checking only the first image
         first_image_link = images[0][0] if images and images[0] else None
         if first_image_link:
-            try:
-                async with aiohttp.ClientSession() as client:
-                    async with client.get(first_image_link, headers={'Range': 'bytes=0-20'}) as response:
-                        if response.status == 206:  # Partial content
-                            header_bytes = await response.read()
-                            extension = detect_image_format(header_bytes)
-                            if extension not in ['.jpg', '.webp']:
-                                processing_needed = True
-            except:
-                # If we can't check, assume processing might be needed
-                processing_needed = True
+            processing_needed = await detect_image_processing_needed(first_image_link)
     
     # Function to process images with optional forced processing
     async def process_images_batch():
@@ -145,9 +243,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
         
         # Send processing message only in private chats if processing is needed
         if processing_needed and is_private_chat and not processing_message:
-            # Use locale for processing message, fallback to English if key doesn't exist
-            processing_text = locale[lang]["processing"]
-            processing_message = await user_msg.reply(processing_text)
+            processing_message = await user_msg.reply(locale[lang]["processing"])
         
         if processing_needed:
             logger.info(f"Starting parallel processing of {total_images} images in {len(images)} batches for video {video_id}")
@@ -169,7 +265,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
                     if file_mode:
                         task = get_image_data_raw(image_link, file_name=f'{video_id}_{current_image_number}')
                     else:
-                        task = get_image_data_with_executor(image_link, f'{video_id}_{current_image_number}.jpg', executor, loop)
+                        task = convert_single_image(image_link, f'{video_id}_{current_image_number}', executor, loop)
                     tasks.append(task)
                 
                 # Process all images in this part concurrently
@@ -207,42 +303,6 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
                          disable_web_page_preview=True)
     
     return was_processed
-
-async def get_image_data_with_executor(image_link, file_name, executor, loop):
-    """Get image data using shared executor for conversion if needed"""
-    async with aiohttp.ClientSession() as client:
-        async with client.get(image_link, allow_redirects=True) as image_request:
-            if image_request.status < 200 or image_request.status >= 300:
-                raise aiohttp.ClientResponseError(
-                    status=image_request.status,
-                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
-                )
-            image_data = await image_request.read()
-    
-    # Detect image format
-    extension = detect_image_format(image_data)
-    
-    # Only convert if it's not JPEG or WebP
-    if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in ['.jpg', '.webp']:
-        # Not a JPEG or WebP, convert it using shared executor
-        try:
-            # Run conversion in shared executor
-            converted_data = await loop.run_in_executor(
-                executor, 
-                convert_image_to_jpeg_optimized, 
-                image_data
-            )
-            image_data = converted_data
-            extension = '.jpg'  # After conversion, it's always JPEG
-        except Exception as e:
-            logger.error(f"Failed to convert image {file_name}: {e}")
-            # Continue with original data if conversion fails
-    
-    # Create filename with correct extension
-    final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
-    
-    image_bytes = BufferedInputFile(image_data, final_filename)
-    return image_bytes
 
 def convert_image_to_jpeg_optimized(image_data):
     """
