@@ -101,14 +101,14 @@ async def send_tiktok_video(message: Message):
             await status_message.delete()
         else:
             await message.react([])
-        if not group_chat and await should_show_ad(message.chat.id):
-            try:
-                await show_ad(message.chat.id, lang)
-            except Exception as e:
-                if str(e) == "Banner not available":
-                    pass
-                else:
-                    logging.error(f'Error while showing an ad: {e}')
+        # if not group_chat and await should_show_ad(message.chat.id):
+        #     try:
+        #         await show_ad(message.chat.id, lang)
+        #     except Exception as e:
+        #         if str(e) == "Banner not available":
+        #             pass
+        #         else:
+        #             logging.error(f'Error while showing an ad: {e}')
         try:  # Try to write log into database
             # Write log into database
             await add_video(message.chat.id, video_link, video_info['type'] == 'images', was_processed)
