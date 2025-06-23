@@ -5,10 +5,11 @@ import concurrent.futures
 import logging
 
 import aiohttp
-from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto
+from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto, InputMediaVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale, config
+from data.loader import bot
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def result_caption(lang, link, group_warning=None):
     return result
 
 
-async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=False):
+async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=False, inline_message=False):
     video_id = video_info['id']
 
     if file_mode is False:
@@ -72,19 +73,19 @@ async def send_video_result(user_msg, video_info, lang, file_mode, alt_mode=Fals
         params = download_params
         video_duration = video_info['duration']
 
-    async with aiohttp.ClientSession() as client:
-        async with client.get(url, allow_redirects=True, params=params) as video_request:
-            video_bytes = BufferedInputFile(await video_request.read(), f'{video_id}.mp4')
-
+    if inline_message:
+        video_media = InputMediaVideo(media=url, caption=result_caption(lang, video_info['link']))
+        return await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
+    
     if file_mode is False:
-        await user_msg.reply_video(video=video_bytes, caption=result_caption(lang, video_info['link']),
-                                   thumb=cover_file,
-                                   height=video_info['height'],
-                                   width=video_info['width'],
-                                   duration=video_duration, reply_markup=music_button(video_id, lang))
+        await bot.send_video(chat_id=targed_id, video=url, caption=result_caption(lang, video_info['link']),
+                                cover=cover_file,
+                                height=video_info['height'],
+                                width=video_info['width'],
+                                duration=video_duration, reply_markup=music_button(video_id, lang))
     else:
-        await user_msg.reply_document(document=video_bytes, caption=result_caption(lang, video_info['link']),
-                                      disable_content_type_detection=True, reply_markup=music_button(video_id, lang))
+        await bot.send_document(chat_id=targed_id, document=url, caption=result_caption(lang, video_info['link']),
+                                reply_markup=music_button(video_id, lang))
 
 
 async def send_music_result(query_msg, music_info, lang, group_chat):

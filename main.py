@@ -10,6 +10,7 @@ from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.stats import stats_router
 from handlers.user import user_router
+from handlers.get_inline import inline_router
 from misc.stats import update_overall_stats, update_daily_stats
 from misc.utils import backup_dp
 
@@ -32,7 +33,8 @@ async def main() -> None:
         advert_router,
         stats_router,
         video_router,
-        music_router
+        music_router,
+        inline_router
     )
     bot_info = await bot.get_me()
     logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')
