@@ -34,14 +34,6 @@ def music_button(video_id, lang):
     return keyb.as_markup()
 
 
-def image_ask_button(video_id, lang):
-    keyb = InlineKeyboardBuilder()
-    keyb.button(text=locale[lang]['get_last_10'], callback_data=f'images/last10/{video_id}')
-    keyb.button(text=locale[lang]['get_all'], callback_data=f'images/all/{video_id}')
-    keyb.adjust(1, 1)
-    return keyb.as_markup()
-
-
 def result_caption(lang, link, group_warning=None):
     result = locale[lang]['result'].format(locale[lang]['bot_tag'], link)
     if group_warning:
