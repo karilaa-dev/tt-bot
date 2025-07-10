@@ -31,7 +31,17 @@
     "bad_generated_link": "<b>⚠️ Try to create the link again</b>\nOr you are sending the wrong link!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ Too much images in this TikTok!</b>\nYou can download only the last 10 images or all of them, but it will take a few minutes and it's gonna flood the chat...",
     "get_last_10": "✅Get last 10 images",
-    "get_all": "⚠️Get all images"
+    "get_all": "⚠️Get all images",
+    "sending_inline_video": "⬆️ <code>Sending video...</code>\n\n",
+    "only_video_supported": "<b>⚠️ Only videos are supported in inline mode for now.</b>",
+    "inline_start_bot": "🤖 Press here to enable inline download.",
+    "inline_wrong_link": "🔍 <b>The video link is not valid.</b>\n\nPlease enter a valid TikTok link.",
+    "inline_wrong_link_title": "Video link is not valid",
+    "inline_wrong_link_description": "Please enter a valid TikTok link.",
+    "inline_download_video": "🎬 Download Video",
+    "inline_download_video_description": "Download TikTok videos without a watermark.",
+    "inline_download_video_text": "🎬 <b>Downloading video...</b>\n\nPlease wait while we process your request.",
+    "inline_download_video_wait": "⏳ Please wait..."
   },
   "ru": {
     "lang_name": "Русский🇷🇺",
@@ -57,7 +67,17 @@
     "bad_generated_link": "<b>⚠️ Попробуйте создать ссылку снова!</b>\nИли вы отправляете неправильную ссылку!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ Слишком много изображений в этом TikTok!</b>\nВы можете загрузить только последние 10 изображений или все из них, но займет несколько минут и заспамит чат…",
     "get_last_10": "✅Получить последние 10 изображений",
-    "get_all": "⚠️Получить все изображения"
+    "get_all": "⚠️Получить все изображения",
+    "sending_inline_video": "⬆️ <code>Отправка видео...</code>\n\n",
+    "only_video_supported": "<b>⚠️ В настоящее время в режиме inline поддерживаются только видео.</b>",
+    "inline_start_bot": "🤖 Нажмите здесь, чтобы включить inline-загрузку.",
+    "inline_wrong_link": "🔍 <b>Ссылка на видео недействительна.</b>\n\nПожалуйста, введите действительную ссылку на TikTok.",
+    "inline_wrong_link_title": "Ссылка на видео недействительна",
+    "inline_wrong_link_description": "Пожалуйста, введите действительную ссылку на TikTok.",
+    "inline_download_video": "🎬 Скачать видео",
+    "inline_download_video_description": "Скачать видео TikTok без водяного знака.",
+    "inline_download_video_text": "🎬 <b>Скачивание видео...</b>\n\nПожалуйста, подождите, пока мы обрабатываем ваш запрос.",
+    "inline_download_video_wait": "⏳ Пожалуйста, подождите..."
   },
   "uk": {
     "lang_name": "Українська🇺🇦",
@@ -83,7 +103,17 @@
     "bad_generated_link": "<b>⚠️ Спробуйте створити посилання знову!</b>\nАбо ви надсилаєте неправильне посилання!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ Занадто багато зображень в цьому TikTok!</b>\nВи можете завантажити лише останні 10 зображень або всі, але це займе кілька хвилин і заспамить чат…",
     "get_last_10": "✅Отримати останні 10 зображень",
-    "get_all": "⚠️Отримати всі зображення"
+    "get_all": "⚠️Отримати всі зображення",
+    "sending_inline_video": "⬆️ <code>Відправка відео...</code>\n\n",
+    "only_video_supported": "<b>⚠️ В даний час в режимі inline підтримується лише відео</b>",
+    "inline_start_bot": "🤖 Натисніть тут, щоб увімкнути inline-завантаження.",
+    "inline_wrong_link": "🔍 <b>Посилання на відео недійсне.</b>\n\nБудь ласка, введіть дійсне посилання на TikTok.",
+    "inline_wrong_link_title": "Посилання на відео недійсне",
+    "inline_wrong_link_description": "Будь ласка, введіть дійсне посилання на TikTok.",
+    "inline_download_video": "🎬 Завантажити відео",
+    "inline_download_video_description": "Завантажити відео TikTok без водяного знака.",
+    "inline_download_video_text": "🎬 <b>Завантаження відео...</b>\n\nБудь ласка, зачекайте, поки ми обробляємо ваш запит.",
+    "inline_download_video_wait": "⏳ Будь ласка, зачекайте..."
   },
   "hi": {
     "lang_name": "हिंदी🇮🇳",
@@ -109,7 +139,17 @@
     "bad_generated_link": "<b>⚠️ लिंक फिर से बनाने की कोशिश करें</b>\nया आप गलत लिंक भेज रहे हैं!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ इस TikTok में बहुत सारी तस्वीरें हैं!</b>\nआप केवल पिछले 10 तस्वीरें या उनमें से सभी डाउनलोड कर सकते हैं, लेकिन यह कुछ मिनट लेगा और यह चैट को फ्लड कर देगा…",
     "get_last_10": "✅पिछले 10 तस्वीरें प्राप्त करें",
-    "get_all": "⚠️सभी तस्वीरें प्राप्त करें"
+    "get_all": "⚠️सभी तस्वीरें प्राप्त करें",
+    "sending_inline_video": "⬆️ <code>वीडियो भेज रहा है...</code>\n\n",
+    "only_video_supported": "<b>⚠️ वर्तमान में इनलाइन मोड में केवल वीडियो समर्थित है</b>",
+    "inline_start_bot": "🤖 यहां दबाएं, इनलाइन डाउनलोड को सक्षम करने के लिए।",
+    "inline_wrong_link": "🔍 <b>वीडियो लिंक अमान्य है।</b>\n\nकृपया एक मान्य TikTok लिंक भेजें।",
+    "inline_wrong_link_title": "वीडियो लिंक अमान्य है",
+    "inline_wrong_link_description": "कृपया एक मान्य TikTok लिंक भेजें।",
+    "inline_download_video": "🎬 वीडियो डाउनलोड करें",
+    "inline_download_video_description": "टिकटॉक वीडियो डाउनलोड करें बिना वॉटरमार्क",
+    "inline_download_video_text": "🎬 <b>वीडियो डाउनलोड कर रहा है...</b>\n\nकृपया हमारे अनुरोध को प्रोसेस करने के लिए प्रतीक्षा करें।",
+    "inline_download_video_wait": "⏳ कृपया प्रतीक्षा करें..."
   },
   "id": {
     "lang_name": "Bahasa Inggris\uD83C\uDDEE\uD83C\uDDE9",
@@ -135,7 +175,17 @@
     "bad_generated_link": "<b>⚠️ Coba buat tautan lagi</b>\nAtau Anda mengirim tautan yang salah!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ Terlalu banyak gambar dalam TikTok ini!</b>\nAnda hanya dapat mengunduh sepuluh gambar terakhir atau semuanya, tetapi ini akan memakan waktu beberapa menit dan akan membanjiri obrolan…",
     "get_last_10": "✅Dapatkan 10 gambar terakhir",
-    "get_all": "⚠️Dapatkan semua gambar"
+    "get_all": "⚠️Dapatkan semua gambar",
+    "sending_inline_video": "⬆️ <code>Mengirim video...</code>\n\n",
+    "only_video_supported": "<b>⚠️ Saat ini hanya video yang didukung dalam mode inline</b>",
+    "inline_start_bot": "🤖 Tekan di sini untuk mengaktifkan unduhan inline",
+    "inline_wrong_link": "🔍 <b>Tautan video tidak valid.</b>\n\nSilakan kirim tautan TikTok yang valid.",
+    "inline_wrong_link_title": "Tautan video tidak valid",
+    "inline_wrong_link_description": "Silakan kirim tautan TikTok yang valid.",
+    "inline_download_video": "🎬 Unduh Video",
+    "inline_download_video_description": "Unduh video TikTok tanpa watermark.",
+    "inline_download_video_text": "🎬 <b>Mengunduh video...</b>\n\nSilakan tunggu sampai kami memproses permintaan Anda.",
+    "inline_download_video_wait": "⏳ Silakan tunggu..."
   },
   "vi": {
     "lang_name": "Tiếng Anh\uD83C\uDDFB\uD83C\uDDF3",
@@ -161,6 +211,16 @@
     "bad_generated_link": "<b>⚠️ Hãy thử tạo liên kết lại</b>\nHoặc bạn đang gửi liên kết sai!",
     "to_much_images_warning": "{0}\n\n<b>⚠️ Quá nhiều hình ảnh trong TikTok này!</b>\nBạn chỉ có thể tải xuống mười hình ảnh cuối cùng hoặc tất cả chúng, nhưng điều này sẽ mất vài phút và sẽ làm ngập chát…",
     "get_last_10": "✅Lấy 10 hình ảnh cuối cùng",
-    "get_all": "⚠️Lấy tất cả hình ảnh"
+    "get_all": "⚠️Lấy tất cả hình ảnh",
+    "sending_inline_video": "⬆️ <code>Gửi video...</code>\n\n",
+    "only_video_supported": "<b>⚠️ Hiện tại chỉ video được hỗ trợ trong chế độ inline</b>",
+    "inline_start_bot": "🤖 Nhấn vào đây để bật tải xuống trực tiếp",
+    "inline_wrong_link": "🔍 <b>Liên kết video không hợp lệ.</b>\n\nVui lòng gửi liên kết TikTok hợp lệ.",
+    "inline_wrong_link_title": "Liên kết video không hợp lệ",
+    "inline_wrong_link_description": "Vui lòng gửi liên kết TikTok hợp lệ.",
+    "inline_download_video": "🎬 Tải xuống Video",
+    "inline_download_video_description": "Tải xuống video TikTok không có watermark.",
+    "inline_download_video_text": "🎬 <b>Đang tải xuống video...</b>\n\nVui lòng chờ trong giây lát để chúng tôi xử lý yêu cầu của bạn.",
+    "inline_download_video_wait": "⏳ Vui lòng chờ..."
   }
 }

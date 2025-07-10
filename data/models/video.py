@@ -12,3 +12,4 @@ class Video(Base):
     video_link = Column(String, nullable=False)
     is_images = Column(Boolean, default=False, nullable=False)
     is_processed = Column(Boolean, default=False, nullable=False)
+    is_inline = Column(Boolean, default=False, nullable=False)

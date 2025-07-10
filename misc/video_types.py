@@ -44,16 +44,17 @@ def result_caption(lang, link, group_warning=None):
 async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=False, inline_message=False):
     video_id = video_info['id']
 
-    if file_mode is False:
-        # Download and process cover image using new modular functions
-        cover_data = await download_image(video_info['cover'])
-        # For covers, we can process them without an executor since it's just one image
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-            processed_cover_data, cover_extension = await check_and_convert_image(
-                cover_data, executor, loop
-            )
-        cover_file = BufferedInputFile(processed_cover_data, f'thumb{cover_extension}')
+    #TODO: fix cover
+    # if file_mode is False:
+    #     # Download and process cover image using new modular functions
+    #     cover_data = await download_image(video_info['cover'])
+    #     # For covers, we can process them without an executor since it's just one image
+    #     loop = asyncio.get_event_loop()
+    #     with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+    #         processed_cover_data, cover_extension = await check_and_convert_image(
+    #             cover_data, executor, loop
+    #         )
+    #     cover_file = BufferedInputFile(processed_cover_data, f'thumb{cover_extension}')
 
     if alt_mode:
         url = video_info['data']
@@ -62,16 +63,16 @@ async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=Fal
     else:
         url = download_link
         download_params['url'] = video_info['link']
-        params = download_params
+        params = download_params #For self hosted api
         video_duration = video_info['duration']
 
     if inline_message:
         video_media = InputMediaVideo(media=url, caption=result_caption(lang, video_info['link']))
-        return await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
+        await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
     
-    if file_mode is False:
+    elif file_mode is False:
         await bot.send_video(chat_id=targed_id, video=url, caption=result_caption(lang, video_info['link']),
-                                cover=cover_file,
+                                # cover=cover_file, #TODO: fix cover
                                 height=video_info['height'],
                                 width=video_info['width'],
                                 duration=video_duration, reply_markup=music_button(video_id, lang))
@@ -131,11 +132,8 @@ async def download_image(image_link):
     """
     async with aiohttp.ClientSession() as client:
         async with client.get(image_link, allow_redirects=True) as image_request:
-            if image_request.status < 200 or image_request.status >= 300:
-                raise aiohttp.ClientResponseError(
-                    status=image_request.status,
-                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}"
-                )
+            # Let aiohttp handle the error properly with all required arguments
+            image_request.raise_for_status()
             return await image_request.read()
 
 async def check_and_convert_image(image_data, executor, loop):
