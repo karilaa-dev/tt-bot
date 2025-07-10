@@ -21,7 +21,7 @@ logging.getLogger('apscheduler.scheduler').propagate = False
 logging.getLogger('aiogram').setLevel(logging.WARNING)
 
 local_server = AiohttpSession(api=TelegramAPIServer.from_base(config["bot"]["tg_server"]))
-bot = Bot(token=config["bot"]["token"], session=local_server, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=config["bot"]["stats_token"], session=local_server, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 dp = Dispatcher(storage=MemoryStorage())
 
