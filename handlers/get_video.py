@@ -83,7 +83,7 @@ async def send_tiktok_video(message: Message):
             await bot.send_chat_action(chat_id=message.chat.id, action='upload_video')
             # Send video
             try:
-                await send_video_result(message.chat.id, video_info, lang, file_mode, api_alt_mode)
+                await send_video_result(message.chat.id, video_info, lang, file_mode, api_alt_mode, reply_to_message_id=message.message_id)
             except:
                 if not group_chat:
                     await message.reply(locale[lang]['error'])

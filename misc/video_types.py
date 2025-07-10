@@ -41,7 +41,7 @@ def result_caption(lang, link, group_warning=None):
     return result
 
 
-async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=False, inline_message=False):
+async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=False, inline_message=False, reply_to_message_id=None):
     video_id = video_info['id']
 
     #TODO: fix cover
@@ -75,10 +75,12 @@ async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=Fal
                                 # cover=cover_file, #TODO: fix cover
                                 height=video_info['height'],
                                 width=video_info['width'],
-                                duration=video_duration, reply_markup=music_button(video_id, lang))
+                                duration=video_duration, reply_markup=music_button(video_id, lang),
+                                reply_to_message_id=reply_to_message_id)
     else:
         await bot.send_document(chat_id=targed_id, document=url, caption=result_caption(lang, video_info['link']),
-                                reply_markup=music_button(video_id, lang))
+                                reply_markup=music_button(video_id, lang),
+                                reply_to_message_id=reply_to_message_id)
 
 
 async def send_music_result(query_msg, music_info, lang, group_chat):
