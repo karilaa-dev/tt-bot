@@ -7,7 +7,6 @@ from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import Message
-from aiogram.filters import ChatTypeFilter
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
@@ -29,7 +28,7 @@ dp = Dispatcher()
 
 # Create maintenance router
 maintenance_router = Router(name="maintenance")
-maintenance_router.message.filter(ChatTypeFilter(chat_type="private"))
+maintenance_router.message.filter(F.chat.type == "private")
 
 
 # Helper function to determine user language
