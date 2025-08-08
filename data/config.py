@@ -17,7 +17,7 @@ config = {
         "db_name": os.getenv("DB_NAME", ""),
     },
     "api": {
-        "alt_mode": os.getenv("ALT_MODE", "False"),
+        "alt_mode": os.getenv("ALT_MODE", "false").lower() == "true",
         "api_link": os.getenv("API_LINK", ""),
         "rapid_token": os.getenv("RAPID_TOKEN", ""),
         "botstat": os.getenv("BOTSTAT", ""),
@@ -33,7 +33,7 @@ config = {
 
 admin_ids = json_loads(config["bot"]["admin_ids"])
 second_ids = admin_ids + json_loads(config["bot"]["second_ids"])
-api_alt_mode = config["api"]["alt_mode"].lower() == "true"
+api_alt_mode = config["api"]["alt_mode"]
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())
