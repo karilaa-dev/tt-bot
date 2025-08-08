@@ -25,3 +25,8 @@ Only the bot service will start if you specify it explicitly:
 ```bash
 docker compose up bot
 ```
+
+The Compose file also defines a PostgreSQL service. You can override its
+default credentials by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
+`POSTGRES_DB` in your `.env` file or in the environment when launching
+Compose.
