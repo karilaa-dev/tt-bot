@@ -2,12 +2,8 @@ import logging
 import os
 import sqlite3
 from contextlib import closing
-from configparser import ConfigParser
 
-# Load configuration
-config = ConfigParser()
-# Ensure this path is correct if running fix_db.py from project root
-config.read("migration/config.ini")
+from data.config import config
 
 # --- Configuration ---
 SQLITE_DB_PATH = config['bot']['db_path']

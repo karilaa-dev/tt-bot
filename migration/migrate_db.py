@@ -5,7 +5,6 @@ import re
 import sqlite3
 import time
 import sys
-from configparser import ConfigParser
 from contextlib import closing
 
 import asyncpg
@@ -19,9 +18,7 @@ if project_root not in sys.path:
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load configuration
-config = ConfigParser()
-config.read("migration/config.ini")
+from data.config import config
 
 # --- Configuration ---
 SQLITE_DB_PATH = config['bot']['db_path']

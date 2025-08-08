@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-from configparser import ConfigParser
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -9,13 +8,11 @@ from aiogram.enums import ParseMode
 from aiogram.types import Message
 from aiogram.filters import ChatTypeFilter
 
+from data.config import config
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[logging.StreamHandler()])
-
-# Load configuration
-config = ConfigParser()
-config.read("config.ini")
 
 # Load locale
 with open('locale.json', 'r', encoding='utf-8') as locale_file:

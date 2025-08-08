@@ -10,7 +10,6 @@ import asyncio
 import logging
 import os
 import sys
-from configparser import ConfigParser
 
 import asyncpg
 
@@ -23,9 +22,7 @@ if project_root not in sys.path:
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load configuration
-config = ConfigParser()
-config.read("migration/config.ini")
+from data.config import config
 
 POSTGRES_DSN = config['bot']['db_url']
 

@@ -8,7 +8,6 @@ import asyncio
 import logging
 import os
 import sys
-from configparser import ConfigParser
 
 # Add the project root to sys.path
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -21,8 +20,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Import the Base and models to ensure they're registered
 from data.database import Base
-from data import models # Ensure all models are imported via data.models.__init__
-from data.db_utils import get_async_db_url # Added import
+from data import models  # Ensure all models are imported via data.models.__init__
+from data.db_utils import get_async_db_url  # Added import
+from data.config import config
 
 # Setup logging
 logging.basicConfig(
@@ -31,18 +31,8 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
-
-
-def load_config():
-    """Load configuration from config.ini file."""
-    config = ConfigParser()
-    config.read("migration/config.ini")
-    return config
-
-
 async def create_tables():
     """Create all database tables defined in the models."""
-    config = load_config()
     database_url_from_config = config['bot']['db_url']
 
     # Get the processed URL for the engine
