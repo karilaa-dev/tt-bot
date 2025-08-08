@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, BigInteger, Boolean, SmallInteger
+from sqlalchemy import Column, String, BigInteger, Boolean
 
 from data.database import Base
 
@@ -11,5 +11,3 @@ class Users(Base):
     lang = Column(String, default='en', nullable=False)
     link = Column(String, nullable=True)
     file_mode = Column(Boolean, default=False, nullable=False)
-    latest_ad_shown = Column(BigInteger, nullable=True)
-    latest_ad_msgs = Column(SmallInteger, default=0, nullable=False)

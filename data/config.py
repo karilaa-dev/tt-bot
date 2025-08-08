@@ -22,12 +22,6 @@ config = {
         "rapid_token": os.getenv("RAPID_TOKEN", ""),
         "botstat": os.getenv("BOTSTAT", ""),
     },
-    "ads": {
-        "adsgrab_block_id": os.getenv("ADSGRAB_BLOCK_ID", ""),
-        "video_count_threshold": os.getenv("VIDEO_COUNT_THRESHOLD", "0"),
-        "time_threshold_seconds": os.getenv("TIME_THRESHOLD_SECONDS", "0"),
-        "registration_ad_suppression_seconds": os.getenv("REGISTRATION_AD_SUPPRESSION_SECONDS", "0"),
-    },
     "logs": {
         "join_logs": os.getenv("JOIN_LOGS", "0"),
         "backup_logs": os.getenv("BACKUP_LOGS", "0"),
@@ -40,12 +34,6 @@ config = {
 admin_ids = json_loads(config["bot"]["admin_ids"])
 second_ids = admin_ids + json_loads(config["bot"]["second_ids"])
 api_alt_mode = config["api"]["alt_mode"].lower() == "true"
-
-# Ad system configuration
-adsgram_block_id = config["ads"]["adsgrab_block_id"]
-ad_video_count_threshold = int(config["ads"]["video_count_threshold"])
-ad_time_threshold_seconds = int(config["ads"]["time_threshold_seconds"])
-registration_ad_suppression_seconds = int(config["ads"]["registration_ad_suppression_seconds"])
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())

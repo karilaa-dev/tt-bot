@@ -4,9 +4,8 @@ from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 
 from data.config import locale, api_alt_mode, second_ids
-from data.db_service import get_user_settings, add_video, should_show_ad
+from data.db_service import get_user_settings, add_video
 from data.loader import bot
-from misc.adsgram import show_ad
 from misc.tiktok_api import ttapi
 from misc.utils import start_manager, error_catch, lang_func
 from misc.video_types import send_video_result, send_image_result
@@ -97,14 +96,6 @@ async def send_tiktok_video(message: Message):
             await status_message.delete()
         else:
             await message.react([])
-        # if not group_chat and await should_show_ad(message.chat.id):
-        #     try:
-        #         await show_ad(message.chat.id, lang)
-        #     except Exception as e:
-        #         if str(e) == "Banner not available":
-        #             pass
-        #         else:
-        #             logging.error(f'Error while showing an ad: {e}')
         try:  # Try to write log into database
             # Write log into database
             await add_video(message.chat.id, video_link, video_info['type'] == 'images', was_processed)
