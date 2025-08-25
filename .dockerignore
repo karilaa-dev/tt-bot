@@ -1,9 +1,73 @@
 .venv/
+venv/
+env/
+
+# Python caches
 __pycache__/
+**/__pycache__/
 *.pyc
-.root/
+*.pyo
+*.pyd
+
+# VCS & CI
 .git/
 .gitignore
+.gitattributes
+.github/
+
+# IDE/editor
+.idea/
+.vscode/
+*.code-workspace
+
+# OS files
+.DS_Store
+
+# Caches & tooling
 .cache/
 **/.mypy_cache/
 **/.pytest_cache/
+# Tool-specific caches (commonly encountered)
+# (add others if you actually use them)
+
+# Coverage & build artifacts
+.coverage*
+coverage.xml
+htmlcov/
+
+
+# Env files (keep example only)
+.env
+.env.*
+!.env.example
+.envrc
+config.ini
+
+# Docker/compose files not needed in image
+Dockerfile
+docker-compose.yml
+compose.yml
+compose.yaml
+
+# Local logs & temp
+*.log
+logs/
+tmp/
+temp/
+
+# Development-only content
+development/
+
+# Data dumps & local databases
+*.sqlite
+*.db
+*.sql
+*.dump
+backups/
+dumps/
+
+# Intentionally no generic test/docs ignores to keep this project-specific
+
+# Project files generally not needed in image
+README.md
+LICENSE*
