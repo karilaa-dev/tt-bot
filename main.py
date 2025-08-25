@@ -12,7 +12,6 @@ from handlers.stats import stats_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
 from misc.stats import update_overall_stats, update_daily_stats
-from misc.utils import backup_dp
 
 if config["logs"]["stats_chat"] != "0":
     # Split message mode - run both immediately
