@@ -2,7 +2,7 @@
 
 ## Running with Docker
 
-1. Build the image:
+1. Build the image (uses uv for dependency management):
    ```bash
    docker build -t tt-bot .
    ```
@@ -30,3 +30,14 @@ The Compose file also defines a PostgreSQL service. You can override its
 default credentials by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` in your `.env` file or in the environment when launching
 Compose.
+
+## Local development with uv
+
+This project uses uv for dependency management. To run locally without Docker:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Ensure ~/.local/bin is on your PATH, then:
+uv sync
+uv run python main.py
+```
