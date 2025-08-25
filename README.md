@@ -30,12 +30,3 @@ The Compose file also defines a PostgreSQL service. You can override its
 default credentials by setting `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
 `POSTGRES_DB` in your `.env` file or in the environment when launching
 Compose.
-
-## Database Migration
-
-If your existing database still contains the old advertising columns
-(`latest_ad_shown` and `latest_ad_msgs`), you can remove them by running:
-
-```bash
-python migration/remove_ad_columns.py
-```
