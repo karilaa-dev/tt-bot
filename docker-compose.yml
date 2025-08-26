@@ -1,6 +1,7 @@
 services:
   bot:
     build: .
+    image: ghcr.io/karilaa-dev/tt-bot:latest
     env_file:
       - .env
     restart: unless-stopped
