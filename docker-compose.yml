@@ -4,6 +4,15 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+
+  telegram-bot-api:
+      image: aiogram/telegram-bot-api:latest
+      volumes:
+        - telegram-bot-api-data:/var/lib/telegram-bot-api
+      env_file:
+      - .env
+      restart: unless-stopped
+
   db:
     image: postgres:16
     environment:
@@ -12,5 +21,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ttbot-db}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
 volumes:
+  telegram-bot-api-data:
   pgdata:
