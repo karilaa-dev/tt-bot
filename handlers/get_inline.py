@@ -14,7 +14,7 @@ import logging
 from data.config import locale, api_alt_mode
 from data.loader import bot
 from misc.utils import lang_func
-from data.db_service import add_video, get_user, get_user_settings, increment_ad_msgs
+from data.db_service import add_video, get_user, get_user_settings
 from misc.tiktok_api import ttapi
 from misc.video_types import send_video_result
 
@@ -119,8 +119,6 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
             await send_video_result(message_id, video_info, lang, file_mode, api_alt_mode, True)
             # except:
             #     return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
-
-        await increment_ad_msgs(user_id)
 
         try:  # Try to write log into database
             # Write log into database

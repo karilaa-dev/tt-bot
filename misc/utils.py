@@ -33,14 +33,6 @@ async def lang_func(usrid: int, usrlang: str, no_request=False) -> str:
         return 'en'
 
 
-async def backup_dp(chat_id: int):
-    try:
-        await bot.send_document(chat_id=chat_id, document=FSInputFile(config["bot"]["db_name"]),
-                                caption=f'#Backup💾\n<code>{datetime.utcnow()}</code>')
-    except:
-        pass
-
-
 async def start_manager(chat_id, message: Message, lang):
     text = message.text.split(' ')
     if len(text) > 1:

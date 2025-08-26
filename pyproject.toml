@@ -1,0 +1,23 @@
+[project]
+name = "tt-bot"
+version = "4.5.0"
+description = "Telegram bot for downloading all types of videos from TikTok using undocumented TikTok api."
+readme = "README.md"
+requires-python = "==3.13.*"
+dependencies = [
+    "aiogram==3.22.0",
+    "APScheduler==3.11.0",
+    "pandas==2.2.3",
+    "matplotlib==3.10.5",
+    "aiohttp==3.12.15",
+    "SQLAlchemy==2.0.43",
+    "greenlet==3.2.4",
+    "asyncpg==0.30.0",
+    "Pillow==11.3.0",
+    "pillow-heif==1.1.0",
+    "python-dotenv==1.1.1",
+]
+
+[tool.uv]
+# This is an application, not a library package
+package = false

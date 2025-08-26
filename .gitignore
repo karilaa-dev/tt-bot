@@ -5,6 +5,7 @@ development/
 
 #files
 config.ini
+*.env
 sqlite*.db
 LICENSE.md
 
