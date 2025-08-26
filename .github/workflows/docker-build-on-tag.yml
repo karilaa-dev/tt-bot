@@ -130,9 +130,14 @@ jobs:
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         run: |
+          sources=""
+          for d in *; do
+            [ -f "$d" ] || continue
+            sources+="$IMAGE@sha256:$d "
+          done
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '%s@sha256:%s ' "$IMAGE" *)
+            $sources
 
       - name: Inspect image and capture manifest digest
         id: inspect
