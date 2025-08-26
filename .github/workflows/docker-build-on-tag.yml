@@ -146,8 +146,12 @@ jobs:
           VERSION: ${{ steps.choose-tag.outputs.ref_tag }}
         run: |
           echo "Inspecting $IMAGE:$VERSION"
-          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
-          echo "digest=$digest" >> $GITHUB_OUTPUT
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .}}' | jq -r '.Manifest.Digest // .Digest // .manifest.digest // empty')
+          if [ -z "$digest" ]; then
+            echo "::error::Failed to parse manifest digest for $IMAGE:$VERSION" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
           docker buildx imagetools inspect "$IMAGE:$VERSION"
 
       - name: Generate artifact attestation (provenance)
