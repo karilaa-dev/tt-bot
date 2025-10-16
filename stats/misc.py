@@ -12,9 +12,9 @@ from sqlalchemy import text, func
 
 from data.config import config
 from data.database import get_session
-from data.loader import bot
 from data.models import Users, Video, Music
 from misc.utils import tCurrent
+from stats.loader import bot
 
 
 async def bot_stats(chat_type='all', stats_time=86400):
@@ -153,20 +153,21 @@ async def plot_user_graph(graph_name, depth, period, id_condition, table_name):
     # Process data
     df = pd.DataFrame({"time": times})
     df["time"] = pd.to_datetime(df["time"], unit="s")
-    df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index(name="count")
+    df_grouped = df.groupby(df["time"].dt.strftime(depth)).size().reset_index()
+    df_grouped.columns = ["time", "count"]
 
     # Create date range
     start_date = datetime.fromtimestamp(period)
     end_date = datetime.fromtimestamp(last_day)
     date_range = pd.date_range(start=start_date, end=end_date, freq='h').strftime(depth)
-    df_date_range = pd.DataFrame(date_range, columns=["time"])
+    df_date_range = pd.DataFrame({"time": date_range})
 
     # Merge data
     df_merged = df_date_range.merge(df_grouped, on="time", how="left").fillna(0)
     df_merged = df_merged[df_merged["count"].ne(0)].reset_index(drop=True)
 
     # Convert to list of tuples
-    day_amount_list = [(datetime.strptime(row[0], depth), row[1]) for row in df_merged.to_records(index=False)]
+    day_amount_list = [(datetime.strptime(row['time'], depth), row['count']) for _, row in df_merged.iterrows()]
     if not day_amount_list:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, lambda: plot_users_grouped([], [], graph_name))
