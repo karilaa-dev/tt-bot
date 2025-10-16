@@ -80,7 +80,7 @@ stats_graph_keyboard.button(text='🔙 Return', callback_data='stats_menu')
 stats_graph_keyboard.adjust(3, 3, 2, 1)
 stats_graph_keyboard = stats_graph_keyboard.as_markup()
 
-# Enhanced main menu keyboard with better organization
+# Main menu keyboard with enhanced organization
 main_menu_keyboard = InlineKeyboardBuilder()
 main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
 main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
@@ -92,29 +92,8 @@ main_menu_keyboard.button(text='❓ Help', callback_data='help_menu')
 main_menu_keyboard.adjust(3, 3, 1)
 main_menu_keyboard = main_menu_keyboard.as_markup()
 
-# Keep the original stats_menu_keyboard for backward compatibility
-# Enhanced main menu keyboard with better organization
-main_menu_keyboard = InlineKeyboardBuilder()
-main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
-main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
-main_menu_keyboard.button(text='🔍 User Search', callback_data='stats_user')
-main_menu_keyboard.button(text='📋 Detailed View', callback_data='stats_detailed')
-main_menu_keyboard.button(text='🗣 Referrals', callback_data='stats_referral')
-main_menu_keyboard.button(text='🗃 Other Data', callback_data='stats_other')
-main_menu_keyboard.button(text='❓ Help', callback_data='help_menu')
-main_menu_keyboard.adjust(3, 3, 1)
-main_menu_keyboard = main_menu_keyboard.as_markup()
-
-# Keep the original stats_menu_keyboard for backward compatibility
-stats_menu_keyboard = InlineKeyboardBuilder()
-stats_menu_keyboard.button(text='📊Overall Stats', callback_data='stats_overall')
-stats_menu_keyboard.button(text='📋Detailed Stats', callback_data='stats_detailed')
-stats_menu_keyboard.button(text='📈Graphs', callback_data='stats_graphs')
-stats_menu_keyboard.button(text='👤User Stats', callback_data='stats_user')
-stats_menu_keyboard.button(text='️🗣Referral Stats', callback_data='stats_referral')
-stats_menu_keyboard.button(text='🗃Other Stats', callback_data='stats_other')
-stats_menu_keyboard.adjust(3)
-stats_menu_keyboard = stats_menu_keyboard.as_markup()
+# Use the same keyboard for stats_menu to ensure consistency
+stats_menu_keyboard = main_menu_keyboard
 
 stats_return_keyboard = InlineKeyboardBuilder()
 stats_return_keyboard.button(text='🔙 Return to Menu', callback_data='stats_menu')
