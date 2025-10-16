@@ -30,23 +30,23 @@ class UserCheck(StatesGroup):
 
 def stats_keyboard(chat_type='all', stats_time=86400):
     keyb = InlineKeyboardBuilder()
-    times = ['24h', 'Week', 'Month', 'All']
-    chat_types = ['Users', 'Groups', 'All']
+    times = ['⏰ 24h', '📅 Week', '📆 Month', '🌍 All']
+    chat_types = ['👥 Users', '👥 Groups', '🌐 All']
     if stats_time == 0:
-        times[3] = '✅' + times[3]
+        times[3] = '✅ ' + times[3]
     elif stats_time == 2678400:
-        times[2] = '✅' + times[2]
+        times[2] = '✅ ' + times[2]
     elif stats_time == 604800:
-        times[1] = '✅' + times[1]
+        times[1] = '✅ ' + times[1]
     elif stats_time == 86400:
-        times[0] = '✅' + times[0]
+        times[0] = '✅ ' + times[0]
 
     if chat_type == 'all':
-        chat_types[2] = '✅' + chat_types[2]
+        chat_types[2] = '✅ ' + chat_types[2]
     elif chat_type == 'groups':
-        chat_types[1] = '✅' + chat_types[1]
+        chat_types[1] = '✅ ' + chat_types[1]
     elif chat_type == 'users':
-        chat_types[0] = '✅' + chat_types[0]
+        chat_types[0] = '✅ ' + chat_types[0]
 
     keyb.button(text=times[0], callback_data=f'stats:{chat_type}/86400')
     keyb.button(text=times[1], callback_data=f'stats:{chat_type}/604800')
@@ -57,28 +57,54 @@ def stats_keyboard(chat_type='all', stats_time=86400):
     keyb.button(text=chat_types[1], callback_data=f'stats:groups/{stats_time}')
     keyb.button(text=chat_types[2], callback_data=f'stats:all/{stats_time}')
 
-    keyb.button(text='🔄Reload', callback_data=f'stats:{chat_type}/{stats_time}')
-    keyb.button(text='↩Return', callback_data='stats_menu')
+    keyb.button(text='🔄 Reload', callback_data=f'stats:{chat_type}/{stats_time}')
+    keyb.button(text='🔙 Return', callback_data='stats_menu')
 
     keyb.adjust(4, 3, 2)
     return keyb.as_markup()
 
 
 stats_graph_keyboard = InlineKeyboardBuilder()
-stats_graph_keyboard.button(text='👥Daily', callback_data='graph:users:daily')
-stats_graph_keyboard.button(text='👥Weekly', callback_data='graph:users:weekly')
-stats_graph_keyboard.button(text='👥Monthly', callback_data='graph:users:monthly')
+stats_graph_keyboard.button(text='👥 Users Daily', callback_data='graph:users:daily')
+stats_graph_keyboard.button(text='👥 Users Weekly', callback_data='graph:users:weekly')
+stats_graph_keyboard.button(text='👥 Users Monthly', callback_data='graph:users:monthly')
 
-stats_graph_keyboard.button(text='📹Daily', callback_data='graph:videos:daily')
-stats_graph_keyboard.button(text='📹Weekly', callback_data='graph:videos:weekly')
-stats_graph_keyboard.button(text='📹Monthly', callback_data='graph:videos:monthly')
+stats_graph_keyboard.button(text='📹 Videos Daily', callback_data='graph:videos:daily')
+stats_graph_keyboard.button(text='📹 Videos Weekly', callback_data='graph:videos:weekly')
+stats_graph_keyboard.button(text='📹 Videos Monthly', callback_data='graph:videos:monthly')
 
-stats_graph_keyboard.button(text='👥Total', callback_data='graph:users:total')
-stats_graph_keyboard.button(text='📹Total', callback_data='graph:videos:total')
-stats_graph_keyboard.button(text='↩Return', callback_data='stats_menu')
+stats_graph_keyboard.button(text='📊 Users Total', callback_data='graph:users:total')
+stats_graph_keyboard.button(text='📊 Videos Total', callback_data='graph:videos:total')
+stats_graph_keyboard.button(text='🔙 Return', callback_data='stats_menu')
 stats_graph_keyboard.adjust(3, 3, 2, 1)
 stats_graph_keyboard = stats_graph_keyboard.as_markup()
 
+# Enhanced main menu keyboard with better organization
+main_menu_keyboard = InlineKeyboardBuilder()
+main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
+main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
+main_menu_keyboard.button(text='🔍 User Search', callback_data='stats_user')
+main_menu_keyboard.button(text='📋 Detailed View', callback_data='stats_detailed')
+main_menu_keyboard.button(text='🗣 Referrals', callback_data='stats_referral')
+main_menu_keyboard.button(text='🗃 Other Data', callback_data='stats_other')
+main_menu_keyboard.button(text='❓ Help', callback_data='help_menu')
+main_menu_keyboard.adjust(3, 3, 1)
+main_menu_keyboard = main_menu_keyboard.as_markup()
+
+# Keep the original stats_menu_keyboard for backward compatibility
+# Enhanced main menu keyboard with better organization
+main_menu_keyboard = InlineKeyboardBuilder()
+main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
+main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
+main_menu_keyboard.button(text='🔍 User Search', callback_data='stats_user')
+main_menu_keyboard.button(text='📋 Detailed View', callback_data='stats_detailed')
+main_menu_keyboard.button(text='🗣 Referrals', callback_data='stats_referral')
+main_menu_keyboard.button(text='🗃 Other Data', callback_data='stats_other')
+main_menu_keyboard.button(text='❓ Help', callback_data='help_menu')
+main_menu_keyboard.adjust(3, 3, 1)
+main_menu_keyboard = main_menu_keyboard.as_markup()
+
+# Keep the original stats_menu_keyboard for backward compatibility
 stats_menu_keyboard = InlineKeyboardBuilder()
 stats_menu_keyboard.button(text='📊Overall Stats', callback_data='stats_overall')
 stats_menu_keyboard.button(text='📋Detailed Stats', callback_data='stats_detailed')
@@ -90,12 +116,12 @@ stats_menu_keyboard.adjust(3)
 stats_menu_keyboard = stats_menu_keyboard.as_markup()
 
 stats_return_keyboard = InlineKeyboardBuilder()
-stats_return_keyboard.button(text='↩Return', callback_data='stats_menu')
+stats_return_keyboard.button(text='🔙 Return to Menu', callback_data='stats_menu')
 stats_return_keyboard = stats_return_keyboard.as_markup()
 
 stats_user_keyboard = InlineKeyboardBuilder()
-stats_user_keyboard.button(text='👤Find another user', callback_data='stats_user')
-stats_user_keyboard.button(text='↩Return', callback_data='stats_menu')
+stats_user_keyboard.button(text='🔍 Find Another User', callback_data='stats_user')
+stats_user_keyboard.button(text='🔙 Return to Menu', callback_data='stats_menu')
 stats_user_keyboard.adjust(1)
 stats_user_keyboard = stats_user_keyboard.as_markup()
 
@@ -279,6 +305,73 @@ async def stats_callback(call: CallbackQuery):
     keyb = stats_keyboard(group_type, stats_time)
     await call.message.edit_text(await bot_stats(group_type, stats_time), reply_markup=keyb)
     await call.answer()
+
+
+@stats_router.message(Command('start'), F.chat.type == 'private', IsSecondAdmin())
+async def send_start(message: Message, state: FSMContext):
+    await state.clear()
+    welcome_text = (
+        "<b>🎉 Welcome to the Stats Bot!</b>\n\n"
+        "📊 <i>Your comprehensive analytics dashboard</i>\n\n"
+        "<b>Available features:</b>\n"
+        "• 📈 View detailed statistics and graphs\n"
+        "• 👤 Search and analyze user data\n"
+        "• 🗣 Track referral performance\n"
+        "• 📋 Export data in various formats\n\n"
+        "<b>Quick start:</b>\n"
+        "Use the buttons below or type /stats to access the main menu."
+    )
+    await message.answer(welcome_text, reply_markup=main_menu_keyboard)
+
+
+@stats_router.message(Command('help'), F.chat.type == 'private', IsSecondAdmin())
+async def send_help(message: Message, state: FSMContext):
+    await state.clear()
+    help_text = (
+        "<b>❓ Stats Bot Help</b>\n\n"
+        "<b>📋 Available Commands:</b>\n"
+        "• /start - Welcome message and main menu\n"
+        "• /stats - Open statistics menu\n"
+        "• /help - Show this help message\n\n"
+        "<b>🔍 Features:</b>\n"
+        "• <b>📊 Quick Stats:</b> Overview of key metrics\n"
+        "• <b>📈 Analytics:</b> Detailed graphs and trends\n"
+        "• <b>🔍 User Search:</b> Find and analyze specific users\n"
+        "• <b>📋 Detailed View:</b> In-depth statistics with filters\n"
+        "• <b>🗣 Referrals:</b> Track referral performance\n"
+        "• <b>🗃 Other Data:</b> Additional metrics and insights\n\n"
+        "<b>💡 Tips:</b>\n"
+        "• Use the time filters to view different periods\n"
+        "• Export user data as CSV files\n"
+        "• Generate graphs for visual analysis\n\n"
+        "<i>Need assistance? Contact the bot administrator.</i>"
+    )
+    await message.answer(help_text, reply_markup=main_menu_keyboard)
+
+
+@stats_router.callback_query(F.data == 'help_menu')
+async def help_menu(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    help_text = (
+        "<b>❓ Stats Bot Help</b>\n\n"
+        "<b>📋 Available Commands:</b>\n"
+        "• /start - Welcome message and main menu\n"
+        "• /stats - Open statistics menu\n"
+        "• /help - Show this help message\n\n"
+        "<b>🔍 Features:</b>\n"
+        "• <b>📊 Quick Stats:</b> Overview of key metrics\n"
+        "• <b>📈 Analytics:</b> Detailed graphs and trends\n"
+        "• <b>🔍 User Search:</b> Find and analyze specific users\n"
+        "• <b>📋 Detailed View:</b> In-depth statistics with filters\n"
+        "• <b>🗣 Referrals:</b> Track referral performance\n"
+        "• <b>🗃 Other Data:</b> Additional metrics and insights\n\n"
+        "<b>💡 Tips:</b>\n"
+        "• Use the time filters to view different periods\n"
+        "• Export user data as CSV files\n"
+        "• Generate graphs for visual analysis\n\n"
+        "<i>Need assistance? Contact the bot administrator.</i>"
+    )
+    await call.message.edit_text(help_text, reply_markup=main_menu_keyboard)
 
 
 @stats_router.message(Command('stats'), F.chat.type == 'private', IsSecondAdmin())
