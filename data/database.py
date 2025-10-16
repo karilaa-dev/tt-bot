@@ -15,6 +15,24 @@ async_session = None
 Base = declarative_base()
 
 def initialize_database_components(db_url: str):
+    """
+    Initialize database engine and session factory.
+    
+    Call this function once during application startup before any database operations.
+    Must be called before using init_db(), get_db(), or get_session().
+    
+    Args:
+        db_url: Database connection URL string
+        
+    Side effects:
+        - Sets global engine and async_session variables
+        - Creates SQLAlchemy async engine with the provided URL
+        - Creates session factory for AsyncSession instances
+        - Logs the effective database URL being used
+        
+    Raises:
+        RuntimeError: If called multiple times (will overwrite existing globals)
+    """
     global engine, async_session
 
     # Get the processed URL for the engine
