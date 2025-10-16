@@ -9,6 +9,7 @@ load_dotenv(find_dotenv())
 config = {
     "bot": {
         "token": os.getenv("BOT_TOKEN", ""),
+        "stats_token": os.getenv("STATS_BOT_TOKEN", ""),
         "admin_ids": json_loads(os.getenv("ADMIN_IDS", "[]")),
         "second_ids": json_loads(os.getenv("SECOND_IDS", "[]")),
         "tg_server": os.getenv("TG_SERVER", "https://api.telegram.org"),
