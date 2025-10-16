@@ -18,7 +18,8 @@ from data.db_service import (
     get_other_stats
 )
 from data.models import Users, Video, Music
-from stats.misc import bot_stats, get_overall_stats, get_daily_stats, plot_async
+from stats.misc import bot_stats, get_overall_stats, get_daily_stats
+from stats.graphs import plot_async
 from misc.utils import tCurrent, IsStatsAdmin
 
 stats_router = Router(name=__name__)
