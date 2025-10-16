@@ -8,7 +8,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, Message, CallbackQuery
+from aiogram.types import BufferedInputFile, Message, CallbackQuery, BotCommand
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func
 
@@ -80,7 +80,7 @@ stats_graph_keyboard.button(text='🔙 Return', callback_data='stats_menu')
 stats_graph_keyboard.adjust(3, 3, 2, 1)
 stats_graph_keyboard = stats_graph_keyboard.as_markup()
 
-# Main menu keyboard with enhanced organization
+# Main menu keyboard - simplified
 main_menu_keyboard = InlineKeyboardBuilder()
 main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
 main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
@@ -88,8 +88,7 @@ main_menu_keyboard.button(text='🔍 User Search', callback_data='stats_user')
 main_menu_keyboard.button(text='📋 Detailed View', callback_data='stats_detailed')
 main_menu_keyboard.button(text='🗣 Referrals', callback_data='stats_referral')
 main_menu_keyboard.button(text='🗃 Other Data', callback_data='stats_other')
-main_menu_keyboard.button(text='❓ Help', callback_data='help_menu')
-main_menu_keyboard.adjust(3, 3, 1)
+main_menu_keyboard.adjust(3, 3)
 main_menu_keyboard = main_menu_keyboard.as_markup()
 
 # Use the same keyboard for stats_menu to ensure consistency
@@ -290,68 +289,20 @@ async def stats_callback(call: CallbackQuery):
 @stats_router.message(Command('start'), F.chat.type == 'private', IsStatsAdmin())
 async def send_start(message: Message, state: FSMContext):
     await state.clear()
-    welcome_text = (
-        "<b>🎉 Welcome to the Stats Bot!</b>\n\n"
-        "📊 <i>Your comprehensive analytics dashboard</i>\n\n"
-        "<b>Available features:</b>\n"
-        "• 📈 View detailed statistics and graphs\n"
-        "• 👤 Search and analyze user data\n"
-        "• 🗣 Track referral performance\n"
-        "• 📋 Export data in various formats\n\n"
-        "<b>Quick start:</b>\n"
-        "Use the buttons below or type /stats to access the main menu."
-    )
+    
+    # Set bot commands
+    commands = [
+        BotCommand(command='start', description='Start the bot and show main menu'),
+        BotCommand(command='stats', description='Open statistics menu'),
+    ]
+    await message.bot.set_my_commands(commands)
+    
+    # Simple welcome message
+    welcome_text = "<b>📊 Stats Bot</b>\n\nUse the menu below to access statistics."
     await message.answer(welcome_text, reply_markup=main_menu_keyboard)
 
 
-@stats_router.message(Command('help'), F.chat.type == 'private', IsStatsAdmin())
-async def send_help(message: Message, state: FSMContext):
-    await state.clear()
-    help_text = (
-        "<b>❓ Stats Bot Help</b>\n\n"
-        "<b>📋 Available Commands:</b>\n"
-        "• /start - Welcome message and main menu\n"
-        "• /stats - Open statistics menu\n"
-        "• /help - Show this help message\n\n"
-        "<b>🔍 Features:</b>\n"
-        "• <b>📊 Quick Stats:</b> Overview of key metrics\n"
-        "• <b>📈 Analytics:</b> Detailed graphs and trends\n"
-        "• <b>🔍 User Search:</b> Find and analyze specific users\n"
-        "• <b>📋 Detailed View:</b> In-depth statistics with filters\n"
-        "• <b>🗣 Referrals:</b> Track referral performance\n"
-        "• <b>🗃 Other Data:</b> Additional metrics and insights\n\n"
-        "<b>💡 Tips:</b>\n"
-        "• Use the time filters to view different periods\n"
-        "• Export user data as CSV files\n"
-        "• Generate graphs for visual analysis\n\n"
-        "<i>Need assistance? Contact the bot administrator.</i>"
-    )
-    await message.answer(help_text, reply_markup=main_menu_keyboard)
 
-
-@stats_router.callback_query(F.data == 'help_menu')
-async def help_menu(call: CallbackQuery, state: FSMContext):
-    await state.clear()
-    help_text = (
-        "<b>❓ Stats Bot Help</b>\n\n"
-        "<b>📋 Available Commands:</b>\n"
-        "• /start - Welcome message and main menu\n"
-        "• /stats - Open statistics menu\n"
-        "• /help - Show this help message\n\n"
-        "<b>🔍 Features:</b>\n"
-        "• <b>📊 Quick Stats:</b> Overview of key metrics\n"
-        "• <b>📈 Analytics:</b> Detailed graphs and trends\n"
-        "• <b>🔍 User Search:</b> Find and analyze specific users\n"
-        "• <b>📋 Detailed View:</b> In-depth statistics with filters\n"
-        "• <b>🗣 Referrals:</b> Track referral performance\n"
-        "• <b>🗃 Other Data:</b> Additional metrics and insights\n\n"
-        "<b>💡 Tips:</b>\n"
-        "• Use the time filters to view different periods\n"
-        "• Export user data as CSV files\n"
-        "• Generate graphs for visual analysis\n\n"
-        "<i>Need assistance? Contact the bot administrator.</i>"
-    )
-    await call.message.edit_text(help_text, reply_markup=main_menu_keyboard)
 
 
 @stats_router.message(Command('stats'), F.chat.type == 'private', IsStatsAdmin())
