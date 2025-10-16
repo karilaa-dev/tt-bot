@@ -12,6 +12,7 @@ config = {
         "stats_token": os.getenv("STATS_BOT_TOKEN", ""),
         "admin_ids": json_loads(os.getenv("ADMIN_IDS", "[]")),
         "second_ids": json_loads(os.getenv("SECOND_IDS", "[]")),
+        "stats_ids": json_loads(os.getenv("STATS_IDS", "[]")),
         "tg_server": os.getenv("TG_SERVER", "https://api.telegram.org"),
         "db_url": os.getenv("DB_URL", ""),
         "db_path": os.getenv("DB_PATH", ""),
@@ -34,6 +35,7 @@ config = {
 
 admin_ids = config["bot"]["admin_ids"]
 second_ids = admin_ids + config["bot"]["second_ids"]
+stats_ids = config["bot"]["stats_ids"]
 api_alt_mode = config["api"]["alt_mode"]
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:

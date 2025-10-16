@@ -19,7 +19,7 @@ from data.db_service import (
 )
 from data.models import Users, Video, Music
 from stats.misc import bot_stats, get_overall_stats, get_daily_stats, plot_async
-from misc.utils import tCurrent, IsSecondAdmin
+from misc.utils import tCurrent, IsStatsAdmin
 
 stats_router = Router(name=__name__)
 
@@ -307,7 +307,7 @@ async def stats_callback(call: CallbackQuery):
     await call.answer()
 
 
-@stats_router.message(Command('start'), F.chat.type == 'private', IsSecondAdmin())
+@stats_router.message(Command('start'), F.chat.type == 'private', IsStatsAdmin())
 async def send_start(message: Message, state: FSMContext):
     await state.clear()
     welcome_text = (
@@ -324,7 +324,7 @@ async def send_start(message: Message, state: FSMContext):
     await message.answer(welcome_text, reply_markup=main_menu_keyboard)
 
 
-@stats_router.message(Command('help'), F.chat.type == 'private', IsSecondAdmin())
+@stats_router.message(Command('help'), F.chat.type == 'private', IsStatsAdmin())
 async def send_help(message: Message, state: FSMContext):
     await state.clear()
     help_text = (
@@ -374,7 +374,7 @@ async def help_menu(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(help_text, reply_markup=main_menu_keyboard)
 
 
-@stats_router.message(Command('stats'), F.chat.type == 'private', IsSecondAdmin())
+@stats_router.message(Command('stats'), F.chat.type == 'private', IsStatsAdmin())
 async def send_stats(message: Message, state: FSMContext):
     await state.clear()
     await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)

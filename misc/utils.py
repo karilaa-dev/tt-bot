@@ -7,7 +7,7 @@ from traceback import format_exception
 from aiogram.filters import Filter
 from aiogram.types import FSInputFile, Message, BufferedInputFile
 
-from data.config import locale, admin_ids, second_ids, config
+from data.config import locale, admin_ids, second_ids, stats_ids, config
 from data.db_service import get_user, create_user, get_user_ids
 from data.loader import bot
 
@@ -69,6 +69,14 @@ class IsAdmin(Filter):
 class IsSecondAdmin(Filter):
     async def __call__(self, message: Message) -> bool:
         if message.from_user.id in second_ids:
+            return True
+        else:
+            return False
+
+
+class IsStatsAdmin(Filter):
+    async def __call__(self, message: Message) -> bool:
+        if message.from_user.id in stats_ids:
             return True
         else:
             return False
