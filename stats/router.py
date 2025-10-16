@@ -297,9 +297,8 @@ async def send_start(message: Message, state: FSMContext):
     ]
     await message.bot.set_my_commands(commands)
     
-    # Simple welcome message
-    welcome_text = "<b>📊 Stats Bot</b>\n\nUse the menu below to access statistics."
-    await message.answer(welcome_text, reply_markup=main_menu_keyboard)
+    # Direct to menu - no wide text to compress buttons
+    await message.answer('<b>📊 Stats Menu</b>', reply_markup=main_menu_keyboard)
 
 
 
