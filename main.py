@@ -8,29 +8,19 @@ from handlers.advert import advert_router
 from handlers.get_music import music_router
 from handlers.get_video import video_router
 from handlers.lang import lang_router
-from handlers.stats import stats_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
-from misc.stats import update_overall_stats, update_daily_stats
-
-if config["logs"]["stats_chat"] != "0":
-    # Split message mode - run both immediately
-    scheduler.add_job(update_overall_stats, misfire_grace_time=None)
-    scheduler.add_job(update_daily_stats, misfire_grace_time=None)
-    # Schedule separate updates
-    scheduler.add_job(update_overall_stats, "interval", hours=1, id='stats_overall', misfire_grace_time=None)
-    scheduler.add_job(update_daily_stats, "interval", minutes=5, id='stats_daily', misfire_grace_time=None)
+from stats.misc import update_overall_stats, update_daily_stats
 
 
 async def main() -> None:
-    await setup_db()
+    await setup_db(config['bot']['db_url'])
     scheduler.start()
     dp.include_routers(
         user_router,
         lang_router,
         admin_router,
         advert_router,
-        stats_router,
         video_router,
         music_router,
         inline_router

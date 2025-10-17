@@ -8,7 +8,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import BufferedInputFile, Message, CallbackQuery
+from aiogram.types import BufferedInputFile, Message, CallbackQuery, BotCommand
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import func
 
@@ -18,8 +18,9 @@ from data.db_service import (
     get_other_stats
 )
 from data.models import Users, Video, Music
-from misc.stats import bot_stats, get_overall_stats, get_daily_stats, plot_async
-from misc.utils import tCurrent, IsSecondAdmin
+from stats.misc import bot_stats, get_overall_stats, get_daily_stats
+from stats.graphs import plot_async
+from misc.utils import tCurrent, IsStatsAdmin
 
 stats_router = Router(name=__name__)
 
@@ -28,82 +29,97 @@ class UserCheck(StatesGroup):
     search = State()
 
 
-def stats_keyboard(chat_type='all', stats_time=86400):
+def stats_detailed_keyboard():
     keyb = InlineKeyboardBuilder()
-    times = ['24h', 'Week', 'Month', 'All']
-    chat_types = ['Users', 'Groups', 'All']
-    if stats_time == 0:
-        times[3] = '✅' + times[3]
-    elif stats_time == 2678400:
-        times[2] = '✅' + times[2]
-    elif stats_time == 604800:
-        times[1] = '✅' + times[1]
-    elif stats_time == 86400:
-        times[0] = '✅' + times[0]
+    keyb.button(text='👥 Users', callback_data='stats_type:users')
+    keyb.button(text='👥 Groups', callback_data='stats_type:groups')
+    keyb.button(text='🌐 All', callback_data='stats_type:all')
+    keyb.adjust(3)
+    keyb.button(text='🔄 Reload', callback_data='stats_detailed')
+    keyb.button(text='🔙 Return', callback_data='stats_menu')
+    keyb.adjust(2)
+    return keyb.as_markup()
 
-    if chat_type == 'all':
-        chat_types[2] = '✅' + chat_types[2]
-    elif chat_type == 'groups':
-        chat_types[1] = '✅' + chat_types[1]
-    elif chat_type == 'users':
-        chat_types[0] = '✅' + chat_types[0]
 
+def stats_time_keyboard(chat_type):
+    keyb = InlineKeyboardBuilder()
+    times = ['⏰ 24h', '📅 Week', '📆 Month', '🌍 All']
+    
     keyb.button(text=times[0], callback_data=f'stats:{chat_type}/86400')
     keyb.button(text=times[1], callback_data=f'stats:{chat_type}/604800')
     keyb.button(text=times[2], callback_data=f'stats:{chat_type}/2678400')
     keyb.button(text=times[3], callback_data=f'stats:{chat_type}/0')
-
-    keyb.button(text=chat_types[0], callback_data=f'stats:users/{stats_time}')
-    keyb.button(text=chat_types[1], callback_data=f'stats:groups/{stats_time}')
-    keyb.button(text=chat_types[2], callback_data=f'stats:all/{stats_time}')
-
-    keyb.button(text='🔄Reload', callback_data=f'stats:{chat_type}/{stats_time}')
-    keyb.button(text='↩Return', callback_data='stats_menu')
-
-    keyb.adjust(4, 3, 2)
+    
+    keyb.adjust(2)
+    keyb.button(text='🔄 Reload', callback_data=f'stats_type:{chat_type}')
+    keyb.button(text='🔙 Return', callback_data='stats_detailed')
+    keyb.adjust(2)
     return keyb.as_markup()
 
 
-stats_graph_keyboard = InlineKeyboardBuilder()
-stats_graph_keyboard.button(text='👥Daily', callback_data='graph:users:daily')
-stats_graph_keyboard.button(text='👥Weekly', callback_data='graph:users:weekly')
-stats_graph_keyboard.button(text='👥Monthly', callback_data='graph:users:monthly')
+def stats_graph_keyboard():
+    keyb = InlineKeyboardBuilder()
+    keyb.button(text='👥 Users', callback_data='graph_type:users')
+    keyb.button(text='📹 Videos', callback_data='graph_type:videos')
+    keyb.button(text='🎵 Music', callback_data='graph_type:music')
+    keyb.button(text='📊 Total', callback_data='graph_type:users/total')
+    keyb.adjust(2)
+    keyb.button(text='🔄 Reload', callback_data='stats_graphs')
+    keyb.button(text='🔙 Return', callback_data='stats_menu')
+    keyb.adjust(2)
+    return keyb.as_markup()
 
-stats_graph_keyboard.button(text='📹Daily', callback_data='graph:videos:daily')
-stats_graph_keyboard.button(text='📹Weekly', callback_data='graph:videos:weekly')
-stats_graph_keyboard.button(text='📹Monthly', callback_data='graph:videos:monthly')
 
-stats_graph_keyboard.button(text='👥Total', callback_data='graph:users:total')
-stats_graph_keyboard.button(text='📹Total', callback_data='graph:videos:total')
-stats_graph_keyboard.button(text='↩Return', callback_data='stats_menu')
-stats_graph_keyboard.adjust(3, 3, 2, 1)
-stats_graph_keyboard = stats_graph_keyboard.as_markup()
+def stats_graph_time_keyboard(graph_type):
+    keyb = InlineKeyboardBuilder()
+    times = ['⏰ 24h', '📅 Week', '📆 Month', '🌍 All']
+    
+    keyb.button(text=times[0], callback_data=f'graph:{graph_type}:daily')
+    keyb.button(text=times[1], callback_data=f'graph:{graph_type}:weekly')
+    keyb.button(text=times[2], callback_data=f'graph:{graph_type}:monthly')
+    keyb.button(text=times[3], callback_data=f'graph:{graph_type}:total')
+    
+    keyb.adjust(2)
+    keyb.button(text='🔙 Return', callback_data='stats_graphs')
+    keyb.adjust(1)
+    return keyb.as_markup()
 
-stats_menu_keyboard = InlineKeyboardBuilder()
-stats_menu_keyboard.button(text='📊Overall Stats', callback_data='stats_overall')
-stats_menu_keyboard.button(text='📋Detailed Stats', callback_data='stats_detailed')
-stats_menu_keyboard.button(text='📈Graphs', callback_data='stats_graphs')
-stats_menu_keyboard.button(text='👤User Stats', callback_data='stats_user')
-stats_menu_keyboard.button(text='️🗣Referral Stats', callback_data='stats_referral')
-stats_menu_keyboard.button(text='🗃Other Stats', callback_data='stats_other')
-stats_menu_keyboard.adjust(3)
-stats_menu_keyboard = stats_menu_keyboard.as_markup()
+# Main menu keyboard - simplified
+main_menu_keyboard = InlineKeyboardBuilder()
+main_menu_keyboard.button(text='📊 Quick Stats', callback_data='stats_overall')
+main_menu_keyboard.button(text='📈 Analytics', callback_data='stats_graphs')
+main_menu_keyboard.button(text='🔍 User Search', callback_data='stats_user')
+main_menu_keyboard.button(text='📋 Detailed View', callback_data='stats_detailed')
+main_menu_keyboard.button(text='🗣 Referrals', callback_data='stats_referral')
+main_menu_keyboard.button(text='🗃 Other Data', callback_data='stats_other')
+main_menu_keyboard.adjust(3, 3)
+main_menu_keyboard = main_menu_keyboard.as_markup()
+
+# Use the same keyboard for stats_menu to ensure consistency
+stats_menu_keyboard = main_menu_keyboard
 
 stats_return_keyboard = InlineKeyboardBuilder()
-stats_return_keyboard.button(text='↩Return', callback_data='stats_menu')
+stats_return_keyboard.button(text='🔙 Return to Menu', callback_data='stats_menu')
 stats_return_keyboard = stats_return_keyboard.as_markup()
 
 stats_user_keyboard = InlineKeyboardBuilder()
-stats_user_keyboard.button(text='👤Find another user', callback_data='stats_user')
-stats_user_keyboard.button(text='↩Return', callback_data='stats_menu')
+stats_user_keyboard.button(text='🔍 Find Another User', callback_data='stats_user')
+stats_user_keyboard.button(text='🔙 Return to Menu', callback_data='stats_menu')
 stats_user_keyboard.adjust(1)
 stats_user_keyboard = stats_user_keyboard.as_markup()
 
 
 @stats_router.callback_query(F.data == 'stats_graphs')
 async def stats_graphs(call: CallbackQuery):
-    await call.message.edit_text('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
-                                 reply_markup=stats_graph_keyboard)
+    await call.message.edit_text('<b>📈 Select Graph Type</b>\n<code>⏳ Graph generation may take time</code>',
+                                 reply_markup=stats_graph_keyboard())
+
+
+@stats_router.callback_query(F.data.startswith('graph_type:'))
+async def stats_graph_type_selection(call: CallbackQuery):
+    graph_type = call.data.split(':')[1]
+    await call.message.edit_text(f'<b>📈 Select Time Period</b>\n<code>⏳ Graph generation may take time</code>',
+                                 reply_markup=stats_graph_time_keyboard(graph_type))
 
 
 @stats_router.callback_query(F.data.startswith('graph:'))
@@ -145,14 +161,14 @@ async def stats_graph(call: CallbackQuery):
         result = await plot_async(graph_name, depth, period, 'user_id != 0', graph_type)
         await call.message.answer_photo(BufferedInputFile(result, f'graph.png'))
         await temp.delete()
-        await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
-                                  reply_markup=stats_graph_keyboard)
+        await call.message.answer('<b>📈 Select Graph Type</b>\n<code>⏳ Graph generation may take time</code>',
+                                  reply_markup=stats_graph_keyboard())
     except Exception as e:
         logging.error(f"Error generating graph: {e}")
         await temp.edit_text('<code>Error generating graph. Please try again later.</code>')
         await asyncio.sleep(3)
         await temp.delete()
-        await call.message.answer('<b>📈Select Graph to check</b>\n<code>Generating graph can take time</code>',
+        await call.message.answer('<b>📈 Select Graph</b>\n<code>⏳ Graph generation may take time</code>',
                                   reply_markup=stats_graph_keyboard)
 
 
@@ -267,8 +283,13 @@ async def stats_other(call: CallbackQuery):
 
 @stats_router.callback_query(F.data == 'stats_detailed')
 async def stats_detailed(call: CallbackQuery):
-    temp = await call.message.edit_text('<code>Loading...</code>')
-    await temp.edit_text(await bot_stats(), reply_markup=stats_keyboard())
+    await call.message.edit_text('<b>📊 Select Chat Type</b>', reply_markup=stats_detailed_keyboard())
+
+
+@stats_router.callback_query(F.data.startswith('stats_type:'))
+async def stats_type_selection(call: CallbackQuery):
+    chat_type = call.data.split(':')[1]
+    await call.message.edit_text('<b>📊 Select Time Period</b>', reply_markup=stats_time_keyboard(chat_type))
 
 
 @stats_router.callback_query(F.data.startswith('stats:'))
@@ -276,12 +297,30 @@ async def stats_callback(call: CallbackQuery):
     group_type, stats_time = call.data.split(':')[1].split('/')
     stats_time = int(stats_time)
     await call.message.edit_text('Loading...')
-    keyb = stats_keyboard(group_type, stats_time)
+    keyb = stats_time_keyboard(group_type)
     await call.message.edit_text(await bot_stats(group_type, stats_time), reply_markup=keyb)
     await call.answer()
 
 
-@stats_router.message(Command('stats'), F.chat.type == 'private', IsSecondAdmin())
+@stats_router.message(Command('start'), F.chat.type == 'private', IsStatsAdmin())
+async def send_start(message: Message, state: FSMContext):
+    await state.clear()
+    
+    # Set bot commands
+    commands = [
+        BotCommand(command='start', description='Start the bot and show main menu'),
+        BotCommand(command='stats', description='Open statistics menu'),
+    ]
+    await message.bot.set_my_commands(commands)
+    
+    # Direct to menu - no wide text to compress buttons
+    await message.answer('<b>📊 Stats Menu</b>', reply_markup=main_menu_keyboard)
+
+
+
+
+
+@stats_router.message(Command('stats'), F.chat.type == 'private', IsStatsAdmin())
 async def send_stats(message: Message, state: FSMContext):
     await state.clear()
     await message.answer('<b>📊Stats Menu</b>', reply_markup=stats_menu_keyboard)

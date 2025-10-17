@@ -2,7 +2,7 @@ from aiogram import F
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from misc.botstat import Botstat
+from stats.botstat import Botstat
 
 from data.loader import bot
 from misc.utils import IsSecondAdmin, IsAdmin, get_users_file
