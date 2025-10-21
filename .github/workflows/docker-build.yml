@@ -36,7 +36,7 @@ jobs:
         id: tags
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            echo "tags=ghcr.io/${{ github.repository }}:${{ github.ref_name }}\nghcr.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
+            echo "tags=ghcr.io/${{ github.repository }}:${{ github.ref_name }},ghcr.io/${{ github.repository }}:latest" >> $GITHUB_OUTPUT
           else
             echo "tags=ghcr.io/${{ github.repository }}:${{ inputs.tag }}" >> $GITHUB_OUTPUT
           fi
