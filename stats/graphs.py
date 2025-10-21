@@ -33,15 +33,7 @@ def create_time_series_plot(
         ax.set_title(title, fontsize=18, pad=20)
     else:
         # Plot the main line
-        ax.plot(days, amounts, color='#1f77b4', linewidth=2, marker='o', 
-                markersize=6, markerfacecolor='#1f77b4', label='Count')
-        
-        # Highlight points with values > 0
-        if any(amount > 0 for amount in amounts):
-            highlight_days = [day for day, amount in zip(days, amounts) if amount > 0]
-            highlight_amounts = [amount for amount in amounts if amount > 0]
-            ax.scatter(highlight_days, highlight_amounts, color='#ff7f0e', 
-                      s=64, marker='D', label='Active Points', zorder=5)
+        ax.plot(days, amounts, color='#1f77b4', linewidth=2, label='Count')
     
     # Set labels and title
     ax.set_title(title, fontsize=18, pad=20)
