@@ -30,7 +30,12 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           push: true
+          platforms: linux/amd64,linux/arm64
           # Tag the image with the Git tag and also as 'latest'
           tags: |
             ghcr.io/${{ github.repository }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository }}:latest
+
+      - name: Cleanup untagged images
+        run: |
+          docker image prune -f
