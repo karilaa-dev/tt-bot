@@ -1,35 +1,22 @@
 # Creating Stats Messages
 
-This project includes a Docker script to create stats and daily message IDs. The script sends two simple messages to a specified chat and outputs their message IDs, which you can then use in your `.env` file.
+This project includes a bash script to create stats and daily message IDs. The script sends two simple messages to a specified chat using Telegram's Bot API and outputs their message IDs, which you can then use in your `.env` file.
 
 ## Usage
 
-### Option 1: Using the Shell Script (Recommended)
+### Using the Shell Script
 
 ```bash
-./scripts/create-stats-messages.sh <chat_id>
+./scripts/create-stats-messages.sh <chat_id> [bot_token]
 ```
 
-Example:
+Examples:
 ```bash
+# Uses STATS_BOT_TOKEN from .env file
 ./scripts/create-stats-messages.sh -1001234567890
-```
 
-### Option 2: Using Docker Compose Directly
-
-```bash
-docker compose --profile tools run --rm create-stats-messages python create_stats_messages.py <chat_id>
-```
-
-Example:
-```bash
-docker compose --profile tools run --rm create-stats-messages python create_stats_messages.py -1001234567890
-```
-
-### Option 3: Running Locally
-
-```bash
-python create_stats_messages.py <chat_id>
+# Provide bot token directly
+./scripts/create-stats-messages.sh -1001234567890 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 ```
 
 ## What It Does
@@ -64,6 +51,6 @@ STATS_CHAT=<chat_id>
 
 ## Prerequisites
 
-- Docker and Docker Compose installed
-- `.env` file configured with bot token
+- `curl` command available (usually pre-installed on most systems)
+- `.env` file configured with STATS_BOT_TOKEN, or provide bot token as argument
 - Bot must be an administrator in the target chat (if it's a group)
