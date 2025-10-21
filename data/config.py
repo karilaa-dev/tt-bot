@@ -26,7 +26,6 @@ config = {
     },
     "logs": {
         "join_logs": os.getenv("JOIN_LOGS", "0"),
-        "backup_logs": os.getenv("BACKUP_LOGS", "0"),
         "stats_chat": os.getenv("STATS_CHAT", "0"),
         "stats_message_id": os.getenv("STATS_MESSAGE_ID", "0"),
         "daily_stats_message_id": os.getenv("DAILY_STATS_MESSAGE_ID", "0"),
