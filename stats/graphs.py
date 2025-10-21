@@ -2,18 +2,16 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import List, Tuple, Optional
+import io
 
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.io as pio
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from sqlalchemy import text, func
 
 from data.database import get_session
 from data.models import Users, Video, Music
 from misc.utils import tCurrent
-
-# Configure plotly for static image generation
-pio.kaleido.scope.mathjax = None
 
 
 def create_time_series_plot(
@@ -21,83 +19,58 @@ def create_time_series_plot(
     amounts: List[int], 
     title: str
 ) -> bytes:
-    """Create an optimized time series plot using Plotly."""
+    """Create an optimized time series plot using Matplotlib."""
     
-    fig = go.Figure()
+    # Set up the figure and axis
+    plt.figure(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 6))
     
     if not days or not amounts:
-        fig.add_annotation(
-            text="No data available for this period",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(size=16)
-        )
+        # Display no data message
+        ax.text(0.5, 0.5, "No data available for this period", 
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, fontsize=16)
+        ax.set_title(title, fontsize=18, pad=20)
     else:
-        # Add main line
-        fig.add_trace(go.Scatter(
-            x=days,
-            y=amounts,
-            mode='lines+markers',
-            line=dict(color='#1f77b4', width=2),
-            marker=dict(
-                color='#1f77b4',
-                size=6,
-                symbol='circle'
-            ),
-            name='Count'
-        ))
+        # Plot the main line
+        ax.plot(days, amounts, color='#1f77b4', linewidth=2, marker='o', 
+                markersize=6, markerfacecolor='#1f77b4', label='Count')
         
         # Highlight points with values > 0
         if any(amount > 0 for amount in amounts):
             highlight_days = [day for day, amount in zip(days, amounts) if amount > 0]
             highlight_amounts = [amount for amount in amounts if amount > 0]
-            
-            fig.add_trace(go.Scatter(
-                x=highlight_days,
-                y=highlight_amounts,
-                mode='markers',
-                marker=dict(
-                    color='#ff7f0e',
-                    size=8,
-                    symbol='diamond'
-                ),
-                name='Active Points',
-                showlegend=False
-            ))
+            ax.scatter(highlight_days, highlight_amounts, color='#ff7f0e', 
+                      s=64, marker='D', label='Active Points', zorder=5)
     
-    # Update layout for better appearance
-    fig.update_layout(
-        title=dict(
-            text=title,
-            x=0.5,
-            font=dict(size=18)
-        ),
-        xaxis_title="Date",
-        yaxis_title="Number of Users",
-        template="plotly_white",
-        width=1200,
-        height=600,
-        margin=dict(l=60, r=40, t=80, b=80),
-        showlegend=False,
-        hovermode='x unified'
-    )
+    # Set labels and title
+    ax.set_title(title, fontsize=18, pad=20)
+    ax.set_xlabel("Date", fontsize=12)
+    ax.set_ylabel("Number of Users", fontsize=12)
     
     # Format x-axis for better date display
-    fig.update_xaxes(
-        tickangle=45,
-        tickformat='%Y-%m-%d',
-        showgrid=True,
-        gridcolor='lightgray'
-    )
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=max(1, len(days)//10)))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
     
-    fig.update_yaxes(
-        showgrid=True,
-        gridcolor='lightgray'
-    )
+    # Add grid
+    ax.grid(True, alpha=0.3, color='lightgray')
+    ax.set_axisbelow(True)
     
-    # Generate image bytes
-    return pio.to_image(fig, format='png', engine='kaleido')
+    # Set layout
+    plt.tight_layout()
+    
+    # Save to bytes
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    
+    # Get the bytes and close the plot
+    img_bytes = buf.getvalue()
+    buf.close()
+    plt.close()
+    
+    return img_bytes
 
 
 async def get_time_series_data(
