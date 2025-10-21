@@ -62,18 +62,14 @@ def stats_graph_keyboard():
     keyb.button(text='👥 Users', callback_data='graph_type:users')
     keyb.button(text='📹 Videos', callback_data='graph_type:videos')
     keyb.button(text='🎵 Music', callback_data='graph_type:music')
-    keyb.button(text='📊 Total', callback_data='graph_type:users/total')
-    keyb.adjust(2)
-    keyb.button(text='🔄 Reload', callback_data='stats_graphs')
+    keyb.adjust(3)
     keyb.button(text='🔙 Return', callback_data='stats_menu')
-    keyb.adjust(2)
     return keyb.as_markup()
 
 
 def stats_graph_time_keyboard(graph_type):
     keyb = InlineKeyboardBuilder()
     times = ['⏰ 24h', '📅 Week', '📆 Month', '🌍 All']
-    
     keyb.button(text=times[0], callback_data=f'graph:{graph_type}:daily')
     keyb.button(text=times[1], callback_data=f'graph:{graph_type}:weekly')
     keyb.button(text=times[2], callback_data=f'graph:{graph_type}:monthly')
