@@ -47,5 +47,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.tags.outputs.tags }}
+          provenance: false
+          sbom: false
 
       
