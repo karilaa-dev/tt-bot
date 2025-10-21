@@ -5,6 +5,18 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    depends_on:
+      - db
+
+  stats-bot:
+    build: .
+    image: ghcr.io/karilaa-dev/tt-bot:latest
+    command: python stats.py
+    env_file:
+      - .env
+    restart: unless-stopped
+    depends_on:
+      - db
 
   telegram-bot-api:
       image: aiogram/telegram-bot-api:latest
