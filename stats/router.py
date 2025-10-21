@@ -169,7 +169,7 @@ async def stats_graph(call: CallbackQuery):
         await asyncio.sleep(3)
         await temp.delete()
         await call.message.answer('<b>📈 Select Graph</b>\n<code>⏳ Graph generation may take time</code>',
-                                  reply_markup=stats_graph_keyboard)
+                                  reply_markup=stats_graph_keyboard())
 
 
 @stats_router.callback_query(F.data == 'stats_overall')
