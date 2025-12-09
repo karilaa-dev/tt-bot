@@ -93,17 +93,18 @@ async def send_tiktok_video(message: Message):
                     if not status_message:
                         await message.react([])
             was_processed = False  # Videos are not processed
-        try:
-            if await should_show_ad(message.chat.id):
-                await record_ad_show(message.chat.id)
-                ad_button = InlineKeyboardBuilder()
-                ad_button.button(text=locale[lang]['ad_support_button'], url=monetag_url)
-                await message.answer(locale[lang]['ad_support'], reply_markup=ad_button.as_markup())
-            else:
-                await increase_ad_count(message.chat.id)
-        except Exception as e:
-                logging.error("Can't show ad")
-                logging.error(e)
+        if not group_chat:
+            try:
+                if await should_show_ad(message.chat.id):
+                    await record_ad_show(message.chat.id)
+                    ad_button = InlineKeyboardBuilder()
+                    ad_button.button(text=locale[lang]['ad_support_button'], url=monetag_url)
+                    await message.answer(locale[lang]['ad_support'], reply_markup=ad_button.as_markup())
+                else:
+                    await increase_ad_count(message.chat.id)
+            except Exception as e:
+                    logging.error("Can't show ad")
+                    logging.error(e)
         if status_message:
             await status_message.delete()
         else:
