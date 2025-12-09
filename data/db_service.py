@@ -199,10 +199,4 @@ async def should_show_ad(user_id: int) -> bool:
         stmt = select(Users.ad_count, Users.ad_cooldown).where(Users.user_id == user_id)
         result = await db.execute(stmt)
         ad_count, ad_cooldown = result.first()
-
-        if ad_count >= 5:
-            return True
-        elif ad_cooldown is not None and ad_cooldown < int(datetime.now().timestamp()):
-            return True
-        else:
-            return False
+        return ad_count >= 5 or ad_cooldown < int(datetime.now().timestamp())

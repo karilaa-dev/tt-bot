@@ -102,7 +102,7 @@ async def send_tiktok_video(message: Message):
             else:
                 await increase_ad_count(message.chat.id)
         except Exception as e:
-                logging.error('Cant show ad')
+                logging.error("Can't show ad")
                 logging.error(e)
         if status_message:
             await status_message.delete()
@@ -115,7 +115,7 @@ async def send_tiktok_video(message: Message):
             logging.info(f'Video Download: CHAT {message.chat.id} - VIDEO {video_link}')
         # If cant write log into database or log into console
         except Exception as e:
-            logging.error('Cant write into database')
+            logging.error("Can't write into database")
             logging.error(e)
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)

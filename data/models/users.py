@@ -12,4 +12,4 @@ class Users(Base):
     link = Column(String, nullable=True)
     file_mode = Column(Boolean, default=False, nullable=False)
     ad_count = Column(Integer, default=0, nullable=False)
-    ad_cooldown = Column(BigInteger, default=0, nullable=True)
+    ad_cooldown = Column(BigInteger, default=0, nullable=False)
