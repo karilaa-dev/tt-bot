@@ -23,6 +23,7 @@ config = {
         "api_link": os.getenv("API_LINK", ""),
         "rapid_token": os.getenv("RAPID_TOKEN", ""),    
         "botstat": os.getenv("BOTSTAT", ""),
+        "monetag_url": os.getenv("MONETAG_URL", ""),
     },
     "logs": {
         "join_logs": os.getenv("JOIN_LOGS", "0"),
@@ -36,6 +37,7 @@ admin_ids = config["bot"]["admin_ids"]
 second_ids = admin_ids + config["bot"]["second_ids"]
 stats_ids = config["bot"]["stats_ids"]
 api_alt_mode = config["api"]["alt_mode"]
+monetag_url = config["api"]["monetag_url"]
 
 with open('locale.json', 'r', encoding='utf-8') as locale_file:
     locale = json_loads(locale_file.read())

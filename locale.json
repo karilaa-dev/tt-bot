@@ -41,7 +41,9 @@
     "inline_download_video": "🎬 Download Video",
     "inline_download_video_description": "Download TikTok videos without a watermark.",
     "inline_download_video_text": "🎬 <b>Downloading video...</b>\n\nPlease wait while we process your request.",
-    "inline_download_video_wait": "⏳ Please wait..."
+    "inline_download_video_wait": "⏳ Please wait...",
+    "ad_support": "Running this bot takes a lot of computing power! ⚡ If you have 10 seconds, click below to watch an ad. It’s a free way to support us and keeps the lights on.",
+    "ad_support_button": "Keep it Free \uD83D\uDE80"
   },
   "ru": {
     "lang_name": "Русский🇷🇺",
@@ -77,7 +79,9 @@
     "inline_download_video": "🎬 Скачать видео",
     "inline_download_video_description": "Скачать видео TikTok без водяного знака.",
     "inline_download_video_text": "🎬 <b>Скачивание видео...</b>\n\nПожалуйста, подождите, пока мы обрабатываем ваш запрос.",
-    "inline_download_video_wait": "⏳ Пожалуйста, подождите..."
+    "inline_download_video_wait": "⏳ Пожалуйста, подождите...",
+    "ad_support": "Для работы этого бота нужно много ресурсов! ⚡ Если у вас есть 10 секунд, нажмите ниже, чтобы посмотреть рекламу. Это бесплатный способ поддержать нас и сохранить бота в рабочем состоянии.",
+    "ad_support_button": "Сохранить бесплатным \uD83D\uDE80"
   },
   "uk": {
     "lang_name": "Українська🇺🇦",
@@ -113,7 +117,9 @@
     "inline_download_video": "🎬 Завантажити відео",
     "inline_download_video_description": "Завантажити відео TikTok без водяного знака.",
     "inline_download_video_text": "🎬 <b>Завантаження відео...</b>\n\nБудь ласка, зачекайте, поки ми обробляємо ваш запит.",
-    "inline_download_video_wait": "⏳ Будь ласка, зачекайте..."
+    "inline_download_video_wait": "⏳ Будь ласка, зачекайте...",
+    "ad_support": "Для роботи цього бота потрібно багато ресурсів! ⚡ Якщо у вас є 10 секунд, натисніть нижче, щоб переглянути рекламу. Це безкоштовний спосіб підтримати нас і зберегти бота активним.",
+    "ad_support_button": "Залишити безкоштовним \uD83D\uDE80"
   },
   "hi": {
     "lang_name": "हिंदी🇮🇳",
@@ -149,7 +155,9 @@
     "inline_download_video": "🎬 वीडियो डाउनलोड करें",
     "inline_download_video_description": "टिकटॉक वीडियो डाउनलोड करें बिना वॉटरमार्क",
     "inline_download_video_text": "🎬 <b>वीडियो डाउनलोड कर रहा है...</b>\n\nकृपया हमारे अनुरोध को प्रोसेस करने के लिए प्रतीक्षा करें।",
-    "inline_download_video_wait": "⏳ कृपया प्रतीक्षा करें..."
+    "inline_download_video_wait": "⏳ कृपया प्रतीक्षा करें...",
+    "ad_support": "इस बॉट को चलाने में काफी कंप्यूटिंग पावर लगती है! ⚡ अगर आपके पास 10 सेकंड हैं, तो विज्ञापन (ad) देखने के लिए नीचे क्लिक करें। यह हमें सपोर्ट करने का एक मुफ्त तरीका है ताकि हम आपकी सेवा करते रहें।",
+    "ad_support_button": "इसे फ्री रखें \uD83D\uDE80"
   },
   "id": {
     "lang_name": "Bahasa Inggris\uD83C\uDDEE\uD83C\uDDE9",
@@ -185,7 +193,9 @@
     "inline_download_video": "🎬 Unduh Video",
     "inline_download_video_description": "Unduh video TikTok tanpa watermark.",
     "inline_download_video_text": "🎬 <b>Mengunduh video...</b>\n\nSilakan tunggu sampai kami memproses permintaan Anda.",
-    "inline_download_video_wait": "⏳ Silakan tunggu..."
+    "inline_download_video_wait": "⏳ Silakan tunggu...",
+    "ad_support": "Menjalankan bot ini butuh banyak daya komputasi! ⚡ Jika kamu punya waktu 10 detik, klik di bawah untuk menonton iklan. Ini cara gratis untuk mendukung kami dan menjaga layanan tetap berjalan.",
+    "ad_support_button": "Tetap Gratis \uD83D\uDE80"
   },
   "vi": {
     "lang_name": "Tiếng Anh\uD83C\uDDFB\uD83C\uDDF3",
@@ -221,6 +231,8 @@
     "inline_download_video": "🎬 Tải xuống Video",
     "inline_download_video_description": "Tải xuống video TikTok không có watermark.",
     "inline_download_video_text": "🎬 <b>Đang tải xuống video...</b>\n\nVui lòng chờ trong giây lát để chúng tôi xử lý yêu cầu của bạn.",
-    "inline_download_video_wait": "⏳ Vui lòng chờ..."
+    "inline_download_video_wait": "⏳ Vui lòng chờ...",
+    "ad_support": "Vận hành bot này tốn rất nhiều tài nguyên! ⚡ Nếu bạn có 10 giây, hãy nhấn bên dưới để xem quảng cáo. Đây là cách miễn phí để ủng hộ chúng tôi và duy trì hoạt động của bot.",
+    "ad_support_button": "Giữ Miễn Phí \uD83D\uDE80"
   }
 }
