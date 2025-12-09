@@ -18,7 +18,14 @@ async def get_user(user_id: int) -> Optional[Users]:
 async def create_user(user_id: int, lang: str, link: Optional[str] = None) -> Users:
     async with await get_session() as db:
         time_now = int(datetime.now().timestamp())
-        user = Users(user_id=user_id, registered_at=time_now, lang=lang, link=link)
+        user = Users(
+            user_id=user_id,
+            registered_at=time_now,
+            lang=lang,
+            link=link,
+            ad_count=0,
+            ad_cooldown=time_now + 86400,
+        )
         db.add(user)
         await db.commit()
         return user
@@ -163,3 +170,39 @@ async def get_user_ids(only_positive: bool = True) -> List[int]:
             stmt = stmt.where(Users.user_id > 0)
         result = await db.execute(stmt)
         return [id[0] for id in result.all()]
+
+
+async def record_ad_show(user_id: int) -> None:
+    async with await get_session() as db:
+        ad_cooldown = int(datetime.now().timestamp()) + 86400
+        await db.execute(
+            update(Users)
+            .where(Users.user_id == user_id)
+            .values(ad_count=1, ad_cooldown=ad_cooldown)
+        )
+        await db.commit()
+
+
+async def increase_ad_count(user_id: int) -> None:
+    async with await get_session() as db:
+        stmt = select(Users.ad_count).where(Users.user_id == user_id)
+        result = await db.execute(stmt)
+        ad_count = result.scalar() or 0
+        await db.execute(
+            update(Users).where(Users.user_id == user_id).values(ad_count=ad_count + 1)
+        )
+        await db.commit()
+
+
+async def should_show_ad(user_id: int) -> bool:
+    async with await get_session() as db:
+        stmt = select(Users.ad_count, Users.ad_cooldown).where(Users.user_id == user_id)
+        result = await db.execute(stmt)
+        ad_count, ad_cooldown = result.first()
+
+        if ad_count >= 5:
+            return True
+        elif ad_cooldown is not None and ad_cooldown < int(datetime.now().timestamp()):
+            return True
+        else:
+            return False
