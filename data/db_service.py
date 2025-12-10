@@ -24,7 +24,7 @@ async def create_user(user_id: int, lang: str, link: Optional[str] = None) -> Us
             lang=lang,
             link=link,
             ad_count=0,
-            ad_cooldown=time_now + 86400,
+            ad_cooldown=0,
         )
         db.add(user)
         await db.commit()
@@ -199,4 +199,4 @@ async def should_show_ad(user_id: int) -> bool:
         stmt = select(Users.ad_count, Users.ad_cooldown).where(Users.user_id == user_id)
         result = await db.execute(stmt)
         ad_count, ad_cooldown = result.first()
-        return ad_count >= 3 and ad_cooldown < int(datetime.now().timestamp())
+        return ad_count >= 3 or ad_cooldown < int(datetime.now().timestamp())
