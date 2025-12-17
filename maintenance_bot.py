@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
@@ -14,8 +15,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s] 
                     handlers=[logging.StreamHandler()])
 
 # Load locale
-with open('locale.json', 'r', encoding='utf-8') as locale_file:
-    locale = json.loads(locale_file.read())
+locale = {}
+locale["langs"] = []
+[locale["langs"].append(file.replace(".json", "")) for file in os.listdir("locale")]
+for lang in locale["langs"]:
+    with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
+        locale[lang] = json.loads(locale_file.read())
 
 # Setup bot
 bot = Bot(token=config["bot"]["token"], default=DefaultBotProperties(parse_mode=ParseMode.HTML))
