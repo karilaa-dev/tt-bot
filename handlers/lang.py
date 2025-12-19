@@ -33,7 +33,7 @@ async def inline_lang(callback_query: CallbackQuery):
     chat_id = callback_query.message.chat.id
     from_id = callback_query.from_user.id
     msg_id = callback_query.message.message_id
-    lang = callback_query.data.lstrip('lang/')
+    lang = callback_query.data.removeprefix('lang/')
     if callback_query.message.chat.type != 'private':
         user_status = await bot.get_chat_member(chat_id=chat_id, user_id=from_id)
         if user_status.status not in ['creator', 'administrator']:
