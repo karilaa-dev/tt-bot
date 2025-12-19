@@ -40,7 +40,6 @@ api_alt_mode = config["api"]["alt_mode"]
 monetag_url = config["api"]["monetag_url"]
 
 locale = {}
-locale["langs"] = []
 locale["langs"] = sorted(
     file.replace(".json", "") for file in os.listdir("locale")
 )
