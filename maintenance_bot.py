@@ -8,19 +8,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import Message
 
-from data.config import config
+from data.config import config, locale
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[logging.StreamHandler()])
-
-# Load locale
-locale = {}
-locale["langs"] = []
-[locale["langs"].append(file.replace(".json", "")) for file in os.listdir("locale")]
-for lang in locale["langs"]:
-    with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
-        locale[lang] = json.loads(locale_file.read())
 
 # Setup bot
 bot = Bot(token=config["bot"]["token"], default=DefaultBotProperties(parse_mode=ParseMode.HTML))
