@@ -39,5 +39,10 @@ stats_ids = config["bot"]["stats_ids"]
 api_alt_mode = config["api"]["alt_mode"]
 monetag_url = config["api"]["monetag_url"]
 
-with open('locale.json', 'r', encoding='utf-8') as locale_file:
-    locale = json_loads(locale_file.read())
+locale = {}
+locale["langs"] = sorted(
+    file.replace(".json", "") for file in os.listdir("locale") if file.endswith(".json")
+)
+for lang in locale["langs"]:
+    with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
+        locale[lang] = json_loads(locale_file.read())
