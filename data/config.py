@@ -41,7 +41,9 @@ monetag_url = config["api"]["monetag_url"]
 
 locale = {}
 locale["langs"] = []
-[locale["langs"].append(file.replace(".json", "")) for file in os.listdir("locale")]
+locale["langs"] = sorted(
+    file.replace(".json", "") for file in os.listdir("locale")
+)
 for lang in locale["langs"]:
     with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
         locale[lang] = json_loads(locale_file.read())
