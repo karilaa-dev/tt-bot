@@ -41,17 +41,17 @@ class ttapi:
         return res['data']
 
     async def rapid_get_video_data(self, link):
-        querystring = {"video_url": link}
-        async with aiohttp.ClientSession(headers=self.rapid_headers) as client:
-            async with client.get(self.rapid_link, params=querystring) as response:
+        async with aiohttp.ClientSession() as client:
+            async with client.get(link) as response:
                 try:
-                    res = await response.json()
+                    video_full_url = str(response.url)
                 except:
                     return None
-            if 'error' in res:
-                return False
-            else:
-                return res['aweme_detail']
+        match = re.search(r"https?:\/\/www\.tiktok\.com\/@[^/\s]+\/video\/([0-9]+)", video_full_url)
+        if match is None:
+            return None
+        else:
+            return await self.rapid_get_video_data_id(int(match.group(1)))
 
     async def rapid_get_video_data_id(self, video_id: int):
         url = f'{self.rapid_link}/{str(video_id)}'
