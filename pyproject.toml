@@ -16,7 +16,6 @@ dependencies = [
     "pillow-heif==1.1.1",
     "python-dotenv==1.2.1",
     "yt-dlp==2025.12.08",
-    "curl-cffi>=0.13,<0.14",
 ]
 
 [tool.uv]
