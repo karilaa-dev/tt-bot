@@ -121,14 +121,19 @@ class QueueManager:
         )
         return True
 
-    def release_info_for_user(self, user_id: int) -> None:
-        """Release info semaphore for a user."""
+    async def release_info_for_user(self, user_id: int) -> None:
+        """Release info semaphore for a user.
+
+        This method is async to properly acquire the lock and prevent
+        race conditions when multiple coroutines release concurrently.
+        """
         self.info_semaphore.release()
 
-        if user_id in self._user_info_counts:
-            self._user_info_counts[user_id] -= 1
-            if self._user_info_counts[user_id] <= 0:
-                del self._user_info_counts[user_id]
+        async with self._lock:
+            if user_id in self._user_info_counts:
+                self._user_info_counts[user_id] -= 1
+                if self._user_info_counts[user_id] <= 0:
+                    del self._user_info_counts[user_id]
 
         logger.debug(
             f"User {user_id} released info slot "
@@ -161,7 +166,7 @@ class QueueManager:
             yield acquired
         finally:
             if acquired:
-                self.release_info_for_user(user_id)
+                await self.release_info_for_user(user_id)
 
     @asynccontextmanager
     async def send_queue(self) -> AsyncGenerator[None, None]:

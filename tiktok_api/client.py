@@ -323,8 +323,13 @@ class TikTokClient:
             - video_data: Raw TikTok API response
             - status: Error status string or None
             - download_context: Dict with 'ydl', 'ie', 'referer_url' for media downloads
+
+        Note:
+            The caller is responsible for closing the YDL instance in download_context
+            when done. On error paths, this method closes the YDL instance before returning.
         """
         ydl_opts = self._get_ydl_opts()
+        ydl = None
 
         try:
             # Create YDL instance WITHOUT context manager so it stays alive
@@ -372,6 +377,9 @@ class TikTokClient:
                 "referer_url": url,
             }
 
+            # Success - transfer ownership of ydl to caller via download_context
+            # Set ydl to None so finally block doesn't close it
+            ydl = None
             return video_data, status, download_context
 
         except yt_dlp.utils.DownloadError as e:
@@ -403,11 +411,33 @@ class TikTokClient:
         except Exception as e:
             logger.error(f"yt-dlp extraction failed: {e}")
             return None, "extraction", None
+        finally:
+            # Close ydl if we still own it (i.e., we didn't successfully transfer
+            # ownership to the caller via download_context)
+            if ydl is not None:
+                try:
+                    ydl.close()
+                except Exception:
+                    pass
 
     async def _run_sync(self, func: Any, *args: Any) -> Any:
         """Run synchronous function in executor."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, func, *args)
+
+    def _close_download_context(
+        self, download_context: Optional[dict[str, Any]]
+    ) -> None:
+        """Close the YoutubeDL instance in a download context if present.
+
+        Args:
+            download_context: Dict containing 'ydl' key with YoutubeDL instance, or None
+        """
+        if download_context and "ydl" in download_context:
+            try:
+                download_context["ydl"].close()
+            except Exception:
+                pass  # Ignore errors during cleanup
 
     def _raise_for_status(self, status: str, video_link: str) -> None:
         """Raise appropriate exception based on status string."""
@@ -481,6 +511,9 @@ class TikTokClient:
             TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
+        download_context = None
+        context_transferred = False  # Track if context ownership was transferred
+
         try:
             # Resolve short URLs
             full_url = await self._resolve_url(video_link)
@@ -518,6 +551,8 @@ class TikTokClient:
                     if image_urls:
                         author = video_data.get("author", {}).get("uniqueId", "")
 
+                        # Transfer context ownership to VideoInfo
+                        context_transferred = True
                         return VideoInfo(
                             type="images",
                             data=image_urls,
@@ -583,6 +618,12 @@ class TikTokClient:
             video_bytes = await self._run_sync(
                 self._download_media_to_memory_sync, video_url, download_context
             )
+
+            # Close the download context - it's no longer needed for videos
+            # (unlike slideshows where we keep it for image downloads)
+            self._close_download_context(download_context)
+            context_transferred = True  # Mark as handled
+
             if video_bytes is None:
                 raise TikTokExtractionError(f"Failed to download video {video_link}")
 
@@ -618,6 +659,10 @@ class TikTokClient:
         except Exception as e:
             logger.error(f"Error extracting video {video_link}: {e}")
             raise TikTokExtractionError(f"Failed to extract video: {e}") from e
+        finally:
+            # Clean up download context if ownership wasn't transferred
+            if not context_transferred:
+                self._close_download_context(download_context)
 
     async def video_with_retry(
         self,
