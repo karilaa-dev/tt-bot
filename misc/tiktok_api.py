@@ -41,8 +41,14 @@ class TikTokRateLimitError(TikTokError):
     pass
 
 
+class TikTokRegionError(TikTokError):
+    """Video is not available in the user's region (geo-blocked)."""
+
+    pass
+
+
 class TikTokExtractionError(TikTokError):
-    """Generic extraction/parsing error (includes region-locked, invalid ID, etc.)."""
+    """Generic extraction/parsing error (invalid ID, unknown failure, etc.)."""
 
     pass
 
@@ -105,6 +111,10 @@ class ttapi:
         """
         Extract raw TikTok data using yt-dlp's internal API.
         This method supports both videos AND slideshows.
+
+        NOTE: This code relies on yt-dlp's private API (_extract_web_data_and_status),
+        which may change or be removed in future yt-dlp releases. Keep yt-dlp up-to-date
+        and be prepared to update this code if the private API changes.
         """
         ydl_opts = self._get_ydl_opts()
 
@@ -117,10 +127,34 @@ class ttapi:
                 # Convert /photo/ to /video/ URL (yt-dlp requirement)
                 normalized_url = url.replace("/photo/", "/video/")
 
-                # Use yt-dlp's internal method to get raw webpage data
-                video_data, status = ie._extract_web_data_and_status(
-                    normalized_url, video_id
-                )
+                # Guard: Check if the private method exists before calling it.
+                # This method is part of yt-dlp's internal API and may be absent
+                # in future releases.
+                if not hasattr(ie, "_extract_web_data_and_status"):
+                    logger.error(
+                        "yt-dlp's TikTok extractor is missing '_extract_web_data_and_status' method. "
+                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
+                        "Please update yt-dlp to a compatible version: pip install -U yt-dlp"
+                    )
+                    raise TikTokExtractionError(
+                        "Incompatible yt-dlp version: missing required internal method. "
+                        "Please update yt-dlp: pip install -U yt-dlp"
+                    )
+
+                try:
+                    # Use yt-dlp's internal method to get raw webpage data
+                    video_data, status = ie._extract_web_data_and_status(
+                        normalized_url, video_id
+                    )
+                except AttributeError as e:
+                    logger.error(
+                        f"Failed to call yt-dlp internal method: {e}. "
+                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
+                        "Please update yt-dlp: pip install -U yt-dlp"
+                    )
+                    raise TikTokExtractionError(
+                        "Incompatible yt-dlp version. Please update yt-dlp: pip install -U yt-dlp"
+                    ) from e
 
                 return video_data, status
         except yt_dlp.utils.DownloadError as e:
@@ -135,7 +169,14 @@ class ttapi:
                 return None, "private"
             elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
                 return None, "rate_limit"
-            # Region-locked, IP blocked, and other errors -> generic extraction error
+            elif (
+                "region" in error_msg
+                or "geo" in error_msg
+                or "country" in error_msg
+                or "not available in your" in error_msg
+            ):
+                return None, "region"
+            # IP blocked and other errors -> generic extraction error
             logger.error(f"yt-dlp download error: {e}")
             return None, "extraction"
         except aiohttp.ClientError as e:
@@ -168,7 +209,14 @@ class ttapi:
                 return {"_error": "private"}
             elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
                 return {"_error": "rate_limit"}
-            # Region-locked, IP blocked, and other errors -> generic extraction error
+            elif (
+                "region" in error_msg
+                or "geo" in error_msg
+                or "country" in error_msg
+                or "not available in your" in error_msg
+            ):
+                return {"_error": "region"}
+            # IP blocked and other errors -> generic extraction error
             logger.error(f"yt-dlp download error: {e}")
             return {"_error": "extraction"}
         except aiohttp.ClientError as e:
@@ -284,6 +332,10 @@ class ttapi:
                 raise TikTokRateLimitError("Rate limited by TikTok")
             elif status == "network":
                 raise TikTokNetworkError("Network error occurred")
+            elif status == "region":
+                raise TikTokRegionError(
+                    f"Video {video_link} is not available in your region"
+                )
             elif status == "extraction":
                 raise TikTokExtractionError(f"Failed to extract video {video_link}")
 
@@ -329,6 +381,10 @@ class ttapi:
                     raise TikTokRateLimitError("Rate limited by TikTok")
                 elif error_type == "network":
                     raise TikTokNetworkError("Network error occurred")
+                elif error_type == "region":
+                    raise TikTokRegionError(
+                        f"Video {video_link} is not available in your region"
+                    )
                 else:
                     raise TikTokExtractionError(f"Failed to extract video {video_link}")
 
@@ -428,6 +484,10 @@ class ttapi:
                 raise TikTokRateLimitError("Rate limited by TikTok")
             elif status == "network":
                 raise TikTokNetworkError("Network error occurred")
+            elif status == "region":
+                raise TikTokRegionError(
+                    f"Video {video_id} is not available in your region"
+                )
             elif status == "extraction":
                 raise TikTokExtractionError(
                     f"Failed to extract music for video {video_id}"

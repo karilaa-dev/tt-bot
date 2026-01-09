@@ -17,9 +17,14 @@ config = {
         "db_url": os.getenv("DB_URL", ""),
         "db_path": os.getenv("DB_PATH", ""),
         "db_name": os.getenv("DB_NAME", ""),
-        "storage_channel": os.getenv(
-            "STORAGE_CHANNEL_ID", ""
-        ),  # Channel for uploading videos to get file_id
+        # Channel ID for uploading videos to get file_id.
+        # Parsed as int; returns None if unset/empty. Callers using send_video/send_document
+        # must check for None before using this value.
+        "storage_channel": (
+            int(os.getenv("STORAGE_CHANNEL_ID", ""))
+            if os.getenv("STORAGE_CHANNEL_ID", "").strip()
+            else None
+        ),
     },
     "api": {
         "botstat": os.getenv("BOTSTAT", ""),

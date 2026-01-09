@@ -21,6 +21,7 @@ from misc.tiktok_api import (
     TikTokPrivateError,
     TikTokNetworkError,
     TikTokRateLimitError,
+    TikTokRegionError,
     TikTokExtractionError,
 )
 
@@ -73,6 +74,8 @@ def get_error_message(error: TikTokError, lang: str) -> str:
         return locale[lang]["error_network"]
     elif isinstance(error, TikTokRateLimitError):
         return locale[lang]["error_rate_limit"]
+    elif isinstance(error, TikTokRegionError):
+        return locale[lang]["error_region"]
     else:  # TikTokExtractionError and any other
         return locale[lang]["error"]
 
@@ -147,7 +150,7 @@ async def send_video_result(
             caption=result_caption(lang, video_info["link"]),
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
-            disable_content_type_detection=True
+            disable_content_type_detection=True,
         )
     else:
         await bot.send_video(
