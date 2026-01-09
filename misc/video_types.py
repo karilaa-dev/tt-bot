@@ -140,7 +140,16 @@ async def send_video_result(
     else:
         video_file = video_data  # Fallback to URL if not bytes
 
-    if file_mode is False:
+    if file_mode:
+        await bot.send_document(
+            chat_id=targed_id,
+            document=video_file,
+            caption=result_caption(lang, video_info["link"]),
+            reply_markup=music_button(video_id, lang),
+            reply_to_message_id=reply_to_message_id,
+            disable_content_type_detection=True
+        )
+    else:
         await bot.send_video(
             chat_id=targed_id,
             video=video_file,
@@ -148,14 +157,6 @@ async def send_video_result(
             height=video_info["height"],
             width=video_info["width"],
             duration=video_duration,
-            reply_markup=music_button(video_id, lang),
-            reply_to_message_id=reply_to_message_id,
-        )
-    else:
-        await bot.send_document(
-            chat_id=targed_id,
-            document=video_file,
-            caption=result_caption(lang, video_info["link"]),
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
         )
