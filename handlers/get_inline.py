@@ -136,18 +136,17 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
                 inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
             )
 
-            # Use send queue for sending
-            async with queue.send_queue():
-                await send_video_result(
-                    message_id,
-                    video_info,
-                    lang,
-                    file_mode,
-                    inline_message=True,
-                    user_id=user_id,
-                    username=username,
-                    full_name=full_name,
-                )
+            # Send video (no global send queue - per-user limit only)
+            await send_video_result(
+                message_id,
+                video_info,
+                lang,
+                file_mode,
+                inline_message=True,
+                user_id=user_id,
+                username=username,
+                full_name=full_name,
+            )
 
         # Clean up video_info resources (videos already closed in video() method,
         # but call close() for safety - it's idempotent)

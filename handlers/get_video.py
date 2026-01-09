@@ -152,43 +152,42 @@ async def send_tiktok_video(message: Message):
         # Use try/finally to ensure video_info resources are cleaned up
         # (especially download context for slideshows)
         try:
-            # Send video/images with send queue
-            async with queue.send_queue():
-                if video_info.is_slideshow:  # Process images
-                    # Send upload image action
-                    await bot.send_chat_action(
-                        chat_id=message.chat.id, action="upload_photo"
+            # Send video/images (no global send queue - per-user limit only)
+            if video_info.is_slideshow:  # Process images
+                # Send upload image action
+                await bot.send_chat_action(
+                    chat_id=message.chat.id, action="upload_photo"
+                )
+                if group_chat:
+                    image_limit = 10
+                else:
+                    image_limit = None
+                was_processed = await send_image_result(
+                    message, video_info, lang, file_mode, image_limit, client=api
+                )
+            else:  # Process video
+                # Send upload video action
+                await bot.send_chat_action(
+                    chat_id=message.chat.id, action="upload_video"
+                )
+                # Send video
+                try:
+                    await send_video_result(
+                        message.chat.id,
+                        video_info,
+                        lang,
+                        file_mode,
+                        reply_to_message_id=message.message_id,
                     )
-                    if group_chat:
-                        image_limit = 10
+                except:
+                    if not group_chat:
+                        await message.reply(locale[lang]["error"])
+                        if not status_message:
+                            await message.react([ReactionTypeEmoji(emoji="😢")])
                     else:
-                        image_limit = None
-                    was_processed = await send_image_result(
-                        message, video_info, lang, file_mode, image_limit, client=api
-                    )
-                else:  # Process video
-                    # Send upload video action
-                    await bot.send_chat_action(
-                        chat_id=message.chat.id, action="upload_video"
-                    )
-                    # Send video
-                    try:
-                        await send_video_result(
-                            message.chat.id,
-                            video_info,
-                            lang,
-                            file_mode,
-                            reply_to_message_id=message.message_id,
-                        )
-                    except:
-                        if not group_chat:
-                            await message.reply(locale[lang]["error"])
-                            if not status_message:
-                                await message.react([ReactionTypeEmoji(emoji="😢")])
-                        else:
-                            if not status_message:
-                                await message.react([])
-                    was_processed = False  # Videos are not processed
+                        if not status_message:
+                            await message.react([])
+                was_processed = False  # Videos are not processed
 
             # Show ad if applicable (only in private chats)
             if not group_chat:
