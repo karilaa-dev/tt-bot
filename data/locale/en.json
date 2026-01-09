@@ -39,5 +39,6 @@
   "error_private": "<b>This video is private and cannot be accessed.</b>",
   "error_region": "<b>This video is not available in your region.</b>",
   "error_network": "<b>Network error occurred.</b>\nPlease try again.",
-  "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again."
+  "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again.",
+  "error_queue_full": "<b>Please wait!</b>\nYou already have {0} videos processing. Try again in a moment."
 }

@@ -7,7 +7,7 @@ import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Optional, Tuple
+from typing import Any, Awaitable, Callable, Optional, Tuple
 
 import aiohttp
 import yt_dlp
@@ -509,6 +509,103 @@ class TikTokClient:
         except Exception as e:
             logger.error(f"Error extracting video {video_link}: {e}")
             raise TikTokExtractionError(f"Failed to extract video: {e}") from e
+
+    async def video_with_retry(
+        self,
+        video_link: str,
+        max_attempts: int = 3,
+        request_timeout: float = 10.0,
+        on_retry: Callable[[int], Awaitable[None]] | None = None,
+    ) -> VideoInfo:
+        """
+        Extract video info with retry logic and per-request timeout.
+
+        Each request times out after `request_timeout` seconds. On timeout or
+        transient errors (network, rate limit, extraction), retries immediately.
+        Does NOT retry on permanent errors (deleted, private, region).
+
+        Args:
+            video_link: TikTok video URL
+            max_attempts: Maximum number of attempts (default: 3)
+            request_timeout: Timeout per request in seconds (default: 10)
+            on_retry: Optional async callback called with attempt number (1, 2, 3...)
+                     before each attempt. Use for updating status (e.g., emoji reactions).
+
+        Returns:
+            VideoInfo object containing video/slideshow data
+
+        Raises:
+            TikTokDeletedError: Video was deleted (not retried)
+            TikTokPrivateError: Video is private (not retried)
+            TikTokRegionError: Video geo-blocked (not retried)
+            TikTokNetworkError: Network error after all retries exhausted
+            TikTokRateLimitError: Rate limited after all retries exhausted
+            TikTokExtractionError: Extraction error after all retries exhausted
+
+        Example:
+            async def update_status(attempt: int):
+                emojis = ["👀", "🔄", "⏳"]
+                await message.react([ReactionTypeEmoji(emoji=emojis[attempt - 1])])
+
+            video_info = await client.video_with_retry(
+                video_link,
+                max_attempts=3,
+                request_timeout=10.0,
+                on_retry=update_status,
+            )
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Call status callback before each attempt
+                if on_retry:
+                    await on_retry(attempt)
+
+                async with asyncio.timeout(request_timeout):
+                    return await self.video(video_link)
+
+            except asyncio.TimeoutError as e:
+                logger.warning(
+                    f"Attempt {attempt}/{max_attempts} timed out after "
+                    f"{request_timeout}s for {video_link}"
+                )
+                last_error = e
+                # Immediate retry (no delay)
+
+            except (
+                TikTokNetworkError,
+                TikTokRateLimitError,
+                TikTokExtractionError,
+            ) as e:
+                logger.warning(
+                    f"Attempt {attempt}/{max_attempts} failed for {video_link}: {e}"
+                )
+                last_error = e
+                # Immediate retry (no delay)
+
+            except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
+                # Permanent errors - don't retry, raise immediately
+                raise
+
+            except TikTokError:
+                # Any other TikTok error - don't retry
+                raise
+
+        # All attempts exhausted
+        logger.error(
+            f"All {max_attempts} attempts failed for {video_link}: {last_error}"
+        )
+
+        if isinstance(last_error, asyncio.TimeoutError):
+            raise TikTokNetworkError(f"Request timed out after {max_attempts} attempts")
+
+        if last_error:
+            raise last_error
+
+        raise TikTokExtractionError(
+            f"Failed to extract video after {max_attempts} attempts"
+        )
 
     async def music(self, video_id: int) -> MusicInfo:
         """

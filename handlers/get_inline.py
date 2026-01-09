@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import Router
 from aiogram.types import (
     InlineQuery,
@@ -9,13 +11,12 @@ from aiogram.types import (
     InlineQueryResultsButton,
 )
 
-import logging
-
-from data.config import locale
+from data.config import locale, config
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
 from tiktok_api import TikTokClient, TikTokError
+from misc.queue_manager import QueueManager
 from misc.video_types import send_video_result, get_error_message
 
 inline_router = Router(name=__name__)
@@ -99,26 +100,41 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         return
     lang, file_mode = settings
 
+    # Get queue manager and retry config
+    queue = QueueManager.get_instance()
+    retry_config = config["queue"]
+
     try:
-        video_info = await api.video(video_link)
+        # Use queue with bypass_user_limit=True for inline downloads
+        # Inline downloads bypass the per-user queue limit
+        async with queue.info_queue(user_id, bypass_user_limit=True) as acquired:
+            if not acquired:
+                # This shouldn't happen with bypass, but handle anyway
+                await bot.edit_message_text(
+                    inline_message_id=message_id, text=locale[lang]["error"]
+                )
+                return
+
+            # Use video_with_retry for inline downloads too
+            video_info = await api.video_with_retry(
+                video_link,
+                max_attempts=retry_config["retry_max_attempts"],
+                request_timeout=retry_config["retry_request_timeout"],
+                on_retry=None,  # No emoji updates for inline
+            )
 
         if video_info.is_slideshow:  # Process image
             return await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["only_video_supported"]
             )
-            # await bot.edit_message_text(inline_message_id=message_id, text="⬆️ <code>Sending image...</code>\n\n")
-            # try:
-            #     was_processed = await send_image_result(message_id, video_info, lang, file_mode, 1)
-            # except:
-            #     await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
         else:  # Process video
             await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
             )
-            # try:
-            await send_video_result(message_id, video_info, lang, file_mode, True)
-            # except:
-            #     return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
+
+            # Use send queue for sending
+            async with queue.send_queue():
+                await send_video_result(message_id, video_info, lang, file_mode, True)
 
         try:  # Try to write log into database
             # Write log into database
@@ -131,6 +147,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         except Exception as e:
             logging.error("Cant write into database")
             logging.error(e)
+
     except TikTokError as e:
         # Handle specific TikTok errors with appropriate messages
         logging.error(f"TikTok error for inline {video_link}: {e}")

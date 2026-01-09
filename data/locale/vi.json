@@ -39,5 +39,6 @@
   "error_private": "<b>Video này ở chế độ riêng tư và không thể truy cập.</b>",
   "error_region": "<b>Video này không khả dụng ở khu vực của bạn.</b>",
   "error_network": "<b>Đã xảy ra lỗi mạng.</b>\nVui lòng thử lại.",
-  "error_rate_limit": "<b>Quá nhiều yêu cầu.</b>\nVui lòng đợi một chút và thử lại."
+  "error_rate_limit": "<b>Quá nhiều yêu cầu.</b>\nVui lòng đợi một chút và thử lại.",
+  "error_queue_full": "<b>Vui lòng đợi!</b>\nBạn đang có {0} video đang xử lý. Hãy thử lại sau một chút."
 }

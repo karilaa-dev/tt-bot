@@ -10,7 +10,7 @@ from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
 
-def _parse_int_env(key: str, default: int | None = None) -> int | None:
+def _parse_int_env(key: str, default: int) -> int:
     """Parse an environment variable as an integer, returning default if unset/empty."""
     value = os.getenv(key, "")
     if value.strip():
@@ -19,6 +19,17 @@ def _parse_int_env(key: str, default: int | None = None) -> int | None:
         except ValueError:
             return default
     return default
+
+
+def _parse_int_env_optional(key: str) -> int | None:
+    """Parse an environment variable as an integer, returning None if unset/empty."""
+    value = os.getenv(key, "")
+    if value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _parse_json_list(key: str) -> list[int]:
@@ -64,12 +75,23 @@ class LogsConfig(TypedDict):
     daily_stats_message_id: str
 
 
+class QueueConfig(TypedDict):
+    """Type definition for queue and retry configuration."""
+
+    max_concurrent_info: int
+    max_concurrent_send: int
+    max_user_queue_size: int
+    retry_max_attempts: int
+    retry_request_timeout: float
+
+
 class Config(TypedDict):
     """Type definition for the main configuration."""
 
     bot: BotConfig
     api: ApiConfig
     logs: LogsConfig
+    queue: QueueConfig
 
 
 config: Config = {
@@ -86,7 +108,7 @@ config: Config = {
         # Channel ID for uploading videos to get file_id.
         # Parsed as int; returns None if unset/empty. Callers using send_video/send_document
         # must check for None before using this value.
-        "storage_channel": _parse_int_env("STORAGE_CHANNEL_ID"),
+        "storage_channel": _parse_int_env_optional("STORAGE_CHANNEL_ID"),
     },
     "api": {
         "botstat": os.getenv("BOTSTAT", ""),
@@ -97,6 +119,13 @@ config: Config = {
         "stats_chat": os.getenv("STATS_CHAT", "0"),
         "stats_message_id": os.getenv("STATS_MESSAGE_ID", "0"),
         "daily_stats_message_id": os.getenv("DAILY_STATS_MESSAGE_ID", "0"),
+    },
+    "queue": {
+        "max_concurrent_info": _parse_int_env("MAX_CONCURRENT_INFO", 4),
+        "max_concurrent_send": _parse_int_env("MAX_CONCURRENT_SEND", 8),
+        "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
+        "retry_max_attempts": _parse_int_env("RETRY_MAX_ATTEMPTS", 3),
+        "retry_request_timeout": float(os.getenv("RETRY_REQUEST_TIMEOUT", "10")),
     },
 }
 
