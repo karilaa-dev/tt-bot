@@ -225,9 +225,9 @@ class TikTokClient:
             # IP blocked and other errors -> generic extraction error
             logger.error(f"yt-dlp download error: {e}")
             return None, "extraction"
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error: {e}")
-            return None, "network"
+        except yt_dlp.utils.ExtractorError as e:
+            logger.error(f"yt-dlp extractor error: {e}")
+            return None, "extraction"
         except TikTokError:
             raise
         except Exception as e:
@@ -267,9 +267,9 @@ class TikTokClient:
             # IP blocked and other errors -> generic extraction error
             logger.error(f"yt-dlp download error: {e}")
             return {"_error": "extraction"}
-        except aiohttp.ClientError as e:
-            logger.error(f"Network error: {e}")
-            return {"_error": "network"}
+        except yt_dlp.utils.ExtractorError as e:
+            logger.error(f"yt-dlp extractor error: {e}")
+            return {"_error": "extraction"}
         except Exception as e:
             logger.error(f"yt-dlp extraction failed: {e}")
             return {"_error": "extraction"}

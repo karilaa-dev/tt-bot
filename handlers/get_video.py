@@ -68,7 +68,6 @@ async def send_tiktok_video(message: Message):
             if not group_chat:
                 await message.reply(get_error_message(e, lang))
             return
-        video_id = video_info.id
         if not status_message:  # If status message is not used, send reaction
             try:
                 await message.react(
