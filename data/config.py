@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from json import loads as json_loads
+from pathlib import Path
 from typing import Any, TypedDict
 
 from dotenv import load_dotenv, find_dotenv
@@ -106,9 +107,13 @@ monetag_url: str = config["api"]["monetag_url"]
 
 # Locale dictionary: maps language codes to their translation dictionaries
 locale: dict[str, Any] = {}
+_base_dir = Path(__file__).resolve().parent
+_locale_dir = _base_dir / "locale"
 locale["langs"] = sorted(
-    file.replace(".json", "") for file in os.listdir("locale") if file.endswith(".json")
+    file.replace(".json", "")
+    for file in os.listdir(_locale_dir)
+    if file.endswith(".json")
 )
 for _lang in locale["langs"]:
-    with open(f"locale/{_lang}.json", "r", encoding="utf-8") as _locale_file:
+    with open(_locale_dir / f"{_lang}.json", "r", encoding="utf-8") as _locale_file:
         locale[_lang] = json_loads(_locale_file.read())

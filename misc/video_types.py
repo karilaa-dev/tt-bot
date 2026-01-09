@@ -62,24 +62,33 @@ async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | Non
             return message.video.file_id
         return None
     except Exception as e:
-        logger.error(f"Failed to upload video to storage channel: {e}")
+        logger.exception(f"Failed to upload video to storage channel: {e}")
         return None
 
 
 def get_error_message(error: TikTokError, lang: str) -> str:
     """Map TikTok exceptions to localized error messages."""
+    # Safely resolve language dict with fallback to English or empty dict
+    lang_dict = locale.get(lang) or locale.get("en") or {}
+
     if isinstance(error, TikTokDeletedError):
-        return locale[lang]["error_deleted"]
+        return lang_dict.get("error_deleted", "This video has been deleted.")
     elif isinstance(error, TikTokPrivateError):
-        return locale[lang]["error_private"]
+        return lang_dict.get("error_private", "This video is private.")
     elif isinstance(error, TikTokNetworkError):
-        return locale[lang]["error_network"]
+        return lang_dict.get("error_network", "Network error occurred.")
     elif isinstance(error, TikTokRateLimitError):
-        return locale[lang]["error_rate_limit"]
+        return lang_dict.get(
+            "error_rate_limit", "Rate limit exceeded. Please try again later."
+        )
     elif isinstance(error, TikTokRegionError):
-        return locale[lang]["error_region"]
+        return lang_dict.get(
+            "error_region", "This video is not available in your region."
+        )
     else:  # TikTokExtractionError and any other
-        return locale[lang]["error"]
+        return lang_dict.get(
+            "error", "An error occurred while processing your request."
+        )
 
 
 # Add PIL imports for image processing
