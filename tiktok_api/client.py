@@ -760,7 +760,8 @@ class TikTokClient:
                     f"{request_timeout}s for {video_link}"
                 )
                 last_error = e
-                # Immediate retry (no delay)
+                # Brief delay to allow emoji update to register
+                await asyncio.sleep(0.5)
 
             except (
                 TikTokNetworkError,
@@ -771,7 +772,8 @@ class TikTokClient:
                     f"Attempt {attempt}/{max_attempts} failed for {video_link}: {e}"
                 )
                 last_error = e
-                # Immediate retry (no delay)
+                # Brief delay to allow emoji update to register
+                await asyncio.sleep(0.5)
 
             except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
                 # Permanent errors - don't retry, raise immediately

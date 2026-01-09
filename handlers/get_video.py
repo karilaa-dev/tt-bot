@@ -21,7 +21,8 @@ from misc.video_types import send_video_result, send_image_result, get_error_mes
 video_router = Router(name=__name__)
 
 # Retry emoji sequence: shown for each attempt
-RETRY_EMOJIS = ["👀", "🔄", "⏳"]
+# Note: Must use valid Telegram reaction emojis (🔄 and ⏳ are not valid)
+RETRY_EMOJIS = ["👀", "🤔", "🙏"]
 
 # Callback data prefix for retry button
 RETRY_CALLBACK_PREFIX = "retry_video"
@@ -97,12 +98,14 @@ async def send_tiktok_video(message: Message):
                 return
             emoji_index = min(attempt - 1, len(RETRY_EMOJIS) - 1)
             emoji = RETRY_EMOJIS[emoji_index]
+            logging.debug(f"Updating retry emoji to {emoji} for attempt {attempt}")
             try:
                 await message.react(
                     [ReactionTypeEmoji(emoji=emoji)], disable_notification=True
                 )
-            except:
-                pass
+                logging.debug(f"Successfully updated emoji to {emoji}")
+            except Exception as e:
+                logging.warning(f"Failed to update retry emoji to {emoji}: {e}")
 
         # Acquire info queue slot with per-user limit
         async with queue.info_queue(message.chat.id) as acquired:
