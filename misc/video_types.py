@@ -35,7 +35,13 @@ logger = logging.getLogger(__name__)
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
 
-async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | None:
+async def upload_video_to_storage(
+    video_data: bytes,
+    video_info: VideoInfo,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+) -> str | None:
     """
     Upload video to storage channel to get a file_id.
     This is required for inline messages since Telegram doesn't support
@@ -43,7 +49,10 @@ async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | Non
 
     Args:
         video_data: Video bytes to upload
-        video_id: Video ID for filename
+        video_info: VideoInfo object containing video metadata
+        user_id: Telegram user ID who requested the video (optional)
+        username: Telegram username who requested the video (optional)
+        full_name: Telegram user's full name (optional)
 
     Returns:
         file_id string if successful, None otherwise
@@ -53,10 +62,30 @@ async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | Non
         return None
 
     try:
-        video_file = BufferedInputFile(video_data, filename=f"{video_id}.mp4")
+        video_file = BufferedInputFile(video_data, filename=f"{video_info.id}.mp4")
+
+        # Build caption with Source link and user info (same format as new user log)
+        video_link = f"https://www.tiktok.com/@/video/{video_info.id}"
+        caption_parts = [f"<a href='{video_link}'>Source</a>"]
+
+        # Add user info in same format as new user registration log
+        if user_id:
+            user_link = (
+                f'<b><a href="tg://user?id={user_id}">{full_name or "User"}</a></b>'
+            )
+            caption_parts.append("")  # Empty line separator
+            caption_parts.append(user_link)
+            if username:
+                caption_parts.append(f"@{username}")
+            caption_parts.append(f"<code>{user_id}</code>")
+
+        caption = "\n".join(caption_parts)
+
         message = await bot.send_video(
             chat_id=STORAGE_CHANNEL_ID,
             video=video_file,
+            caption=caption,
+            parse_mode="HTML",
             disable_notification=True,
         )
         if message.video:
@@ -124,6 +153,9 @@ async def send_video_result(
     file_mode,
     inline_message=False,
     reply_to_message_id=None,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
 ):
     video_id = video_info.id
     video_data = video_info.data
@@ -136,7 +168,14 @@ async def send_video_result(
             raise ValueError("Video data must be bytes for inline messages")
 
         # Upload to storage channel to get file_id
-        file_id = await upload_video_to_storage(video_data, video_id)
+        file_id = await upload_video_to_storage(
+            video_data, video_info, user_id, username, full_name
+        )
+        if not file_id:
+            raise ValueError(
+                "Failed to upload video to storage. "
+                "Make sure STORAGE_CHANNEL_ID is configured in .env"
+            )
         if not file_id:
             raise ValueError(
                 "Failed to upload video to storage. "

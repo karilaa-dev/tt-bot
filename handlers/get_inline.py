@@ -92,6 +92,8 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     """Handle when user selects an inline result"""
     api = TikTokClient()
     user_id = chosen_result.from_user.id
+    username = chosen_result.from_user.username
+    full_name = chosen_result.from_user.full_name
     message_id = chosen_result.inline_message_id
     video_link = chosen_result.query
     settings = await get_user_settings(user_id)
@@ -134,7 +136,16 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
 
             # Use send queue for sending
             async with queue.send_queue():
-                await send_video_result(message_id, video_info, lang, file_mode, True)
+                await send_video_result(
+                    message_id,
+                    video_info,
+                    lang,
+                    file_mode,
+                    inline_message=True,
+                    user_id=user_id,
+                    username=username,
+                    full_name=full_name,
+                )
 
         try:  # Try to write log into database
             # Write log into database
