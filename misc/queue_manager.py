@@ -14,12 +14,17 @@ logger = logging.getLogger(__name__)
 
 class QueueManager:
     """
-    Singleton queue manager using semaphores to limit concurrency.
+    Singleton queue manager for controlling concurrent operations.
 
     Features:
-    - Global concurrency limits via semaphores
-    - Per-user tracking for info queue
+    - Per-user tracking for info queue (limits concurrent requests per user)
     - Bypass option for inline downloads
+    - Global semaphores exist but are currently disabled
+
+    Note:
+        Global concurrency limits are disabled. Only per-user limits are enforced.
+        To re-enable global limits, uncomment semaphore acquire/release calls in
+        acquire_info_for_user() and release_info_for_user().
 
     Usage:
         queue = QueueManager.get_instance()
@@ -34,10 +39,6 @@ class QueueManager:
         # For inline downloads (bypass per-user limit):
         async with queue.info_queue(user_id, bypass_user_limit=True) as acquired:
             video_info = await api.video_with_retry(...)
-
-        # For sending:
-        async with queue.send_queue():
-            await send_video_result(...)
     """
 
     _instance: QueueManager | None = None
