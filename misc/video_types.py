@@ -16,6 +16,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from data.config import locale, config
 from data.loader import bot
 from tiktok_api import (
+    TikTokClient,
     TikTokError,
     TikTokDeletedError,
     TikTokPrivateError,
@@ -34,7 +35,13 @@ logger = logging.getLogger(__name__)
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
 
-async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | None:
+async def upload_video_to_storage(
+    video_data: bytes,
+    video_info: VideoInfo,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
+) -> str | None:
     """
     Upload video to storage channel to get a file_id.
     This is required for inline messages since Telegram doesn't support
@@ -42,7 +49,10 @@ async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | Non
 
     Args:
         video_data: Video bytes to upload
-        video_id: Video ID for filename
+        video_info: VideoInfo object containing video metadata
+        user_id: Telegram user ID who requested the video (optional)
+        username: Telegram username who requested the video (optional)
+        full_name: Telegram user's full name (optional)
 
     Returns:
         file_id string if successful, None otherwise
@@ -52,10 +62,30 @@ async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | Non
         return None
 
     try:
-        video_file = BufferedInputFile(video_data, filename=f"{video_id}.mp4")
+        video_file = BufferedInputFile(video_data, filename=f"{video_info.id}.mp4")
+
+        # Build caption with Source link and user info (same format as new user log)
+        video_link = f"https://www.tiktok.com/@/video/{video_info.id}"
+        caption_parts = [f"<a href='{video_link}'>Source</a>"]
+
+        # Add user info in same format as new user registration log
+        if user_id:
+            user_link = (
+                f'<b><a href="tg://user?id={user_id}">{full_name or "User"}</a></b>'
+            )
+            caption_parts.append("")  # Empty line separator
+            caption_parts.append(user_link)
+            if username:
+                caption_parts.append(f"@{username}")
+            caption_parts.append(f"<code>{user_id}</code>")
+
+        caption = "\n".join(caption_parts)
+
         message = await bot.send_video(
             chat_id=STORAGE_CHANNEL_ID,
             video=video_file,
+            caption=caption,
+            parse_mode="HTML",
             disable_notification=True,
         )
         if message.video:
@@ -123,6 +153,9 @@ async def send_video_result(
     file_mode,
     inline_message=False,
     reply_to_message_id=None,
+    user_id: int | None = None,
+    username: str | None = None,
+    full_name: str | None = None,
 ):
     video_id = video_info.id
     video_data = video_info.data
@@ -135,7 +168,9 @@ async def send_video_result(
             raise ValueError("Video data must be bytes for inline messages")
 
         # Upload to storage channel to get file_id
-        file_id = await upload_video_to_storage(video_data, video_id)
+        file_id = await upload_video_to_storage(
+            video_data, video_info, user_id, username, full_name
+        )
         if not file_id:
             raise ValueError(
                 "Failed to upload video to storage. "
@@ -217,44 +252,56 @@ async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
     )
 
 
-async def detect_image_processing_needed(image_link):
+async def detect_image_processing_needed(
+    image_link: str, client: TikTokClient, video_info: VideoInfo
+) -> bool:
     """
     Check if an image needs processing by examining its format.
     Returns True if the image is not in JPEG or WebP format.
+
+    Uses yt-dlp client to download image bytes for format detection,
+    ensuring proper authentication headers are used.
+
+    Args:
+        image_link: URL of the image to check
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context
+
+    Returns:
+        True if image needs processing (conversion), False otherwise
     """
     try:
-        async with aiohttp.ClientSession() as client:
-            async with client.get(
-                image_link, headers={"Range": "bytes=0-20"}
-            ) as response:
-                if response.status == 206:  # Partial content
-                    header_bytes = await response.read()
-                    extension = detect_image_format(header_bytes)
-                    return extension not in [".jpg", ".webp"]
-    except:
+        # Download the image using yt-dlp client (respects auth/cookies)
+        image_data = await client.download_image(image_link, video_info)
+        # Check first bytes for format detection
+        extension = detect_image_format(image_data[:20])
+        return extension not in [".jpg", ".webp"]
+    except Exception:
         # If we can't check, assume processing might be needed
         return True
-    return False
 
 
-async def download_image(image_link):
+async def download_image(
+    image_link: str, client: TikTokClient, video_info: VideoInfo
+) -> bytes:
     """
-    Download image data from a URL.
+    Download image data using yt-dlp client.
+
+    Uses the same authentication context (cookies, headers) that was
+    established during video info extraction.
 
     Args:
         image_link: URL of the image to download
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context from extraction
 
     Returns:
         bytes: Raw image data
 
     Raises:
-        aiohttp.ClientResponseError: If the download fails
+        TikTokNetworkError: If the download fails
     """
-    async with aiohttp.ClientSession() as client:
-        async with client.get(image_link, allow_redirects=True) as image_request:
-            # Let aiohttp handle the error properly with all required arguments
-            image_request.raise_for_status()
-            return await image_request.read()
+    return await client.download_image(image_link, video_info)
 
 
 async def check_and_convert_image(image_data, executor, loop):
@@ -289,7 +336,14 @@ async def check_and_convert_image(image_data, executor, loop):
     return image_data, extension
 
 
-async def convert_single_image(image_link, file_name, executor, loop):
+async def convert_single_image(
+    image_link: str,
+    file_name: str,
+    executor,
+    loop,
+    client: TikTokClient,
+    video_info: VideoInfo,
+):
     """
     Download and convert a single image to JPEG format if needed.
 
@@ -298,12 +352,14 @@ async def convert_single_image(image_link, file_name, executor, loop):
         file_name: Base filename for the image
         executor: ProcessPoolExecutor for image conversion
         loop: Event loop for running executor tasks
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context
 
     Returns:
         BufferedInputFile with the processed image data
     """
-    # Download image data
-    image_data = await download_image(image_link)
+    # Download image data using yt-dlp client
+    image_data = await download_image(image_link, client, video_info)
 
     # Check and convert image if needed
     processed_data, extension = await check_and_convert_image(
@@ -318,7 +374,7 @@ async def convert_single_image(image_link, file_name, executor, loop):
 
 
 async def send_image_result(
-    user_msg, video_info: VideoInfo, lang, file_mode, image_limit
+    user_msg, video_info: VideoInfo, lang, file_mode, image_limit, client: TikTokClient
 ):
     video_id = video_info.id
     image_number = 0
@@ -353,7 +409,9 @@ async def send_image_result(
         # Quick check if processing is needed by checking only the first image
         first_image_link = images[0][0] if images and images[0] else None
         if first_image_link:
-            processing_needed = await detect_image_processing_needed(first_image_link)
+            processing_needed = await detect_image_processing_needed(
+                first_image_link, client, video_info
+            )
 
     # Function to process images with optional forced processing
     async def process_images_batch():
@@ -388,7 +446,10 @@ async def send_image_result(
                     )  # Calculate correct image number
                     if file_mode:
                         task = get_image_data_raw(
-                            image_link, file_name=f"{video_id}_{current_image_number}"
+                            image_link,
+                            file_name=f"{video_id}_{current_image_number}",
+                            client=client,
+                            video_info=video_info,
                         )
                     else:
                         task = convert_single_image(
@@ -396,6 +457,8 @@ async def send_image_result(
                             f"{video_id}_{current_image_number}",
                             executor,
                             loop,
+                            client=client,
+                            video_info=video_info,
                         )
                     tasks.append(task)
 
@@ -511,15 +574,26 @@ def detect_image_format(image_data):
         return ".jpg"
 
 
-async def get_image_data_raw(image_link, file_name):
+async def get_image_data_raw(
+    image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
+):
     """
     Download image data and create BufferedInputFile with correct extension
     based on the actual image format, without any conversion.
+
+    Uses yt-dlp client for authenticated downloads.
+
+    Args:
+        image_link: URL of the image to download
+        file_name: Base filename for the image
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context
+
+    Returns:
+        BufferedInputFile with the raw image data
     """
-    async with aiohttp.ClientSession() as client:
-        async with client.get(image_link, allow_redirects=True) as image_request:
-            image_request.raise_for_status()
-            image_data = await image_request.read()
+    # Download image using yt-dlp client
+    image_data = await download_image(image_link, client, video_info)
 
     # Detect image format and get correct extension
     extension = detect_image_format(image_data)
@@ -531,12 +605,15 @@ async def get_image_data_raw(image_link, file_name):
     return image_bytes
 
 
-async def get_image_data(image_link, file_name):
-    """Get image data with conversion if needed - for compatibility"""
-    async with aiohttp.ClientSession() as client:
-        async with client.get(image_link, allow_redirects=True) as image_request:
-            image_request.raise_for_status()
-            image_data = await image_request.read()
+async def get_image_data(
+    image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
+):
+    """Get image data with conversion if needed - for compatibility.
+
+    Uses yt-dlp client for authenticated downloads.
+    """
+    # Download image using yt-dlp client
+    image_data = await download_image(image_link, client, video_info)
 
     # Detect image format
     extension = detect_image_format(image_data)
