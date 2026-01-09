@@ -26,8 +26,11 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     group_chat = call_msg.chat.type != "private"
     # Get chat language
     lang = await lang_func(chat_id, callback_query.from_user.language_code)
-    # Remove music button
-    await call_msg.edit_reply_markup()
+    # Remove music button (ignore if already removed - handles double-clicks)
+    try:
+        await call_msg.edit_reply_markup()
+    except:
+        pass
     try:  # If reaction is allowed, send it
         await call_msg.react([ReactionTypeEmoji(emoji="👀")], disable_notification=True)
     except:

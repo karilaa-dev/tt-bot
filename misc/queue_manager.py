@@ -92,7 +92,7 @@ class QueueManager:
         self, user_id: int, bypass_user_limit: bool = False
     ) -> bool:
         """
-        Acquire info semaphore for a user.
+        Acquire info slot for a user.
 
         Args:
             user_id: Telegram user/chat ID
@@ -110,11 +110,11 @@ class QueueManager:
                     )
                     return False
 
-            # Increment user count before acquiring semaphore
+            # Increment user count
             self._user_info_counts[user_id] = self._user_info_counts.get(user_id, 0) + 1
 
-        # Wait for global semaphore (outside lock to avoid blocking other users)
-        await self.info_semaphore.acquire()
+        # NOTE: Global semaphore disabled - no global concurrency limit
+        # To re-enable, uncomment: await self.info_semaphore.acquire()
         logger.debug(
             f"User {user_id} acquired info slot "
             f"(user_count={self._user_info_counts.get(user_id, 0)})"
@@ -122,12 +122,13 @@ class QueueManager:
         return True
 
     async def release_info_for_user(self, user_id: int) -> None:
-        """Release info semaphore for a user.
+        """Release info slot for a user.
 
         This method is async to properly acquire the lock and prevent
         race conditions when multiple coroutines release concurrently.
         """
-        self.info_semaphore.release()
+        # NOTE: Global semaphore disabled - no global concurrency limit
+        # To re-enable, uncomment: self.info_semaphore.release()
 
         async with self._lock:
             if user_id in self._user_info_counts:

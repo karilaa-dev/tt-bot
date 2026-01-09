@@ -8,6 +8,7 @@ config.ini
 *.env
 sqlite*.db
 LICENSE.md
+cookies.txt
 
 #extensions
 *.log

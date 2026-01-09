@@ -31,6 +31,19 @@ from tiktok_api import (
 # Configure logger
 logger = logging.getLogger(__name__)
 
+# Persistent ProcessPoolExecutor for image conversion
+# This prevents "cannot schedule new futures after shutdown" errors under high load
+_image_executor: concurrent.futures.ProcessPoolExecutor | None = None
+
+
+def get_image_executor() -> concurrent.futures.ProcessPoolExecutor:
+    """Get or create a persistent ProcessPoolExecutor for image conversion."""
+    global _image_executor
+    if _image_executor is None:
+        _image_executor = concurrent.futures.ProcessPoolExecutor(max_workers=4)
+    return _image_executor
+
+
 # Storage channel for uploading videos to get file_id (required for inline messages)
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
@@ -427,68 +440,62 @@ async def send_image_result(
             )
             was_processed = True  # Mark that processing occurred
 
-        # Create a single thread pool for all image processing
+        # Use persistent executor to avoid "cannot schedule new futures after shutdown" errors
         loop = asyncio.get_event_loop()
-        with concurrent.futures.ProcessPoolExecutor(
-            max_workers=min(total_images, 4)
-        ) as executor:
-            last_part = len(images) - 1
-            final = None
+        executor = get_image_executor()
+        last_part = len(images) - 1
+        final = None
 
-            for num, part in enumerate(images):
-                media_group = []
+        for num, part in enumerate(images):
+            media_group = []
 
-                # Create tasks for parallel processing of images in this part
-                tasks = []
-                for i, image_link in enumerate(part):
-                    current_image_number = (
-                        (num * 10) + i + 1
-                    )  # Calculate correct image number
-                    if file_mode:
-                        task = get_image_data_raw(
-                            image_link,
-                            file_name=f"{video_id}_{current_image_number}",
-                            client=client,
-                            video_info=video_info,
-                        )
-                    else:
-                        task = convert_single_image(
-                            image_link,
-                            f"{video_id}_{current_image_number}",
-                            executor,
-                            loop,
-                            client=client,
-                            video_info=video_info,
-                        )
-                    tasks.append(task)
-
-                # Process all images in this part concurrently
-                image_data_list = await asyncio.gather(*tasks)
-
-                # Create media group from processed images
-                for data in image_data_list:
-                    if file_mode:
-                        media_group.append(
-                            InputMediaDocument(
-                                media=data, disable_content_type_detection=True
-                            )
-                        )
-                    else:
-                        media_group.append(
-                            InputMediaPhoto(
-                                media=data, disable_content_type_detection=True
-                            )
-                        )
-
-                if num < last_part:
-                    await sleep(sleep_time)
-                    await user_msg.reply_media_group(
-                        media_group, disable_notification=True
+            # Create tasks for parallel processing of images in this part
+            tasks = []
+            for i, image_link in enumerate(part):
+                current_image_number = (
+                    (num * 10) + i + 1
+                )  # Calculate correct image number
+                if file_mode:
+                    task = get_image_data_raw(
+                        image_link,
+                        file_name=f"{video_id}_{current_image_number}",
+                        client=client,
+                        video_info=video_info,
                     )
                 else:
-                    final = await user_msg.reply_media_group(
-                        media_group, disable_notification=True
+                    task = convert_single_image(
+                        image_link,
+                        f"{video_id}_{current_image_number}",
+                        executor,
+                        loop,
+                        client=client,
+                        video_info=video_info,
                     )
+                tasks.append(task)
+
+            # Process all images in this part concurrently
+            image_data_list = await asyncio.gather(*tasks)
+
+            # Create media group from processed images
+            for data in image_data_list:
+                if file_mode:
+                    media_group.append(
+                        InputMediaDocument(
+                            media=data, disable_content_type_detection=True
+                        )
+                    )
+                else:
+                    media_group.append(
+                        InputMediaPhoto(media=data, disable_content_type_detection=True)
+                    )
+
+            if num < last_part:
+                await sleep(sleep_time)
+                await user_msg.reply_media_group(media_group, disable_notification=True)
+            else:
+                final = await user_msg.reply_media_group(
+                    media_group, disable_notification=True
+                )
 
         if processing_needed:
             logger.info(

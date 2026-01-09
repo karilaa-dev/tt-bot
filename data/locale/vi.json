@@ -41,5 +41,6 @@
   "error_network": "<b>Đã xảy ra lỗi mạng.</b>\nVui lòng thử lại.",
   "error_rate_limit": "<b>Quá nhiều yêu cầu.</b>\nVui lòng đợi một chút và thử lại.",
   "error_queue_full": "<b>Vui lòng đợi!</b>\nBạn đang có {0} video đang xử lý. Hãy thử lại sau một chút.",
-  "try_again_button": "Thử lại"
+  "try_again_button": "Thử lại",
+  "inline_retry_attempt": "🔄 Lần thử {0} trên {1}..."
 }

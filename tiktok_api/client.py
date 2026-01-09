@@ -35,18 +35,42 @@ class TikTokClient:
 
     Args:
         proxy: Optional proxy URL for requests. If not provided, uses YTDLP_PROXY env var.
+        cookies: Optional path to a Netscape-format cookies file (e.g., exported from browser).
+            If not provided, uses YTDLP_COOKIES env var. If the file doesn't exist,
+            a warning is logged and cookies are not used.
 
     Example:
         >>> client = TikTokClient(proxy="http://proxy:8080")
         >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
         >>> print(video_info.author)
         >>> print(video_info.duration)
+
+        # With cookies for authenticated requests:
+        >>> client = TikTokClient(cookies="cookies.txt")
     """
 
     _executor = ThreadPoolExecutor(max_workers=4)
 
-    def __init__(self, proxy: Optional[str] = None):
+    def __init__(self, proxy: Optional[str] = None, cookies: Optional[str] = None):
         self.proxy = proxy or os.getenv("YTDLP_PROXY")
+
+        # Handle cookies with validation
+        cookies_path = cookies or os.getenv("YTDLP_COOKIES")
+        if cookies_path:
+            # Convert relative path to absolute path
+            if not os.path.isabs(cookies_path):
+                cookies_path = os.path.abspath(cookies_path)
+
+            if os.path.isfile(cookies_path):
+                self.cookies = cookies_path
+            else:
+                logger.warning(
+                    f"Cookie file not found: {cookies_path} - cookies will not be used"
+                )
+                self.cookies = None
+        else:
+            self.cookies = None
+
         self.mobile_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+")
         self.web_regex = re.compile(r"https?://www\.tiktok\.com/@[^\s]+?/video/[0-9]+")
         self.photo_regex = re.compile(
@@ -147,6 +171,9 @@ class TikTokClient:
         }
         if self.proxy:
             opts["proxy"] = self.proxy
+        if self.cookies:
+            opts["cookiefile"] = self.cookies
+            logger.debug(f"yt-dlp using cookie file: {self.cookies}")
         return opts
 
     def _extract_raw_data_sync(
@@ -208,10 +235,13 @@ class TikTokClient:
                 or "removed" in error_msg
                 or "deleted" in error_msg
             ):
+                logger.warning(f"Video appears deleted: {e}")
                 return None, "deleted"
             elif "private" in error_msg:
+                logger.warning(f"Video is private: {e}")
                 return None, "private"
             elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
+                logger.warning(f"Rate limited: {e}")
                 return None, "rate_limit"
             elif (
                 "region" in error_msg
@@ -219,6 +249,7 @@ class TikTokClient:
                 or "country" in error_msg
                 or "not available in your" in error_msg
             ):
+                logger.warning(f"Region blocked: {e}")
                 return None, "region"
             # IP blocked and other errors -> generic extraction error
             logger.error(f"yt-dlp download error: {e}")
@@ -389,10 +420,13 @@ class TikTokClient:
                 or "removed" in error_msg
                 or "deleted" in error_msg
             ):
+                logger.warning(f"Video appears deleted: {e}")
                 return None, "deleted", None
             elif "private" in error_msg:
+                logger.warning(f"Video is private: {e}")
                 return None, "private", None
             elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
+                logger.warning(f"Rate limited: {e}")
                 return None, "rate_limit", None
             elif (
                 "region" in error_msg
@@ -400,6 +434,7 @@ class TikTokClient:
                 or "country" in error_msg
                 or "not available in your" in error_msg
             ):
+                logger.warning(f"Region blocked: {e}")
                 return None, "region", None
             logger.error(f"yt-dlp download error: {e}")
             return None, "extraction", None
@@ -725,7 +760,8 @@ class TikTokClient:
                     f"{request_timeout}s for {video_link}"
                 )
                 last_error = e
-                # Immediate retry (no delay)
+                # Brief delay to allow emoji update to register
+                await asyncio.sleep(0.5)
 
             except (
                 TikTokNetworkError,
@@ -736,7 +772,8 @@ class TikTokClient:
                     f"Attempt {attempt}/{max_attempts} failed for {video_link}: {e}"
                 )
                 last_error = e
-                # Immediate retry (no delay)
+                # Brief delay to allow emoji update to register
+                await asyncio.sleep(0.5)
 
             except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
                 # Permanent errors - don't retry, raise immediately
