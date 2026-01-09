@@ -13,7 +13,7 @@ from data.db_service import (
     increase_ad_count,
 )
 from data.loader import bot
-from misc.tiktok_api import ttapi, TikTokError
+from tiktok_api import TikTokClient, TikTokError
 from misc.utils import start_manager, error_catch, lang_func
 from misc.video_types import send_video_result, send_image_result, get_error_message
 
@@ -23,7 +23,7 @@ video_router = Router(name=__name__)
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
     # Api init
-    api = ttapi()
+    api = TikTokClient()
     # Statys message var
     status_message = False
     # Group chat set
@@ -68,7 +68,7 @@ async def send_tiktok_video(message: Message):
             if not group_chat:
                 await message.reply(get_error_message(e, lang))
             return
-        video_id = video_info["id"]
+        video_id = video_info.id
         if not status_message:  # If status message is not used, send reaction
             try:
                 await message.react(
@@ -76,7 +76,7 @@ async def send_tiktok_video(message: Message):
                 )
             except:
                 pass
-        if video_info["type"] == "images":  # Process images, if video is images
+        if video_info.is_slideshow:  # Process images, if video is images
             # Send upload image action
             await bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
             if group_chat:
@@ -132,7 +132,7 @@ async def send_tiktok_video(message: Message):
             await add_video(
                 message.chat.id,
                 video_link,
-                video_info["type"] == "images",
+                video_info.is_slideshow,
                 was_processed,
             )
             # Log into console

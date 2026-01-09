@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, ReactionTypeEmoji
 from data.config import locale, second_ids
 from data.db_service import add_music
 from data.loader import dp, bot
-from misc.tiktok_api import ttapi, TikTokError
+from tiktok_api import TikTokClient, TikTokError
 from misc.utils import lang_func, error_catch
 from misc.video_types import send_music_result, music_button, get_error_message
 
@@ -21,7 +21,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     video_id = callback_query.data.lstrip("id/")
     status_message = False
     # Api init
-    api = ttapi()
+    api = TikTokClient()
     # Group chat set
     group_chat = call_msg.chat.type != "private"
     # Get chat language

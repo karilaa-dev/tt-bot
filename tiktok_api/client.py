@@ -1,62 +1,53 @@
-import re
-import os
+"""TikTok API client for extracting video and music information."""
+
 import asyncio
+import glob
 import logging
+import os
+import re
+import uuid
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Optional, Tuple
 
 import aiohttp
 import yt_dlp
 
+from .exceptions import (
+    TikTokDeletedError,
+    TikTokError,
+    TikTokExtractionError,
+    TikTokNetworkError,
+    TikTokPrivateError,
+    TikTokRateLimitError,
+    TikTokRegionError,
+)
+from .models import MusicInfo, VideoInfo
+
 logger = logging.getLogger(__name__)
 
-
-# Custom exception classes for specific TikTok errors
-class TikTokError(Exception):
-    """Base exception for TikTok API errors."""
-
-    pass
+# Regex for extracting video ID from redirected URLs (used by legacy get_id functions)
+_redirect_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+?/([0-9]+)")
 
 
-class TikTokDeletedError(TikTokError):
-    """Video has been deleted by the creator."""
+class TikTokClient:
+    """Client for extracting TikTok video and music information.
 
-    pass
+    This client uses yt-dlp internally to extract video/slideshow data and music
+    from TikTok URLs. It supports both regular videos and slideshows (image posts).
 
+    Args:
+        proxy: Optional proxy URL for requests. If not provided, uses YTDLP_PROXY env var.
 
-class TikTokPrivateError(TikTokError):
-    """Video is private and cannot be accessed."""
+    Example:
+        >>> client = TikTokClient(proxy="http://proxy:8080")
+        >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
+        >>> print(video_info.author)
+        >>> print(video_info.duration)
+    """
 
-    pass
-
-
-class TikTokNetworkError(TikTokError):
-    """Network error occurred during request."""
-
-    pass
-
-
-class TikTokRateLimitError(TikTokError):
-    """Too many requests - rate limited."""
-
-    pass
-
-
-class TikTokRegionError(TikTokError):
-    """Video is not available in the user's region (geo-blocked)."""
-
-    pass
-
-
-class TikTokExtractionError(TikTokError):
-    """Generic extraction/parsing error (invalid ID, unknown failure, etc.)."""
-
-    pass
-
-
-class ttapi:
     _executor = ThreadPoolExecutor(max_workers=4)
 
-    def __init__(self, proxy: str = None):
+    def __init__(self, proxy: Optional[str] = None):
         self.proxy = proxy or os.getenv("YTDLP_PROXY")
         self.mobile_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+")
         self.web_regex = re.compile(r"https?://www\.tiktok\.com/@[^\s]+?/video/[0-9]+")
@@ -65,7 +56,18 @@ class ttapi:
         )
         self.mus_regex = re.compile(r"https?://www\.tiktok\.com/music/[^\s]+")
 
-    async def regex_check(self, video_link: str):
+    async def regex_check(
+        self, video_link: str
+    ) -> Tuple[Optional[str], Optional[bool]]:
+        """Check if a link matches known TikTok URL patterns.
+
+        Args:
+            video_link: URL to check
+
+        Returns:
+            Tuple of (matched_link, is_mobile) where is_mobile indicates if it's
+            a short/mobile URL. Returns (None, None) if no pattern matches.
+        """
         if self.web_regex.search(video_link) is not None:
             link = self.web_regex.findall(video_link)[0]
             return link, False
@@ -77,6 +79,48 @@ class ttapi:
             return link, True
         else:
             return None, None
+
+    async def get_video_id_from_mobile(self, link: str) -> Optional[str]:
+        """Extract video ID from a mobile/short TikTok URL by following redirects.
+
+        This resolves short URLs like vm.tiktok.com or vt.tiktok.com to get the
+        actual video ID.
+
+        Args:
+            link: Mobile/short TikTok URL
+
+        Returns:
+            Video ID string if found, None otherwise.
+        """
+        async with aiohttp.ClientSession() as client:
+            try:
+                async with client.get(link, allow_redirects=True) as response:
+                    return response.url.name
+            except Exception as e:
+                logger.error(f"Failed to get video ID from mobile link {link}: {e}")
+                return None
+
+    async def get_video_id(self, link: str, is_mobile: bool) -> Optional[str]:
+        """Extract video ID from a TikTok URL.
+
+        Args:
+            link: TikTok URL (web or mobile)
+            is_mobile: Whether the link is a mobile/short URL
+
+        Returns:
+            Video ID string if found, None otherwise.
+        """
+        video_id: Optional[str] = None
+        if not is_mobile:
+            matches = _redirect_regex.findall(link)
+            if matches:
+                video_id = matches[0]
+        else:
+            try:
+                video_id = await self.get_video_id_from_mobile(link)
+            except Exception:
+                pass
+        return video_id
 
     async def _resolve_url(self, url: str) -> str:
         """Resolve short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs."""
@@ -90,16 +134,16 @@ class ttapi:
                     return url
         return url
 
-    def _extract_video_id(self, url: str) -> str:
+    def _extract_video_id(self, url: str) -> Optional[str]:
         """Extract video ID from TikTok URL."""
         match = re.search(r"/(?:video|photo)/(\d+)", url)
         if match:
             return match.group(1)
         return None
 
-    def _get_ydl_opts(self):
+    def _get_ydl_opts(self) -> dict[str, Any]:
         """Get base yt-dlp options."""
-        opts = {
+        opts: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
         }
@@ -107,7 +151,9 @@ class ttapi:
             opts["proxy"] = self.proxy
         return opts
 
-    def _extract_raw_data_sync(self, url: str, video_id: str):
+    def _extract_raw_data_sync(
+        self, url: str, video_id: str
+    ) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
         """
         Extract raw TikTok data using yt-dlp's internal API.
         This method supports both videos AND slideshows.
@@ -182,11 +228,13 @@ class ttapi:
         except aiohttp.ClientError as e:
             logger.error(f"Network error: {e}")
             return None, "network"
+        except TikTokError:
+            raise
         except Exception as e:
             logger.error(f"yt-dlp extraction failed: {e}")
             return None, "extraction"
 
-    def _extract_video_info_sync(self, url: str):
+    def _extract_video_info_sync(self, url: str) -> Optional[dict[str, Any]]:
         """
         Extract video info using standard yt-dlp extract_info.
         This works reliably for videos but not for slideshow images.
@@ -226,11 +274,8 @@ class ttapi:
             logger.error(f"yt-dlp extraction failed: {e}")
             return {"_error": "extraction"}
 
-    def _download_video_sync(self, url: str) -> bytes:
+    def _download_video_sync(self, url: str) -> Optional[bytes]:
         """Download video using yt-dlp to a temp file, read it, then delete."""
-        import uuid
-        import glob
-
         ydl_opts = self._get_ydl_opts()
 
         # Use current directory with a unique filename
@@ -249,7 +294,7 @@ class ttapi:
                 info = ydl.extract_info(url, download=True)
 
                 # Find the actual downloaded file
-                actual_path = None
+                actual_path: Optional[str] = None
                 if info:
                     ext = info.get("ext", "mp4")
                     actual_path = f"{temp_filename}.{ext}"
@@ -273,10 +318,10 @@ class ttapi:
             for f in glob.glob(f"{temp_filename}.*"):
                 try:
                     os.remove(f)
-                except:
+                except Exception:
                     pass
 
-    def _download_audio_sync(self, url: str) -> bytes:
+    def _download_audio_sync(self, url: str) -> Optional[bytes]:
         """Download audio using yt-dlp's urlopen (for direct audio URLs)."""
         ydl_opts = self._get_ydl_opts()
 
@@ -288,23 +333,46 @@ class ttapi:
             logger.error(f"yt-dlp audio download failed for {url}: {e}")
             return None
 
-    async def _run_sync(self, func, *args):
+    async def _run_sync(self, func: Any, *args: Any) -> Any:
         """Run synchronous function in executor."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._executor, func, *args)
 
-    async def video(self, video_link: str) -> dict:
+    def _raise_for_status(self, status: str, video_link: str) -> None:
+        """Raise appropriate exception based on status string."""
+        if status == "deleted":
+            raise TikTokDeletedError(f"Video {video_link} was deleted")
+        elif status == "private":
+            raise TikTokPrivateError(f"Video {video_link} is private")
+        elif status == "rate_limit":
+            raise TikTokRateLimitError("Rate limited by TikTok")
+        elif status == "network":
+            raise TikTokNetworkError("Network error occurred")
+        elif status == "region":
+            raise TikTokRegionError(
+                f"Video {video_link} is not available in your region"
+            )
+        elif status == "extraction":
+            raise TikTokExtractionError(f"Failed to extract video {video_link}")
+
+    async def video(self, video_link: str) -> VideoInfo:
         """
         Extract video/slideshow data from TikTok URL.
 
+        Args:
+            video_link: TikTok video or slideshow URL
+
         Returns:
-            dict: Video/slideshow info on success
+            VideoInfo: Object containing video/slideshow information.
+                - For videos: data contains bytes, url contains direct video URL
+                - For slideshows: data contains list of image URLs
 
         Raises:
             TikTokDeletedError: Video was deleted by creator
             TikTokPrivateError: Video is private
             TikTokNetworkError: Network/connection error
             TikTokRateLimitError: Too many requests
+            TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
         try:
@@ -324,20 +392,8 @@ class ttapi:
             )
 
             # Check for error status and raise appropriate exception
-            if status == "deleted":
-                raise TikTokDeletedError(f"Video {video_link} was deleted")
-            elif status == "private":
-                raise TikTokPrivateError(f"Video {video_link} is private")
-            elif status == "rate_limit":
-                raise TikTokRateLimitError("Rate limited by TikTok")
-            elif status == "network":
-                raise TikTokNetworkError("Network error occurred")
-            elif status == "region":
-                raise TikTokRegionError(
-                    f"Video {video_link} is not available in your region"
-                )
-            elif status == "extraction":
-                raise TikTokExtractionError(f"Failed to extract video {video_link}")
+            if status and status not in ("ok", None):
+                self._raise_for_status(status, video_link)
 
             # Check if it's a slideshow (imagePost present in raw data)
             if video_data:
@@ -355,17 +411,18 @@ class ttapi:
                     if image_urls:
                         author = video_data.get("author", {}).get("uniqueId", "")
 
-                        return {
-                            "type": "images",
-                            "data": image_urls,
-                            "id": int(video_id),
-                            "cover": None,
-                            "width": None,
-                            "height": None,
-                            "duration": None,
-                            "author": author,
-                            "link": video_link,
-                        }
+                        return VideoInfo(
+                            type="images",
+                            data=image_urls,
+                            id=int(video_id),
+                            cover=None,
+                            width=None,
+                            height=None,
+                            duration=None,
+                            author=author,
+                            link=video_link,
+                            url=None,
+                        )
 
             # It's a video - use standard extract_info which works reliably for videos
             info = await self._run_sync(self._extract_video_info_sync, full_url)
@@ -429,18 +486,18 @@ class ttapi:
             author = info.get("uploader") or info.get("creator") or ""
             cover = info.get("thumbnail")
 
-            return {
-                "type": "video",
-                "data": video_bytes,
-                "url": video_url,
-                "id": int(video_id),
-                "cover": cover,
-                "width": int(width) if width else None,
-                "height": int(height) if height else None,
-                "duration": duration,
-                "author": author,
-                "link": video_link,
-            }
+            return VideoInfo(
+                type="video",
+                data=video_bytes,
+                id=int(video_id),
+                cover=cover,
+                width=int(width) if width else None,
+                height=int(height) if height else None,
+                duration=duration,
+                author=author,
+                link=video_link,
+                url=video_url,
+            )
 
         except TikTokError:
             # Re-raise TikTok errors as-is
@@ -452,18 +509,22 @@ class ttapi:
             logger.error(f"Error extracting video {video_link}: {e}")
             raise TikTokExtractionError(f"Failed to extract video: {e}") from e
 
-    async def music(self, video_id: int) -> dict:
+    async def music(self, video_id: int) -> MusicInfo:
         """
         Extract music info from a TikTok video.
 
+        Args:
+            video_id: TikTok video ID
+
         Returns:
-            dict: Music info on success
+            MusicInfo: Object containing music/audio information
 
         Raises:
             TikTokDeletedError: Video was deleted by creator
             TikTokPrivateError: Video is private
             TikTokNetworkError: Network/connection error
             TikTokRateLimitError: Too many requests
+            TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
         try:
@@ -476,22 +537,8 @@ class ttapi:
             )
 
             # Check for error status and raise appropriate exception
-            if status == "deleted":
-                raise TikTokDeletedError(f"Video {video_id} was deleted")
-            elif status == "private":
-                raise TikTokPrivateError(f"Video {video_id} is private")
-            elif status == "rate_limit":
-                raise TikTokRateLimitError("Rate limited by TikTok")
-            elif status == "network":
-                raise TikTokNetworkError("Network error occurred")
-            elif status == "region":
-                raise TikTokRegionError(
-                    f"Video {video_id} is not available in your region"
-                )
-            elif status == "extraction":
-                raise TikTokExtractionError(
-                    f"Failed to extract music for video {video_id}"
-                )
+            if status and status not in ("ok", None):
+                self._raise_for_status(status, str(video_id))
 
             if video_data is None:
                 raise TikTokExtractionError(f"No data returned for video {video_id}")
@@ -520,14 +567,14 @@ class ttapi:
                 or ""
             )
 
-            return {
-                "data": audio_bytes,
-                "id": int(video_id),
-                "title": music_info.get("title", ""),
-                "author": music_info.get("authorName", ""),
-                "duration": int(music_info.get("duration", 0)),
-                "cover": cover_url,
-            }
+            return MusicInfo(
+                data=audio_bytes,
+                id=int(video_id),
+                title=music_info.get("title", ""),
+                author=music_info.get("authorName", ""),
+                duration=int(music_info.get("duration", 0)),
+                cover=cover_url,
+            )
 
         except TikTokError:
             # Re-raise TikTok errors as-is
@@ -538,3 +585,7 @@ class ttapi:
         except Exception as e:
             logger.error(f"Error extracting music for video {video_id}: {e}")
             raise TikTokExtractionError(f"Failed to extract music: {e}") from e
+
+
+# Backwards compatibility alias
+ttapi = TikTokClient

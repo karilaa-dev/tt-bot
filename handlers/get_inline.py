@@ -15,7 +15,7 @@ from data.config import locale
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
-from misc.tiktok_api import ttapi, TikTokError
+from tiktok_api import TikTokClient, TikTokError
 from misc.video_types import send_video_result, get_error_message
 
 inline_router = Router(name=__name__)
@@ -37,7 +37,7 @@ def please_wait_button(lang):
 @inline_router.inline_query()
 async def handle_inline_query(inline_query: InlineQuery):
     """Handle inline queries and return example results"""
-    api = ttapi()
+    api = TikTokClient()
     query_text = inline_query.query.strip()
     user_id = inline_query.from_user.id
     lang = await lang_func(user_id, inline_query.from_user.language_code)
@@ -89,7 +89,7 @@ async def handle_inline_query(inline_query: InlineQuery):
 @inline_router.chosen_inline_result()
 async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     """Handle when user selects an inline result"""
-    api = ttapi()
+    api = TikTokClient()
     user_id = chosen_result.from_user.id
     message_id = chosen_result.inline_message_id
     video_link = chosen_result.query
@@ -102,7 +102,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     try:
         video_info = await api.video(video_link)
 
-        if video_info["type"] == "images":  # Process image
+        if video_info.is_slideshow:  # Process image
             return await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["only_video_supported"]
             )
@@ -123,7 +123,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         try:  # Try to write log into database
             # Write log into database
             await add_video(
-                user_id, video_link, video_info["type"] == "images", was_processed, True
+                user_id, video_link, video_info.is_slideshow, was_processed, True
             )
             # Log into console
             logging.info(f"Video Download: INLINE {user_id} - VIDEO {video_link}")

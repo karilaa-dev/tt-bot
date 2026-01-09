@@ -15,7 +15,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale, config
 from data.loader import bot
-from misc.tiktok_api import (
+from tiktok_api import (
     TikTokError,
     TikTokDeletedError,
     TikTokPrivateError,
@@ -23,6 +23,8 @@ from misc.tiktok_api import (
     TikTokRateLimitError,
     TikTokRegionError,
     TikTokExtractionError,
+    VideoInfo,
+    MusicInfo,
 )
 
 # Configure logger
@@ -107,15 +109,15 @@ def result_caption(lang, link, group_warning=None):
 
 async def send_video_result(
     targed_id,
-    video_info,
+    video_info: VideoInfo,
     lang,
     file_mode,
     inline_message=False,
     reply_to_message_id=None,
 ):
-    video_id = video_info["id"]
-    video_data = video_info["data"]
-    video_duration = video_info["duration"]
+    video_id = video_info.id
+    video_data = video_info.data
+    video_duration = video_info.duration
 
     # For inline messages, we must upload to storage channel first to get file_id
     # since Telegram doesn't support uploading new files for inline message edits
@@ -132,7 +134,7 @@ async def send_video_result(
             )
 
         video_media = InputMediaVideo(
-            media=file_id, caption=result_caption(lang, video_info["link"])
+            media=file_id, caption=result_caption(lang, video_info.link)
         )
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
         return
@@ -147,7 +149,7 @@ async def send_video_result(
         await bot.send_document(
             chat_id=targed_id,
             document=video_file,
-            caption=result_caption(lang, video_info["link"]),
+            caption=result_caption(lang, video_info.link),
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
             disable_content_type_detection=True,
@@ -156,19 +158,19 @@ async def send_video_result(
         await bot.send_video(
             chat_id=targed_id,
             video=video_file,
-            caption=result_caption(lang, video_info["link"]),
-            height=video_info["height"],
-            width=video_info["width"],
+            caption=result_caption(lang, video_info.link),
+            height=video_info.height,
+            width=video_info.width,
             duration=video_duration,
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
         )
 
 
-async def send_music_result(query_msg, music_info, lang, group_chat):
-    video_id = music_info["id"]
-    audio_data = music_info["data"]
-    cover_url = music_info["cover"]
+async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
+    video_id = music_info.id
+    audio_data = music_info.data
+    cover_url = music_info.cover
 
     # Handle audio data - could be bytes or URL
     if isinstance(audio_data, bytes):
@@ -198,9 +200,9 @@ async def send_music_result(query_msg, music_info, lang, group_chat):
     await query_msg.reply_audio(
         audio,
         caption=caption,
-        title=music_info["title"],
-        performer=music_info["author"],
-        duration=music_info["duration"],
+        title=music_info.title,
+        performer=music_info.author,
+        duration=music_info.duration,
         thumbnail=cover,
         disable_notification=group_chat,
     )
@@ -306,17 +308,18 @@ async def convert_single_image(image_link, file_name, executor, loop):
     return image_bytes
 
 
-async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
-    video_id = video_info["id"]
+async def send_image_result(
+    user_msg, video_info: VideoInfo, lang, file_mode, image_limit
+):
+    video_id = video_info.id
     image_number = 0
+    # Use image_urls property for slideshows
+    image_data = video_info.image_urls
     if image_limit:
-        images = [video_info["data"][:image_limit]]
+        images = [image_data[:image_limit]]
         sleep_time = 0
     else:
-        images = [
-            video_info["data"][x : x + 10]
-            for x in range(0, len(video_info["data"]), 10)
-        ]
+        images = [image_data[x : x + 10] for x in range(0, len(image_data), 10)]
         image_pages = len(images)
         match image_pages:
             case 1:
@@ -432,7 +435,7 @@ async def send_image_result(user_msg, video_info, lang, file_mode, image_limit):
             pass  # Ignore errors if message can't be deleted
 
     await final[0].reply(
-        result_caption(lang, video_info["link"], bool(image_limit)),
+        result_caption(lang, video_info.link, bool(image_limit)),
         reply_markup=music_button(video_id, lang),
         disable_web_page_preview=True,
     )
