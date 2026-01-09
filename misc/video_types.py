@@ -176,11 +176,6 @@ async def send_video_result(
                 "Failed to upload video to storage. "
                 "Make sure STORAGE_CHANNEL_ID is configured in .env"
             )
-        if not file_id:
-            raise ValueError(
-                "Failed to upload video to storage. "
-                "Make sure STORAGE_CHANNEL_ID is configured in .env"
-            )
 
         video_media = InputMediaVideo(
             media=file_id, caption=result_caption(lang, video_info.link)

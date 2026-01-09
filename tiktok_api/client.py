@@ -308,7 +308,6 @@ class TikTokClient:
         except Exception as e:
             logger.error(f"yt-dlp media download failed for {media_url}: {e}")
             return None
-            return None
 
     def _extract_with_context_sync(
         self, url: str, video_id: str
