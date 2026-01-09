@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import Router, F
-from aiogram.types import Message, ReactionTypeEmoji
+from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from data.config import locale, second_ids, monetag_url, config
@@ -22,6 +22,19 @@ video_router = Router(name=__name__)
 
 # Retry emoji sequence: shown for each attempt
 RETRY_EMOJIS = ["👀", "🔄", "⏳"]
+
+# Callback data prefix for retry button
+RETRY_CALLBACK_PREFIX = "retry_video"
+
+
+def try_again_button(lang: str):
+    """Create a 'Try Again' button for queue full error."""
+    keyb = InlineKeyboardBuilder()
+    keyb.button(
+        text=locale[lang]["try_again_button"],
+        callback_data=RETRY_CALLBACK_PREFIX,
+    )
+    return keyb.as_markup()
 
 
 @video_router.message(F.text)
@@ -62,7 +75,8 @@ async def send_tiktok_video(message: Message):
         if user_queue_count >= retry_config["max_user_queue_size"]:
             if not group_chat:
                 await message.reply(
-                    locale[lang]["error_queue_full"].format(user_queue_count)
+                    locale[lang]["error_queue_full"].format(user_queue_count),
+                    reply_markup=try_again_button(lang),
                 )
             return
 
@@ -100,7 +114,8 @@ async def send_tiktok_video(message: Message):
                     await message.reply(
                         locale[lang]["error_queue_full"].format(
                             queue.get_user_queue_count(message.chat.id)
-                        )
+                        ),
+                        reply_markup=try_again_button(lang),
                     )
                 return
 
@@ -226,3 +241,32 @@ async def send_tiktok_video(message: Message):
                     await message.react([])
         except:
             pass
+
+
+@video_router.callback_query(F.data == RETRY_CALLBACK_PREFIX)
+async def handle_retry_callback(callback: CallbackQuery):
+    """Handle 'Try Again' button click for queue full error."""
+    # Ensure callback.message exists and is accessible
+    if not callback.message or not hasattr(callback.message, "reply_to_message"):
+        await callback.answer("Message not accessible", show_alert=True)
+        return
+
+    # Get the original message that contains the TikTok link
+    original_message = callback.message.reply_to_message
+
+    if not original_message or not original_message.text:
+        await callback.answer("Original message not found", show_alert=True)
+        return
+
+    # Delete the error message with the button
+    try:
+        if hasattr(callback.message, "delete"):
+            await callback.message.delete()
+    except:
+        pass
+
+    # Answer the callback to remove loading state
+    await callback.answer()
+
+    # Re-process the original message
+    await send_tiktok_video(original_message)

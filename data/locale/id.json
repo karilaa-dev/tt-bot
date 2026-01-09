@@ -40,5 +40,6 @@
   "error_region": "<b>Video ini tidak tersedia di wilayahmu.</b>",
   "error_network": "<b>Terjadi kesalahan jaringan.</b>\nSilakan coba lagi.",
   "error_rate_limit": "<b>Terlalu banyak permintaan.</b>\nSilakan tunggu sebentar dan coba lagi.",
-  "error_queue_full": "<b>Mohon tunggu!</b>\nKamu sudah memiliki {0} video yang sedang diproses. Coba lagi sebentar."
+  "error_queue_full": "<b>Mohon tunggu!</b>\nKamu sudah memiliki {0} video yang sedang diproses. Coba lagi sebentar.",
+  "try_again_button": "Coba Lagi"
 }
