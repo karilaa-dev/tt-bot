@@ -1,12 +1,12 @@
 from aiogram import Router
 from aiogram.types import (
-    InlineQuery, 
-    ChosenInlineResult, 
-    InlineQueryResultArticle, 
+    InlineQuery,
+    ChosenInlineResult,
+    InlineQueryResultArticle,
     InputTextMessageContent,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
-    InlineQueryResultsButton
+    InlineQueryResultsButton,
 )
 
 import logging
@@ -15,16 +15,20 @@ from data.config import locale
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
-from misc.tiktok_api import ttapi
-from misc.video_types import send_video_result
+from misc.tiktok_api import ttapi, TikTokError
+from misc.video_types import send_video_result, get_error_message
 
 inline_router = Router(name=__name__)
+
 
 def please_wait_button(lang):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=locale[lang]['inline_download_video_wait'], callback_data=f"wait")
+                InlineKeyboardButton(
+                    text=locale[lang]["inline_download_video_wait"],
+                    callback_data=f"wait",
+                )
             ]
         ]
     )
@@ -42,10 +46,12 @@ async def handle_inline_query(inline_query: InlineQuery):
 
     if user_info is None:
         start_bot_button = InlineQueryResultsButton(
-        text=locale[lang]['inline_start_bot'],
-        start_parameter="inline")
-        return await inline_query.answer(results, cache_time=0, button=start_bot_button, is_personal=True)
-    
+            text=locale[lang]["inline_start_bot"], start_parameter="inline"
+        )
+        return await inline_query.answer(
+            results, cache_time=0, button=start_bot_button, is_personal=True
+        )
+
     if len(query_text) < 12:
         return await inline_query.answer(results, cache_time=0)
 
@@ -54,13 +60,12 @@ async def handle_inline_query(inline_query: InlineQuery):
         results.append(
             InlineQueryResultArticle(
                 id="wrong_link",
-                title=locale[lang]['inline_wrong_link_title'],
-                description=locale[lang]['inline_wrong_link_description'],
+                title=locale[lang]["inline_wrong_link_title"],
+                description=locale[lang]["inline_wrong_link_description"],
                 input_message_content=InputTextMessageContent(
-                    message_text=locale[lang]['inline_wrong_link'],
-                    parse_mode="HTML"
+                    message_text=locale[lang]["inline_wrong_link"], parse_mode="HTML"
                 ),
-                thumbnail_url="https://em-content.zobj.net/source/apple/419/cross-mark_274c.png"
+                thumbnail_url="https://em-content.zobj.net/source/apple/419/cross-mark_274c.png",
             )
         )
         return await inline_query.answer(results, cache_time=0)
@@ -68,17 +73,16 @@ async def handle_inline_query(inline_query: InlineQuery):
         results.append(
             InlineQueryResultArticle(
                 id=f"download/{query_text}",
-                title=locale[lang]['inline_download_video'],
-                description=locale[lang]['inline_download_video_description'],
+                title=locale[lang]["inline_download_video"],
+                description=locale[lang]["inline_download_video_description"],
                 input_message_content=InputTextMessageContent(
-                    message_text=locale[lang]['inline_download_video_text']
+                    message_text=locale[lang]["inline_download_video_text"]
                 ),
                 thumbnail_url="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tiktok-light.png",
-                reply_markup=please_wait_button(lang)
+                reply_markup=please_wait_button(lang),
             )
         )
 
-    
     await inline_query.answer(results, cache_time=0)
 
 
@@ -98,20 +102,19 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     try:
         video_info = await api.video(video_link)
 
-        if video_info is False:
-            return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['bugged_error'])
-        elif video_info is None: 
-            return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
-            
-        if video_info['type'] == 'images':  # Process image
-            return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['only_video_supported'])
+        if video_info["type"] == "images":  # Process image
+            return await bot.edit_message_text(
+                inline_message_id=message_id, text=locale[lang]["only_video_supported"]
+            )
             # await bot.edit_message_text(inline_message_id=message_id, text="⬆️ <code>Sending image...</code>\n\n")
             # try:
             #     was_processed = await send_image_result(message_id, video_info, lang, file_mode, 1)
             # except:
             #     await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
         else:  # Process video
-            await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['sending_inline_video'])
+            await bot.edit_message_text(
+                inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
+            )
             # try:
             await send_video_result(message_id, video_info, lang, file_mode, True)
             # except:
@@ -119,16 +122,29 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
 
         try:  # Try to write log into database
             # Write log into database
-            await add_video(user_id, video_link, video_info['type'] == 'images', was_processed, True)
+            await add_video(
+                user_id, video_link, video_info["type"] == "images", was_processed, True
+            )
             # Log into console
-            logging.info(f'Video Download: INLINE {user_id} - VIDEO {video_link}')
+            logging.info(f"Video Download: INLINE {user_id} - VIDEO {video_link}")
         # If cant write log into database or log into console
         except Exception as e:
-            logging.error('Cant write into database')
+            logging.error("Cant write into database")
             logging.error(e)
+    except TikTokError as e:
+        # Handle specific TikTok errors with appropriate messages
+        logging.error(f"TikTok error for inline {video_link}: {e}")
+        try:
+            await bot.edit_message_text(
+                inline_message_id=message_id, text=get_error_message(e, lang)
+            )
+        except:
+            pass
     except Exception as e:  # If something went wrong
         logging.error(e)
         try:
-            await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
+            await bot.edit_message_text(
+                inline_message_id=message_id, text=locale[lang]["error"]
+            )
         except:
             pass
