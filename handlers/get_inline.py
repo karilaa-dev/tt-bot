@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import Router
@@ -105,6 +106,26 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     # Get queue manager and retry config
     queue = QueueManager.get_instance()
     retry_config = config["queue"]
+    max_attempts = retry_config["retry_max_attempts"]
+
+    # Define callback to update inline message on retry
+    async def update_inline_status(attempt: int):
+        """Update inline message text on each retry attempt."""
+        # Don't show attempt count on first attempt
+        if attempt == 1:
+            return
+        try:
+            retry_text = locale[lang]["inline_retry_attempt"].format(
+                attempt, max_attempts
+            )
+            await bot.edit_message_text(
+                inline_message_id=message_id,
+                text=f"{retry_text}\n\n{locale[lang]['inline_download_video_text']}",
+            )
+        except Exception as e:
+            logging.debug(f"Failed to update inline retry status: {e}")
+        # Brief delay to allow message update to register before retry
+        await asyncio.sleep(0.5)
 
     try:
         # Use queue with bypass_user_limit=True for inline downloads
@@ -120,9 +141,9 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
             # Use video_with_retry for inline downloads too
             video_info = await api.video_with_retry(
                 video_link,
-                max_attempts=retry_config["retry_max_attempts"],
+                max_attempts=max_attempts,
                 request_timeout=retry_config["retry_request_timeout"],
-                on_retry=None,  # No emoji updates for inline
+                on_retry=update_inline_status,
             )
 
         if video_info.is_slideshow:  # Process image
