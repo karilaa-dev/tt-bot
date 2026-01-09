@@ -1,7 +1,7 @@
 """Data models for TikTok API responses."""
 
-from dataclasses import dataclass
-from typing import List, Optional, Union
+from dataclasses import dataclass, field
+from typing import Any, List, Optional, Union
 
 
 @dataclass
@@ -31,6 +31,13 @@ class VideoInfo:
     author: str
     link: str
     url: Optional[str] = None  # Only present for videos
+
+    # Download context for slideshows (set by TikTokClient).
+    # Contains yt-dlp YoutubeDL instance and TikTok extractor with cookies/auth
+    # already configured from the extraction phase. This allows image downloads
+    # to use the same authentication context as the video info extraction.
+    # Structure: {'ydl': YoutubeDL, 'ie': TikTokIE, 'referer_url': str}
+    _download_context: Optional[dict[str, Any]] = field(default=None, repr=False)
 
     @property
     def is_video(self) -> bool:
