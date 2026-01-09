@@ -352,7 +352,8 @@ class TikTokClient:
             raise TikTokRegionError(
                 f"Video {video_link} is not available in your region"
             )
-        elif status == "extraction":
+        else:
+            # Handle "extraction" and any unknown status values
             raise TikTokExtractionError(f"Failed to extract video {video_link}")
 
     async def video(self, video_link: str) -> VideoInfo:

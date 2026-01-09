@@ -518,11 +518,7 @@ async def get_image_data_raw(image_link, file_name):
     """
     async with aiohttp.ClientSession() as client:
         async with client.get(image_link, allow_redirects=True) as image_request:
-            if image_request.status < 200 or image_request.status >= 300:
-                raise aiohttp.ClientResponseError(
-                    status=image_request.status,
-                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}",
-                )
+            image_request.raise_for_status()
             image_data = await image_request.read()
 
     # Detect image format and get correct extension
@@ -539,11 +535,7 @@ async def get_image_data(image_link, file_name):
     """Get image data with conversion if needed - for compatibility"""
     async with aiohttp.ClientSession() as client:
         async with client.get(image_link, allow_redirects=True) as image_request:
-            if image_request.status < 200 or image_request.status >= 300:
-                raise aiohttp.ClientResponseError(
-                    status=image_request.status,
-                    message=f"Failed to fetch image from {image_link}. HTTP status: {image_request.status}",
-                )
+            image_request.raise_for_status()
             image_data = await image_request.read()
 
     # Detect image format
