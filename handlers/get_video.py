@@ -4,7 +4,7 @@ from aiogram import Router, F
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import locale, api_alt_mode, second_ids, monetag_url
+from data.config import locale, second_ids, monetag_url
 from data.db_service import get_user_settings, add_video, should_show_ad, record_ad_show, increase_ad_count
 from data.loader import bot
 from misc.tiktok_api import ttapi
@@ -46,10 +46,7 @@ async def send_tiktok_video(message: Message):
             await message.react([ReactionTypeEmoji(emoji='👀')], disable_notification=True)
         except:  # Send status message, if reaction is not allowed, and save it
             status_message = await message.reply('⏳', disable_notification=True)
-        if api_alt_mode:
-            video_info = await api.rapid_video(video_link)
-        else:
-            video_info = await api.video(video_link)
+        video_info = await api.video(video_link)
         if video_info in [None, False]:  # If video info is bad
             if status_message:  # Remove status message if it exists
                 await status_message.delete()
@@ -83,7 +80,7 @@ async def send_tiktok_video(message: Message):
             await bot.send_chat_action(chat_id=message.chat.id, action='upload_video')
             # Send video
             try:
-                await send_video_result(message.chat.id, video_info, lang, file_mode, api_alt_mode, reply_to_message_id=message.message_id)
+                await send_video_result(message.chat.id, video_info, lang, file_mode, reply_to_message_id=message.message_id)
             except:
                 if not group_chat:
                     await message.reply(locale[lang]['error'])

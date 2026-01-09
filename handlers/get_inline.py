@@ -11,7 +11,7 @@ from aiogram.types import (
 
 import logging
 
-from data.config import locale, api_alt_mode
+from data.config import locale
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
@@ -96,10 +96,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     lang, file_mode = settings
 
     try:
-        if api_alt_mode:
-            video_info = await api.rapid_video(video_link)
-        else:
-            video_info = await api.video(video_link)
+        video_info = await api.video(video_link)
 
         if video_info is False:
             return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['bugged_error'])
@@ -116,7 +113,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         else:  # Process video
             await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['sending_inline_video'])
             # try:
-            await send_video_result(message_id, video_info, lang, file_mode, api_alt_mode, True)
+            await send_video_result(message_id, video_info, lang, file_mode, True)
             # except:
             #     return await bot.edit_message_text(inline_message_id=message_id, text=locale[lang]['error'])
 

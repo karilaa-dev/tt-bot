@@ -19,9 +19,6 @@ config = {
         "db_name": os.getenv("DB_NAME", ""),
     },
     "api": {
-        "alt_mode": os.getenv("ALT_MODE", "false").lower() == "true",
-        "api_link": os.getenv("API_LINK", ""),
-        "rapid_token": os.getenv("RAPID_TOKEN", ""),    
         "botstat": os.getenv("BOTSTAT", ""),
         "monetag_url": os.getenv("MONETAG_URL", ""),
     },
@@ -36,7 +33,6 @@ config = {
 admin_ids = config["bot"]["admin_ids"]
 second_ids = admin_ids + config["bot"]["second_ids"]
 stats_ids = config["bot"]["stats_ids"]
-api_alt_mode = config["api"]["alt_mode"]
 monetag_url = config["api"]["monetag_url"]
 
 locale = {}

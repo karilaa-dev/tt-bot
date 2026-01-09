@@ -34,5 +34,10 @@
   "inline_download_video_text": "🎬 <b>Downloading video...</b>\n\nPlease wait while we process your request.",
   "inline_download_video_wait": "⏳ Please wait...",
   "ad_support": "Running this bot takes a lot of computing power! ⚡ If you have 10 seconds, click below to watch an ad. It's a free way to support us and keeps the lights on.",
-  "ad_support_button": "Keep it Free 🚀"
+  "ad_support_button": "Keep it Free 🚀",
+  "error_deleted": "<b>This video has been deleted by the creator.</b>",
+  "error_private": "<b>This video is private and cannot be accessed.</b>",
+  "error_region": "<b>This video is not available in your region.</b>",
+  "error_network": "<b>Network error occurred.</b>\nPlease try again.",
+  "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again."
 }

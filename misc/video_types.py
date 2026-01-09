@@ -8,7 +8,7 @@ import aiohttp
 from aiogram.types import BufferedInputFile, InputMediaDocument, InputMediaPhoto, InputMediaVideo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import locale, config
+from data.config import locale
 from data.loader import bot
 
 # Configure logger
@@ -24,9 +24,6 @@ try:
 except ImportError:
     IMAGE_CONVERSION_AVAILABLE = False
 
-download_link = config["api"]["api_link"] + '/api/download'
-download_params = {'prefix': 'false', 'with_watermark': 'false'}
-
 
 def music_button(video_id, lang):
     keyb = InlineKeyboardBuilder()
@@ -41,59 +38,62 @@ def result_caption(lang, link, group_warning=None):
     return result
 
 
-async def send_video_result(targed_id, video_info, lang, file_mode, alt_mode=False, inline_message=False, reply_to_message_id=None):
+async def send_video_result(targed_id, video_info, lang, file_mode, inline_message=False, reply_to_message_id=None):
     video_id = video_info['id']
+    video_data = video_info['data']
+    video_duration = video_info['duration']
 
-    #TODO: fix cover
-    # if file_mode is False:
-    #     # Download and process cover image using new modular functions
-    #     cover_data = await download_image(video_info['cover'])
-    #     # For covers, we can process them without an executor since it's just one image
-    #     loop = asyncio.get_event_loop()
-    #     with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-    #         processed_cover_data, cover_extension = await check_and_convert_image(
-    #             cover_data, executor, loop
-    #         )
-    #     cover_file = BufferedInputFile(processed_cover_data, f'thumb{cover_extension}')
-
-    if alt_mode:
-        url = video_info['data']
-        params = {}
-        video_duration = video_info['duration'] // 1000
+    # Create BufferedInputFile from bytes
+    if isinstance(video_data, bytes):
+        video_file = BufferedInputFile(video_data, filename=f'{video_id}.mp4')
     else:
-        url = download_link
-        download_params['url'] = video_info['link']
-        params = download_params #For self hosted api
-        video_duration = video_info['duration']
+        video_file = video_data  # Fallback to URL if not bytes
 
     if inline_message:
-        video_media = InputMediaVideo(media=url, caption=result_caption(lang, video_info['link']))
+        video_media = InputMediaVideo(media=video_file, caption=result_caption(lang, video_info['link']))
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
-    
+
     elif file_mode is False:
-        await bot.send_video(chat_id=targed_id, video=url, caption=result_caption(lang, video_info['link']),
-                                # cover=cover_file, #TODO: fix cover
+        await bot.send_video(chat_id=targed_id, video=video_file, caption=result_caption(lang, video_info['link']),
                                 height=video_info['height'],
                                 width=video_info['width'],
                                 duration=video_duration, reply_markup=music_button(video_id, lang),
                                 reply_to_message_id=reply_to_message_id)
     else:
-        await bot.send_document(chat_id=targed_id, document=url, caption=result_caption(lang, video_info['link']),
+        await bot.send_document(chat_id=targed_id, document=video_file, caption=result_caption(lang, video_info['link']),
                                 reply_markup=music_button(video_id, lang),
                                 reply_to_message_id=reply_to_message_id)
 
 
 async def send_music_result(query_msg, music_info, lang, group_chat):
     video_id = music_info['id']
-    async with aiohttp.ClientSession() as client:
-        async with client.get(music_info['data'], allow_redirects=True) as audio_request:
-            audio_bytes = await audio_request.read()
-        async with client.get(music_info['cover'], allow_redirects=True) as cover_request:
-            cover_bytes = await cover_request.read()
+    audio_data = music_info['data']
+    cover_url = music_info['cover']
+
+    # Handle audio data - could be bytes or URL
+    if isinstance(audio_data, bytes):
+        audio_bytes = audio_data
+    else:
+        # Fallback: try to download from URL
+        async with aiohttp.ClientSession() as client:
+            async with client.get(audio_data, allow_redirects=True) as audio_request:
+                audio_bytes = await audio_request.read()
+
+    # Download cover from URL
+    cover_bytes = None
+    if cover_url:
+        try:
+            async with aiohttp.ClientSession() as client:
+                async with client.get(cover_url, allow_redirects=True) as cover_request:
+                    if cover_request.status == 200:
+                        cover_bytes = await cover_request.read()
+        except Exception as e:
+            logger.warning(f"Failed to download cover: {e}")
+
     audio = BufferedInputFile(audio_bytes, f'{video_id}.mp3')
-    cover = BufferedInputFile(cover_bytes, f'{video_id}.jpg')
-    caption = locale[lang]['result_song'].format(locale[lang]['bot_tag'],
-                                                 music_info['cover'])
+    cover = BufferedInputFile(cover_bytes, f'{video_id}.jpg') if cover_bytes else None
+
+    caption = f"<b>{locale[lang]['bot_tag']}</b>"
     # Send music
     await query_msg.reply_audio(audio,
                                 caption=caption, title=music_info['title'],

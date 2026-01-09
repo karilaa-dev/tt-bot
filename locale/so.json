@@ -34,5 +34,10 @@
   "inline_download_video_text": "🎬 <b>Soo dejinaya fiidiyowga...</b>\n\nFadlan sug inta aan ka shaqaynayno codsigaaga.",
   "inline_download_video_wait": "⏳ Fadlan sug...",
   "ad_support": "Socodsiinta bot-kan waxay u baahan tahay awood badan! ⚡ Haddii aad haysato 10 ilbiriqsi, hoos ka guji si aad u daawato xayeysiis. Waa hab bilaash ah oo aad nagu taageerto, kana caawiya bot-ka inuu sii shaqeeyo.",
-  "ad_support_button": "Ka dhig Bilaash 🚀"
+  "ad_support_button": "Ka dhig Bilaash 🚀",
+  "error_deleted": "<b>Fiidiyowgan waxaa tirtiray abuurahiisa.</b>",
+  "error_private": "<b>Fiidiyowgan waa qarsoon yahay mana la heli karo.</b>",
+  "error_region": "<b>Fiidiyowgan laguma heli karo aagaaga.</b>",
+  "error_network": "<b>Khalad shabakad ayaa dhacay.</b>\nFadlan isku day mar kale.",
+  "error_rate_limit": "<b>Codsiyo badan ayaa la sameeyay.</b>\nFadlan sug wakhti yar oo isku day mar kale."
 }

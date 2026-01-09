@@ -3,7 +3,7 @@ import logging
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
-from data.config import locale, api_alt_mode, second_ids
+from data.config import locale, second_ids
 from data.db_service import add_music
 from data.loader import dp, bot
 from misc.tiktok_api import ttapi
@@ -34,10 +34,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         status_message = await call_msg.reply('⏳', disable_notification=True)
     try:
         # Get music info
-        if not api_alt_mode:
-            music_info = await api.music(video_id)
-        else:
-            music_info = await api.rapid_music(video_id)
+        music_info = await api.music(video_id)
         if music_info in [None, False]:  # Return error if info is bad
             if not group_chat:  # Send error message, if not group chat
                 if music_info is False:  # If api doesn't return info about video
