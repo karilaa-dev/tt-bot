@@ -34,5 +34,10 @@
   "inline_download_video_text": "🎬 <b>Mengunduh video...</b>\n\nMohon tunggu saat kami memproses permintaanmu.",
   "inline_download_video_wait": "⏳ Mohon tunggu...",
   "ad_support": "Menjalankan bot ini membutuhkan banyak daya komputasi! ⚡ Jika kamu punya 10 detik, klik di bawah untuk menonton iklan. Ini cara gratis untuk mendukung kami dan membuat bot tetap berjalan.",
-  "ad_support_button": "Tetap gratis 🚀"
+  "ad_support_button": "Tetap gratis 🚀",
+  "error_deleted": "<b>Video ini sudah dihapus oleh pembuatnya.</b>",
+  "error_private": "<b>Video ini privat dan tidak bisa diakses.</b>",
+  "error_region": "<b>Video ini tidak tersedia di wilayahmu.</b>",
+  "error_network": "<b>Terjadi kesalahan jaringan.</b>\nSilakan coba lagi.",
+  "error_rate_limit": "<b>Terlalu banyak permintaan.</b>\nSilakan tunggu sebentar dan coba lagi."
 }

@@ -1,27 +1,94 @@
+from __future__ import annotations
+
 import os
 from json import loads as json_loads
+from pathlib import Path
+from typing import Any, TypedDict
 
 from dotenv import load_dotenv, find_dotenv
 
 load_dotenv(find_dotenv())
 
 
-config = {
+def _parse_int_env(key: str, default: int | None = None) -> int | None:
+    """Parse an environment variable as an integer, returning default if unset/empty."""
+    value = os.getenv(key, "")
+    if value.strip():
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _parse_json_list(key: str) -> list[int]:
+    """Parse an environment variable as a JSON list of integers."""
+    raw = os.getenv(key, "[]")
+    try:
+        result = json_loads(raw)
+        if isinstance(result, list):
+            return [int(item) for item in result]
+        return []
+    except (ValueError, TypeError):
+        return []
+
+
+class BotConfig(TypedDict):
+    """Type definition for bot configuration."""
+
+    token: str
+    stats_token: str
+    admin_ids: list[int]
+    second_ids: list[int]
+    stats_ids: list[int]
+    tg_server: str
+    db_url: str
+    db_path: str
+    db_name: str
+    storage_channel: int | None
+
+
+class ApiConfig(TypedDict):
+    """Type definition for API configuration."""
+
+    botstat: str
+    monetag_url: str
+
+
+class LogsConfig(TypedDict):
+    """Type definition for logs configuration."""
+
+    join_logs: str
+    stats_chat: str
+    stats_message_id: str
+    daily_stats_message_id: str
+
+
+class Config(TypedDict):
+    """Type definition for the main configuration."""
+
+    bot: BotConfig
+    api: ApiConfig
+    logs: LogsConfig
+
+
+config: Config = {
     "bot": {
         "token": os.getenv("BOT_TOKEN", ""),
         "stats_token": os.getenv("STATS_BOT_TOKEN", ""),
-        "admin_ids": json_loads(os.getenv("ADMIN_IDS", "[]")),
-        "second_ids": json_loads(os.getenv("SECOND_IDS", "[]")),
-        "stats_ids": json_loads(os.getenv("STATS_IDS", "[]")),
+        "admin_ids": _parse_json_list("ADMIN_IDS"),
+        "second_ids": _parse_json_list("SECOND_IDS"),
+        "stats_ids": _parse_json_list("STATS_IDS"),
         "tg_server": os.getenv("TG_SERVER", "https://api.telegram.org"),
         "db_url": os.getenv("DB_URL", ""),
         "db_path": os.getenv("DB_PATH", ""),
         "db_name": os.getenv("DB_NAME", ""),
+        # Channel ID for uploading videos to get file_id.
+        # Parsed as int; returns None if unset/empty. Callers using send_video/send_document
+        # must check for None before using this value.
+        "storage_channel": _parse_int_env("STORAGE_CHANNEL_ID"),
     },
     "api": {
-        "alt_mode": os.getenv("ALT_MODE", "false").lower() == "true",
-        "api_link": os.getenv("API_LINK", ""),
-        "rapid_token": os.getenv("RAPID_TOKEN", ""),    
         "botstat": os.getenv("BOTSTAT", ""),
         "monetag_url": os.getenv("MONETAG_URL", ""),
     },
@@ -33,16 +100,20 @@ config = {
     },
 }
 
-admin_ids = config["bot"]["admin_ids"]
-second_ids = admin_ids + config["bot"]["second_ids"]
-stats_ids = config["bot"]["stats_ids"]
-api_alt_mode = config["api"]["alt_mode"]
-monetag_url = config["api"]["monetag_url"]
+admin_ids: list[int] = config["bot"]["admin_ids"]
+second_ids: list[int] = admin_ids + config["bot"]["second_ids"]
+stats_ids: list[int] = config["bot"]["stats_ids"]
+monetag_url: str = config["api"]["monetag_url"]
 
-locale = {}
+# Locale dictionary: maps language codes to their translation dictionaries
+locale: dict[str, Any] = {}
+_base_dir = Path(__file__).resolve().parent
+_locale_dir = _base_dir / "locale"
 locale["langs"] = sorted(
-    file.replace(".json", "") for file in os.listdir("locale") if file.endswith(".json")
+    file.replace(".json", "")
+    for file in os.listdir(_locale_dir)
+    if file.endswith(".json")
 )
-for lang in locale["langs"]:
-    with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
-        locale[lang] = json_loads(locale_file.read())
+for _lang in locale["langs"]:
+    with open(_locale_dir / f"{_lang}.json", "r", encoding="utf-8") as _locale_file:
+        locale[_lang] = json_loads(_locale_file.read())
