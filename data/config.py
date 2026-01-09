@@ -17,6 +17,9 @@ config = {
         "db_url": os.getenv("DB_URL", ""),
         "db_path": os.getenv("DB_PATH", ""),
         "db_name": os.getenv("DB_NAME", ""),
+        "storage_channel": os.getenv(
+            "STORAGE_CHANNEL_ID", ""
+        ),  # Channel for uploading videos to get file_id
     },
     "api": {
         "botstat": os.getenv("BOTSTAT", ""),
@@ -40,5 +43,5 @@ locale["langs"] = sorted(
     file.replace(".json", "") for file in os.listdir("locale") if file.endswith(".json")
 )
 for lang in locale["langs"]:
-    with open(f"locale/{lang}.json", 'r', encoding='utf-8') as locale_file:
+    with open(f"locale/{lang}.json", "r", encoding="utf-8") as locale_file:
         locale[lang] = json_loads(locale_file.read())

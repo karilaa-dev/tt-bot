@@ -376,6 +376,7 @@ class ttapi:
             return {
                 "type": "video",
                 "data": video_bytes,
+                "url": video_url,
                 "id": int(video_id),
                 "cover": cover,
                 "width": int(width) if width else None,

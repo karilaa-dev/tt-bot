@@ -13,7 +13,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import locale
+from data.config import locale, config
 from data.loader import bot
 from misc.tiktok_api import (
     TikTokError,
@@ -26,6 +26,41 @@ from misc.tiktok_api import (
 
 # Configure logger
 logger = logging.getLogger(__name__)
+
+# Storage channel for uploading videos to get file_id (required for inline messages)
+STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
+
+
+async def upload_video_to_storage(video_data: bytes, video_id: int) -> str | None:
+    """
+    Upload video to storage channel to get a file_id.
+    This is required for inline messages since Telegram doesn't support
+    uploading new files via BufferedInputFile for inline message edits.
+
+    Args:
+        video_data: Video bytes to upload
+        video_id: Video ID for filename
+
+    Returns:
+        file_id string if successful, None otherwise
+    """
+    if not STORAGE_CHANNEL_ID:
+        logger.warning("STORAGE_CHANNEL_ID not configured, cannot upload for inline")
+        return None
+
+    try:
+        video_file = BufferedInputFile(video_data, filename=f"{video_id}.mp4")
+        message = await bot.send_video(
+            chat_id=STORAGE_CHANNEL_ID,
+            video=video_file,
+            disable_notification=True,
+        )
+        if message.video:
+            return message.video.file_id
+        return None
+    except Exception as e:
+        logger.error(f"Failed to upload video to storage channel: {e}")
+        return None
 
 
 def get_error_message(error: TikTokError, lang: str) -> str:
@@ -79,19 +114,33 @@ async def send_video_result(
     video_data = video_info["data"]
     video_duration = video_info["duration"]
 
-    # Create BufferedInputFile from bytes
+    # For inline messages, we must upload to storage channel first to get file_id
+    # since Telegram doesn't support uploading new files for inline message edits
+    if inline_message:
+        if not isinstance(video_data, bytes):
+            raise ValueError("Video data must be bytes for inline messages")
+
+        # Upload to storage channel to get file_id
+        file_id = await upload_video_to_storage(video_data, video_id)
+        if not file_id:
+            raise ValueError(
+                "Failed to upload video to storage. "
+                "Make sure STORAGE_CHANNEL_ID is configured in .env"
+            )
+
+        video_media = InputMediaVideo(
+            media=file_id, caption=result_caption(lang, video_info["link"])
+        )
+        await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
+        return
+
+    # Create BufferedInputFile from bytes for regular messages
     if isinstance(video_data, bytes):
         video_file = BufferedInputFile(video_data, filename=f"{video_id}.mp4")
     else:
         video_file = video_data  # Fallback to URL if not bytes
 
-    if inline_message:
-        video_media = InputMediaVideo(
-            media=video_file, caption=result_caption(lang, video_info["link"])
-        )
-        await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
-
-    elif file_mode is False:
+    if file_mode is False:
         await bot.send_video(
             chat_id=targed_id,
             video=video_file,
