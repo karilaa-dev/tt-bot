@@ -1,11 +1,9 @@
 """TikTok API client for extracting video and music information."""
 
 import asyncio
-import glob
 import logging
 import os
 import re
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Awaitable, Callable, Optional, Tuple
 
@@ -234,93 +232,6 @@ class TikTokClient:
             logger.error(f"yt-dlp extraction failed: {e}")
             return None, "extraction"
 
-    def _extract_video_info_sync(self, url: str) -> Optional[dict[str, Any]]:
-        """
-        Extract video info using standard yt-dlp extract_info.
-        This works reliably for videos but not for slideshow images.
-        """
-        ydl_opts = self._get_ydl_opts()
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                return info
-        except yt_dlp.utils.DownloadError as e:
-            error_msg = str(e).lower()
-            if (
-                "unavailable" in error_msg
-                or "removed" in error_msg
-                or "deleted" in error_msg
-            ):
-                return {"_error": "deleted"}
-            elif "private" in error_msg:
-                return {"_error": "private"}
-            elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
-                return {"_error": "rate_limit"}
-            elif (
-                "region" in error_msg
-                or "geo" in error_msg
-                or "country" in error_msg
-                or "not available in your" in error_msg
-            ):
-                return {"_error": "region"}
-            # IP blocked and other errors -> generic extraction error
-            logger.error(f"yt-dlp download error: {e}")
-            return {"_error": "extraction"}
-        except yt_dlp.utils.ExtractorError as e:
-            logger.error(f"yt-dlp extractor error: {e}")
-            return {"_error": "extraction"}
-        except Exception as e:
-            logger.error(f"yt-dlp extraction failed: {e}")
-            return {"_error": "extraction"}
-
-    def _download_video_sync(self, url: str) -> Optional[bytes]:
-        """Download video using yt-dlp to a temp file, read it, then delete."""
-        ydl_opts = self._get_ydl_opts()
-
-        # Use current directory with a unique filename
-        temp_id = uuid.uuid4().hex[:8]
-        temp_filename = f".tiktok_temp_{temp_id}"
-
-        ydl_opts.update(
-            {
-                "outtmpl": f"{temp_filename}.%(ext)s",
-                "format": "best",
-            }
-        )
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-
-                # Find the actual downloaded file
-                actual_path: Optional[str] = None
-                if info:
-                    ext = info.get("ext", "mp4")
-                    actual_path = f"{temp_filename}.{ext}"
-
-                # Fallback: find any file matching the pattern
-                if not actual_path or not os.path.exists(actual_path):
-                    matches = glob.glob(f"{temp_filename}.*")
-                    if matches:
-                        actual_path = matches[0]
-
-                if actual_path and os.path.exists(actual_path):
-                    with open(actual_path, "rb") as f:
-                        return f.read()
-
-            return None
-        except Exception as e:
-            logger.error(f"yt-dlp download failed: {e}")
-            return None
-        finally:
-            # Clean up temp files
-            for f in glob.glob(f"{temp_filename}.*"):
-                try:
-                    os.remove(f)
-                except Exception:
-                    pass
-
     def _download_audio_sync(self, url: str) -> Optional[bytes]:
         """Download audio using yt-dlp's urlopen (for direct audio URLs)."""
         ydl_opts = self._get_ydl_opts()
@@ -351,6 +262,26 @@ class TikTokClient:
         Returns:
             Image bytes if successful, None otherwise
         """
+        return self._download_media_to_memory_sync(image_url, download_context)
+
+    def _download_media_to_memory_sync(
+        self, media_url: str, download_context: dict[str, Any]
+    ) -> Optional[bytes]:
+        """
+        Download any media (video, image, etc.) directly to memory using yt-dlp.
+
+        This uses the same yt-dlp context that was used for extraction, ensuring
+        all cookies/auth set by yt-dlp's TikTok extractor are used. No files are
+        written to disk - everything stays in RAM.
+
+        Args:
+            media_url: Direct URL to the media on TikTok CDN
+            download_context: Dict containing 'ydl', 'ie', and 'referer_url'
+                from the extraction phase
+
+        Returns:
+            Media bytes if successful, None otherwise
+        """
         from yt_dlp.networking.common import Request
         import urllib.parse
 
@@ -359,39 +290,40 @@ class TikTokClient:
         referer_url = download_context["referer_url"]
 
         try:
-            # Propagate cookies from TikTok's main domain to the image CDN domain.
+            # Propagate cookies from TikTok's main domain to the media CDN domain.
             # This replicates what yt-dlp does internally for video downloads.
             # We use yt-dlp's own _get_cookies and _set_cookie methods to avoid
             # hardcoding any specific cookie names - when yt-dlp updates their
             # bypass logic, we automatically get the changes.
-            image_host = urllib.parse.urlparse(image_url).hostname
+            media_host = urllib.parse.urlparse(media_url).hostname
             tiktok_cookies = ie._get_cookies("https://www.tiktok.com/")
             for cookie_name, cookie in tiktok_cookies.items():
-                ie._set_cookie(image_host, cookie_name, cookie.value)
+                ie._set_cookie(media_host, cookie_name, cookie.value)
 
             # Create request with Referer header (standard HTTP practice)
-            request = Request(image_url, headers={"Referer": referer_url})
+            request = Request(media_url, headers={"Referer": referer_url})
 
             response = ydl.urlopen(request)
             return response.read()
         except Exception as e:
-            logger.error(f"yt-dlp image download failed for {image_url}: {e}")
+            logger.error(f"yt-dlp media download failed for {media_url}: {e}")
+            return None
             return None
 
-    def _extract_slideshow_with_context_sync(
+    def _extract_with_context_sync(
         self, url: str, video_id: str
     ) -> Tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
         """
-        Extract slideshow data and return the download context for later image downloads.
+        Extract TikTok data and return the download context for later media downloads.
 
-        Unlike _extract_raw_data_sync, this method keeps the YoutubeDL instance
-        alive so it can be reused for downloading images with the same auth context.
+        This method keeps the YoutubeDL instance alive so it can be reused for
+        downloading media (videos, images) with the same auth context.
 
         Returns:
             Tuple of (video_data, status, download_context)
             - video_data: Raw TikTok API response
             - status: Error status string or None
-            - download_context: Dict with 'ydl', 'ie', 'referer_url' for image downloads
+            - download_context: Dict with 'ydl', 'ie', 'referer_url' for media downloads
         """
         ydl_opts = self._get_ydl_opts()
 
@@ -561,10 +493,10 @@ class TikTokClient:
                     f"Could not extract video ID from {video_link}"
                 )
 
-            # First, try to extract raw data for slideshow detection
-            # Use _extract_slideshow_with_context_sync to keep YDL alive for slideshows
+            # First, extract raw data with download context for authenticated downloads
+            # Use _extract_with_context_sync to keep YDL alive for both videos and slideshows
             video_data, status, download_context = await self._run_sync(
-                self._extract_slideshow_with_context_sync, full_url, video_id
+                self._extract_with_context_sync, full_url, video_id
             )
 
             # Check for error status and raise appropriate exception
@@ -601,67 +533,69 @@ class TikTokClient:
                             _download_context=download_context,
                         )
 
-            # It's a video - use standard extract_info which works reliably for videos
-            info = await self._run_sync(self._extract_video_info_sync, full_url)
+            # It's a video - extract video URL from raw data and download to memory
+            # No need to call _extract_video_info_sync again - we already have the data
 
-            # Check for errors from _extract_video_info_sync
-            if isinstance(info, dict) and info.get("_error"):
-                error_type = info.get("_error")
-                if error_type == "deleted":
-                    raise TikTokDeletedError(f"Video {video_link} was deleted")
-                elif error_type == "private":
-                    raise TikTokPrivateError(f"Video {video_link} is private")
-                elif error_type == "rate_limit":
-                    raise TikTokRateLimitError("Rate limited by TikTok")
-                elif error_type == "network":
-                    raise TikTokNetworkError("Network error occurred")
-                elif error_type == "region":
-                    raise TikTokRegionError(
-                        f"Video {video_link} is not available in your region"
-                    )
-                else:
-                    raise TikTokExtractionError(f"Failed to extract video {video_link}")
-
-            if info is None:
+            if not video_data:
                 raise TikTokExtractionError(
                     f"Failed to extract video info for {video_link}"
                 )
 
-            # Get video URL from extract_info result
-            video_url = info.get("url")
+            if not download_context:
+                raise TikTokExtractionError(
+                    f"No download context available for {video_link}"
+                )
+
+            # Get video URL from raw TikTok data
+            # Try multiple paths as TikTok API structure can vary
+            video_url = None
+            video_info = video_data.get("video", {})
+
+            # Try playAddr first (primary playback URL)
+            play_addr = video_info.get("playAddr")
+            if play_addr:
+                video_url = play_addr
+
+            # Try downloadAddr (sometimes has better quality)
             if not video_url:
-                # Try to get from formats
-                formats = info.get("formats", [])
-                if formats:
-                    # Get best quality video format
-                    for fmt in reversed(formats):
-                        if fmt.get("vcodec") != "none":
-                            video_url = fmt.get("url")
+                download_addr = video_info.get("downloadAddr")
+                if download_addr:
+                    video_url = download_addr
+
+            # Try bitrateInfo for specific quality URLs
+            if not video_url:
+                bitrate_info = video_info.get("bitrateInfo", [])
+                if bitrate_info:
+                    # Get the best quality (usually first or last)
+                    for br in bitrate_info:
+                        play_addr_obj = br.get("PlayAddr", {})
+                        url_list = play_addr_obj.get("UrlList", [])
+                        if url_list:
+                            video_url = url_list[0]
                             break
-                    # Fallback to last format
-                    if not video_url:
-                        video_url = formats[-1].get("url")
 
             if not video_url:
-                logger.error(f"Could not find video URL for {video_link}")
+                logger.error(f"Could not find video URL in raw data for {video_link}")
                 raise TikTokExtractionError(
                     f"Could not find video URL for {video_link}"
                 )
 
-            # Download video using yt-dlp (downloads to temp file, reads, deletes)
-            video_bytes = await self._run_sync(self._download_video_sync, full_url)
+            # Download video directly to memory using yt-dlp context
+            video_bytes = await self._run_sync(
+                self._download_media_to_memory_sync, video_url, download_context
+            )
             if video_bytes is None:
                 raise TikTokExtractionError(f"Failed to download video {video_link}")
 
-            # Extract metadata
-            duration = info.get("duration")
+            # Extract metadata from raw data
+            duration = video_info.get("duration")
             if duration:
                 duration = int(duration)
 
-            width = info.get("width")
-            height = info.get("height")
-            author = info.get("uploader") or info.get("creator") or ""
-            cover = info.get("thumbnail")
+            width = video_info.get("width")
+            height = video_info.get("height")
+            author = video_data.get("author", {}).get("uniqueId", "")
+            cover = video_info.get("cover") or video_info.get("originCover")
 
             return VideoInfo(
                 type="video",
