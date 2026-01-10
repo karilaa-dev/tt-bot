@@ -252,15 +252,38 @@ class TikTokClient:
                 logger.warning(f"Region blocked: {e}")
                 return None, "region"
             # IP blocked and other errors -> generic extraction error
-            logger.error(f"yt-dlp download error: {e}")
+            logger.error(
+                f"yt-dlp download error for video {video_id} ({url}): {e}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Cookies: {self.cookies or 'None'}"
+            )
             return None, "extraction"
         except yt_dlp.utils.ExtractorError as e:
-            logger.error(f"yt-dlp extractor error: {e}")
+            error_msg = str(e)
+            logger.error(
+                f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Cookies: {self.cookies or 'None'}"
+            )
+            # Log additional guidance for common issues
+            if "unable to extract" in error_msg.lower():
+                logger.error(
+                    "This may indicate TikTok changed their page structure. "
+                    "Try updating yt-dlp: pip install -U yt-dlp\n"
+                    "If the issue persists, check https://github.com/yt-dlp/yt-dlp/issues"
+                )
             return None, "extraction"
         except TikTokError:
             raise
         except Exception as e:
-            logger.error(f"yt-dlp extraction failed: {e}")
+            logger.error(
+                f"yt-dlp extraction failed for video {video_id} ({url}): {e}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Error type: {type(e).__name__}",
+                exc_info=True,
+            )
             return None, "extraction"
 
     def _download_audio_sync(self, url: str) -> Optional[bytes]:
@@ -436,15 +459,38 @@ class TikTokClient:
             ):
                 logger.warning(f"Region blocked: {e}")
                 return None, "region", None
-            logger.error(f"yt-dlp download error: {e}")
+            logger.error(
+                f"yt-dlp download error for video {video_id} ({url}): {e}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Cookies: {self.cookies or 'None'}"
+            )
             return None, "extraction", None
         except yt_dlp.utils.ExtractorError as e:
-            logger.error(f"yt-dlp extractor error: {e}")
+            error_msg = str(e)
+            logger.error(
+                f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Cookies: {self.cookies or 'None'}"
+            )
+            # Log additional guidance for common issues
+            if "unable to extract" in error_msg.lower():
+                logger.error(
+                    "This may indicate TikTok changed their page structure. "
+                    "Try updating yt-dlp: pip install -U yt-dlp\n"
+                    "If the issue persists, check https://github.com/yt-dlp/yt-dlp/issues"
+                )
             return None, "extraction", None
         except TikTokError:
             raise
         except Exception as e:
-            logger.error(f"yt-dlp extraction failed: {e}")
+            logger.error(
+                f"yt-dlp extraction failed for video {video_id} ({url}): {e}\n"
+                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
+                f"  Error type: {type(e).__name__}",
+                exc_info=True,
+            )
             return None, "extraction", None
         finally:
             # Close ydl if we still own it (i.e., we didn't successfully transfer
