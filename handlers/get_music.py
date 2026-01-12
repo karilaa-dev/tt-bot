@@ -5,27 +5,32 @@ from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
 from data.config import locale, second_ids, config
 from data.db_service import add_music
-from data.loader import dp, bot
+from data.loader import bot
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.utils import lang_func, error_catch
 from misc.video_types import send_music_result, music_button, get_error_message
 
 music_router = Router(name=__name__)
 
+# Retry emoji sequence for music download
+RETRY_EMOJIS = ["👀", "🤔", "🙏"]
 
-@dp.callback_query(F.data.startswith("id"))
+
+@music_router.callback_query(F.data.startswith("id"))
 async def send_tiktok_sound(callback_query: CallbackQuery):
     # Vars
     call_msg = callback_query.message
     chat_id = call_msg.chat.id
     video_id = callback_query.data.lstrip("id/")
-    status_message = False
+    status_message = None
     # Api init with proxy support
     api = TikTokClient(
         proxy_manager=ProxyManager.get_instance(),
         data_only_proxy=config["proxy"]["data_only"],
         aiohttp_pool_size=config["proxy"]["aiohttp_pool_size"],
     )
+    # Get retry config
+    retry_config = config["queue"]
     # Group chat set
     group_chat = call_msg.chat.type != "private"
     # Get chat language
@@ -35,13 +40,39 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         await call_msg.edit_reply_markup()
     except:
         pass
-    try:  # If reaction is allowed, send it
-        await call_msg.react([ReactionTypeEmoji(emoji="👀")], disable_notification=True)
+
+    # Try to send initial reaction
+    try:
+        await call_msg.react(
+            [ReactionTypeEmoji(emoji=RETRY_EMOJIS[0])], disable_notification=True
+        )
     except:
         status_message = await call_msg.reply("⏳", disable_notification=True)
+
+    # Define callback to update emoji on each retry attempt
+    async def update_retry_status(attempt: int):
+        """Update reaction emoji based on retry attempt number."""
+        if status_message:
+            # Can't update text status message easily, skip
+            return
+        emoji_index = min(attempt - 1, len(RETRY_EMOJIS) - 1)
+        emoji = RETRY_EMOJIS[emoji_index]
+        logging.debug(f"Updating music retry emoji to {emoji} for attempt {attempt}")
+        try:
+            await call_msg.react(
+                [ReactionTypeEmoji(emoji=emoji)], disable_notification=True
+            )
+        except Exception as e:
+            logging.warning(f"Failed to update retry emoji to {emoji}: {e}")
+
     try:
-        # Get music info
-        music_info = await api.music(video_id)
+        # Get music info with retry logic
+        music_info = await api.music_with_retry(
+            int(video_id),
+            max_attempts=retry_config["retry_max_attempts"],
+            request_timeout=retry_config["retry_request_timeout"],
+            on_retry=update_retry_status,
+        )
         # Send upload action
         await bot.send_chat_action(chat_id=chat_id, action="upload_document")
         if not group_chat:  # Send reaction if not group chat
