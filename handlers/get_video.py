@@ -44,6 +44,7 @@ async def send_tiktok_video(message: Message):
     api = TikTokClient(
         proxy_manager=ProxyManager.get_instance(),
         data_only_proxy=config["proxy"]["data_only"],
+        aiohttp_pool_size=config["proxy"]["aiohttp_pool_size"],
     )
     # Status message var
     status_message = False

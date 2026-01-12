@@ -91,6 +91,7 @@ class ProxyConfig(TypedDict):
     proxy_file: str  # Path to proxy list file (one URL per line)
     data_only: bool  # Use proxy only for API, not media downloads
     include_host: bool  # Include host IP in round-robin rotation
+    aiohttp_pool_size: int  # Connection pool size for async media downloads
 
 
 class Config(TypedDict):
@@ -140,6 +141,7 @@ config: Config = {
         "proxy_file": os.getenv("PROXY_FILE", ""),
         "data_only": os.getenv("PROXY_DATA_ONLY", "false").lower() == "true",
         "include_host": os.getenv("PROXY_INCLUDE_HOST", "false").lower() == "true",
+        "aiohttp_pool_size": _parse_int_env("AIOHTTP_POOL_SIZE", 100),
     },
 }
 
