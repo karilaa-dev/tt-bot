@@ -42,6 +42,9 @@ class TikTokClient:
     This client uses yt-dlp internally to extract video/slideshow data and music
     from TikTok URLs. It supports both regular videos and slideshows (image posts).
 
+    All media downloads (video, audio, images) use async aiohttp with yt-dlp's
+    bypass headers and cookies for high-throughput performance.
+
     Args:
         proxy_manager: Optional ProxyManager instance for round-robin proxy rotation.
             If provided, each request will use the next proxy in rotation.
@@ -50,7 +53,8 @@ class TikTokClient:
         cookies: Optional path to a Netscape-format cookies file (e.g., exported from browser).
             If not provided, uses YTDLP_COOKIES env var. If the file doesn't exist,
             a warning is logged and cookies are not used.
-        aiohttp_pool_size: Connection pool size for async media downloads. Default: 100.
+        aiohttp_pool_size: Total connection pool size for async downloads. Default: 200.
+        aiohttp_limit_per_host: Per-host connection limit. Default: 50.
 
     Example:
         >>> from tiktok_api import TikTokClient, ProxyManager
@@ -64,24 +68,62 @@ class TikTokClient:
         >>> client = TikTokClient(cookies="cookies.txt")
     """
 
-    # Scale executor with CPU cores for better throughput under load
-    _executor = ThreadPoolExecutor(
-        max_workers=min(32, (os.cpu_count() or 4) * 4),
-        thread_name_prefix="tiktok_sync_",
-    )
+    # Configurable executor - call set_executor_size() before first use
+    _executor: Optional[ThreadPoolExecutor] = None
+    _executor_lock = threading.Lock()
+    _executor_size: int = 128  # Default, configurable via set_executor_size()
+
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
 
     @classmethod
-    def _get_connector(cls, pool_size: int) -> TCPConnector:
-        """Get or create shared aiohttp connector with connection pooling."""
+    def set_executor_size(cls, size: int) -> None:
+        """Set executor size before first use. Call at app startup.
+
+        Args:
+            size: Number of worker threads for sync yt-dlp extraction calls.
+                  Higher values allow more concurrent extractions.
+        """
+        with cls._executor_lock:
+            if cls._executor is not None:
+                logger.warning(
+                    f"Executor already created with {cls._executor._max_workers} workers. "
+                    f"set_executor_size({size}) has no effect. Call before first TikTokClient use."
+                )
+                return
+            cls._executor_size = size
+            logger.info(f"TikTokClient executor size set to {size}")
+
+    @classmethod
+    def _get_executor(cls) -> ThreadPoolExecutor:
+        """Get or create the shared ThreadPoolExecutor."""
+        with cls._executor_lock:
+            if cls._executor is None:
+                cls._executor = ThreadPoolExecutor(
+                    max_workers=cls._executor_size,
+                    thread_name_prefix="tiktok_sync_",
+                )
+                logger.info(
+                    f"Created TikTokClient executor with {cls._executor_size} workers"
+                )
+            return cls._executor
+
+    @classmethod
+    def _get_connector(cls, pool_size: int, limit_per_host: int = 50) -> TCPConnector:
+        """Get or create shared aiohttp connector with connection pooling.
+
+        Args:
+            pool_size: Total connection pool size
+            limit_per_host: Maximum connections per host
+        """
         with cls._connector_lock:
             if cls._aiohttp_connector is None or cls._aiohttp_connector.closed:
                 cls._aiohttp_connector = TCPConnector(
                     limit=pool_size,
-                    limit_per_host=30,
+                    limit_per_host=limit_per_host,
                     ttl_dns_cache=300,
                     enable_cleanup_closed=True,
+                    force_close=False,  # Keep connections alive for reuse
                 )
             return cls._aiohttp_connector
 
@@ -96,16 +138,26 @@ class TikTokClient:
         if connector and not connector.closed:
             await connector.close()
 
+    @classmethod
+    def shutdown_executor(cls) -> None:
+        """Shutdown the shared executor. Call on application shutdown."""
+        with cls._executor_lock:
+            if cls._executor is not None:
+                cls._executor.shutdown(wait=False)
+                cls._executor = None
+
     def __init__(
         self,
         proxy_manager: Optional["ProxyManager"] = None,
         data_only_proxy: bool = False,
         cookies: Optional[str] = None,
-        aiohttp_pool_size: int = 100,
+        aiohttp_pool_size: int = 200,
+        aiohttp_limit_per_host: int = 50,
     ):
         self.proxy_manager = proxy_manager
         self.data_only_proxy = data_only_proxy
         self.aiohttp_pool_size = aiohttp_pool_size
+        self.aiohttp_limit_per_host = aiohttp_limit_per_host
 
         # Handle cookies with validation
         cookies_path = cookies or os.getenv("YTDLP_COOKIES")
@@ -202,7 +254,9 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = download_context.get("proxy")
 
-        connector = self._get_connector(self.aiohttp_pool_size)
+        connector = self._get_connector(
+            self.aiohttp_pool_size, self.aiohttp_limit_per_host
+        )
         # Add sock_read timeout to prevent slow-drip attacks holding connections
         timeout = ClientTimeout(total=60, connect=10, sock_read=30)
 
@@ -305,7 +359,9 @@ class TikTokClient:
         Uses shared connector for connection pooling efficiency.
         """
         if "vm.tiktok.com" in url or "vt.tiktok.com" in url:
-            connector = self._get_connector(self.aiohttp_pool_size)
+            connector = self._get_connector(
+                self.aiohttp_pool_size, self.aiohttp_limit_per_host
+            )
             timeout = ClientTimeout(total=15, connect=5, sock_read=10)
             try:
                 async with aiohttp.ClientSession(
@@ -479,147 +535,6 @@ class TikTokClient:
             )
             return None, "extraction"
 
-    def _download_audio_sync(
-        self, url: str, explicit_proxy: Optional[str] = None
-    ) -> Optional[bytes]:
-        """Download audio using yt-dlp's urlopen (for direct audio URLs).
-
-        Args:
-            url: Direct URL to the audio file
-            explicit_proxy: Optional explicit proxy to use for this request.
-                           If provided, this proxy is used instead of rotation.
-        """
-        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=explicit_proxy)
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                response = ydl.urlopen(url)
-                return response.read()
-        except Exception as e:
-            logger.error(f"yt-dlp audio download failed for {url}: {e}")
-            return None
-
-    def _download_image_sync(
-        self, image_url: str, download_context: dict[str, Any]
-    ) -> Optional[bytes]:
-        """
-        Download image using the same yt-dlp context that was used for extraction.
-
-        This ensures all cookies/auth set by yt-dlp's TikTok extractor are used.
-        We don't hardcode any bypass logic - we leverage yt-dlp's existing
-        cookie and header handling.
-
-        Args:
-            image_url: Direct URL to the image on TikTok CDN
-            download_context: Dict containing 'ydl', 'ie', and 'referer_url'
-                from the extraction phase
-
-        Returns:
-            Image bytes if successful, None otherwise
-        """
-        return self._download_media_to_memory_sync(image_url, download_context)
-
-    def _download_media_to_memory_sync(
-        self, media_url: str, download_context: dict[str, Any]
-    ) -> Optional[bytes]:
-        """
-        Download any media (video, image, etc.) directly to memory using yt-dlp.
-
-        This uses the same yt-dlp context that was used for extraction, ensuring
-        all cookies/auth set by yt-dlp's TikTok extractor are used. No files are
-        written to disk - everything stays in RAM.
-
-        If data_only_proxy is True, creates a new YDL instance without proxy
-        for the download (but still uses cookies from original context).
-
-        Args:
-            media_url: Direct URL to the media on TikTok CDN
-            download_context: Dict containing 'ydl', 'ie', and 'referer_url'
-                from the extraction phase
-
-        Returns:
-            Media bytes if successful, None otherwise
-        """
-        # If data_only_proxy is True, download without proxy
-        if self.data_only_proxy:
-            return self._download_media_without_proxy_sync(media_url, download_context)
-
-        from yt_dlp.networking.common import Request
-        import urllib.parse
-
-        ydl = download_context["ydl"]
-        ie = download_context["ie"]
-        referer_url = download_context["referer_url"]
-
-        try:
-            # Propagate cookies from TikTok's main domain to the media CDN domain.
-            # This replicates what yt-dlp does internally for video downloads.
-            # We use yt-dlp's own _get_cookies and _set_cookie methods to avoid
-            # hardcoding any specific cookie names - when yt-dlp updates their
-            # bypass logic, we automatically get the changes.
-            media_host = urllib.parse.urlparse(media_url).hostname
-            tiktok_cookies = ie._get_cookies("https://www.tiktok.com/")
-            for cookie_name, cookie in tiktok_cookies.items():
-                ie._set_cookie(media_host, cookie_name, cookie.value)
-
-            # Create request with Referer header (standard HTTP practice)
-            request = Request(media_url, headers={"Referer": referer_url})
-
-            response = ydl.urlopen(request)
-            return response.read()
-        except Exception as e:
-            logger.error(f"yt-dlp media download failed for {media_url}: {e}")
-            return None
-
-    def _download_media_without_proxy_sync(
-        self, media_url: str, download_context: dict[str, Any]
-    ) -> Optional[bytes]:
-        """
-        Download media without proxy but with cookies from extraction context.
-
-        Used when data_only_proxy=True to download media directly without going
-        through the proxy. Creates a fresh YDL instance without proxy settings
-        but copies cookies from the original extraction context.
-
-        Args:
-            media_url: Direct URL to the media on TikTok CDN
-            download_context: Dict containing 'ydl', 'ie', and 'referer_url'
-                from the extraction phase
-
-        Returns:
-            Media bytes if successful, None otherwise
-        """
-        from yt_dlp.networking.common import Request
-        import urllib.parse
-
-        # Get cookies from the original extraction context
-        ie = download_context["ie"]
-        referer_url = download_context["referer_url"]
-
-        # Create new YDL without proxy but with cookies
-        opts = self._get_ydl_opts(use_proxy=False)
-
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                # Get TikTok extractor to set up cookies
-                new_ie = ydl.get_info_extractor("TikTok")
-                new_ie.set_downloader(ydl)
-
-                # Copy cookies from original context to new instance
-                media_host = urllib.parse.urlparse(media_url).hostname
-                tiktok_cookies = ie._get_cookies("https://www.tiktok.com/")
-                for cookie_name, cookie in tiktok_cookies.items():
-                    new_ie._set_cookie(media_host, cookie_name, cookie.value)
-
-                request = Request(media_url, headers={"Referer": referer_url})
-                response = ydl.urlopen(request)
-                return response.read()
-        except Exception as e:
-            logger.error(
-                f"yt-dlp media download (no proxy) failed for {media_url}: {e}"
-            )
-            return None
-
     def _extract_with_context_sync(
         self, url: str, video_id: str, request_proxy: Optional[str] = None
     ) -> Tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
@@ -769,7 +684,7 @@ class TikTokClient:
     async def _run_sync(self, func: Any, *args: Any) -> Any:
         """Run synchronous function in executor."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self._executor, func, *args)
+        return await loop.run_in_executor(self._get_executor(), func, *args)
 
     def _close_download_context(
         self, download_context: Optional[dict[str, Any]]
@@ -866,7 +781,9 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = video_info._download_context.get("proxy")
 
-        connector = self._get_connector(self.aiohttp_pool_size)
+        connector = self._get_connector(
+            self.aiohttp_pool_size, self.aiohttp_limit_per_host
+        )
         timeout = ClientTimeout(total=10, connect=5, sock_read=5)
 
         try:
@@ -1210,6 +1127,9 @@ class TikTokClient:
         """
         Extract music info from a TikTok video.
 
+        All network operations are fully async - uses yt-dlp only for metadata
+        extraction, then downloads audio via async aiohttp.
+
         Args:
             video_id: TikTok video ID
 
@@ -1224,6 +1144,7 @@ class TikTokClient:
             TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
+        download_context = None
         try:
             # Get proxy once for the entire request (per-request proxy assignment)
             request_proxy: Optional[str] = None
@@ -1237,9 +1158,9 @@ class TikTokClient:
             # Construct a URL with the video ID
             url = f"https://www.tiktok.com/@_/video/{video_id}"
 
-            # Extract raw data to get music info
-            video_data, status = await self._run_sync(
-                self._extract_raw_data_sync, url, str(video_id), request_proxy
+            # Extract with context (keeps YDL alive for authenticated downloads)
+            video_data, status, download_context = await self._run_sync(
+                self._extract_with_context_sync, url, str(video_id), request_proxy
             )
 
             # Check for error status and raise appropriate exception
@@ -1248,6 +1169,11 @@ class TikTokClient:
 
             if video_data is None:
                 raise TikTokExtractionError(f"No data returned for video {video_id}")
+
+            if not download_context:
+                raise TikTokExtractionError(
+                    f"No download context available for video {video_id}"
+                )
 
             # Get music info
             music_info = video_data.get("music")
@@ -1258,10 +1184,8 @@ class TikTokClient:
             if not music_url:
                 raise TikTokExtractionError(f"No music URL found for video {video_id}")
 
-            # Download audio using yt-dlp with the same proxy
-            audio_bytes = await self._run_sync(
-                self._download_audio_sync, music_url, request_proxy
-            )
+            # Download audio using async aiohttp with yt-dlp context (headers, cookies)
+            audio_bytes = await self._download_media_async(music_url, download_context)
             if audio_bytes is None:
                 raise TikTokExtractionError(
                     f"Failed to download audio for video {video_id}"
@@ -1299,6 +1223,9 @@ class TikTokClient:
         except Exception as e:
             logger.error(f"Error extracting music for video {video_id}: {e}")
             raise TikTokExtractionError(f"Failed to extract music: {e}") from e
+        finally:
+            # Always clean up download context
+            self._close_download_context(download_context)
 
     async def music_with_retry(
         self,

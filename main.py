@@ -11,11 +11,20 @@ from handlers.lang import lang_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
 from stats.misc import update_overall_stats, update_daily_stats
-from tiktok_api import ProxyManager
+from tiktok_api import ProxyManager, TikTokClient
 
 
 async def main() -> None:
     await setup_db(config["bot"]["db_url"])
+
+    # Configure TikTokClient executor size for high throughput
+    # Must be called before any TikTokClient is instantiated
+    TikTokClient.set_executor_size(config["performance"]["thread_pool_size"])
+    logging.info(
+        f"TikTokClient configured: executor={config['performance']['thread_pool_size']} workers, "
+        f"aiohttp_pool={config['performance']['aiohttp_pool_size']}, "
+        f"limit_per_host={config['performance']['aiohttp_limit_per_host']}"
+    )
 
     # Initialize proxy manager if configured
     if config["proxy"]["proxy_file"]:
