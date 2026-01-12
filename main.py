@@ -46,7 +46,15 @@ async def main() -> None:
     )
     bot_info = await bot.get_me()
     logging.info(f"{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]")
-    await dp.start_polling(bot)
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        # Cleanup shared resources on shutdown
+        logging.info("Shutting down: cleaning up TikTokClient resources...")
+        await TikTokClient.close_connector()
+        TikTokClient.shutdown_executor()
+        logging.info("TikTokClient resources cleaned up")
 
 
 if __name__ == "__main__":
