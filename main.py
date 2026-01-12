@@ -11,10 +11,20 @@ from handlers.lang import lang_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
 from stats.misc import update_overall_stats, update_daily_stats
+from tiktok_api import ProxyManager
 
 
 async def main() -> None:
-    await setup_db(config['bot']['db_url'])
+    await setup_db(config["bot"]["db_url"])
+
+    # Initialize proxy manager if configured
+    if config["proxy"]["proxy_file"]:
+        ProxyManager.initialize(
+            proxy_file=config["proxy"]["proxy_file"],
+            include_host=config["proxy"]["include_host"],
+        )
+        logging.info("Proxy manager initialized")
+
     scheduler.start()
     dp.include_routers(
         user_router,
@@ -23,10 +33,10 @@ async def main() -> None:
         advert_router,
         video_router,
         music_router,
-        inline_router
+        inline_router,
     )
     bot_info = await bot.get_me()
-    logging.info(f'{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]')
+    logging.info(f"{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]")
     await dp.start_polling(bot)
 
 
