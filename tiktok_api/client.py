@@ -4,11 +4,16 @@ import asyncio
 import logging
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 import aiohttp
+from aiohttp import TCPConnector, ClientTimeout
 import yt_dlp
+
+# Dynamic import of yt-dlp bypass mechanisms (updates automatically with yt-dlp)
+from yt_dlp.utils import std_headers as YTDLP_STD_HEADERS
 
 from .exceptions import (
     TikTokDeletedError,
@@ -44,6 +49,7 @@ class TikTokClient:
         cookies: Optional path to a Netscape-format cookies file (e.g., exported from browser).
             If not provided, uses YTDLP_COOKIES env var. If the file doesn't exist,
             a warning is logged and cookies are not used.
+        aiohttp_pool_size: Connection pool size for async media downloads. Default: 100.
 
     Example:
         >>> from tiktok_api import TikTokClient, ProxyManager
@@ -58,15 +64,32 @@ class TikTokClient:
     """
 
     _executor = ThreadPoolExecutor(max_workers=4)
+    _aiohttp_connector: Optional[TCPConnector] = None
+    _connector_lock = threading.Lock()
+
+    @classmethod
+    def _get_connector(cls, pool_size: int) -> TCPConnector:
+        """Get or create shared aiohttp connector with connection pooling."""
+        with cls._connector_lock:
+            if cls._aiohttp_connector is None or cls._aiohttp_connector.closed:
+                cls._aiohttp_connector = TCPConnector(
+                    limit=pool_size,
+                    limit_per_host=30,
+                    ttl_dns_cache=300,
+                    enable_cleanup_closed=True,
+                )
+            return cls._aiohttp_connector
 
     def __init__(
         self,
         proxy_manager: Optional["ProxyManager"] = None,
         data_only_proxy: bool = False,
         cookies: Optional[str] = None,
+        aiohttp_pool_size: int = 100,
     ):
         self.proxy_manager = proxy_manager
         self.data_only_proxy = data_only_proxy
+        self.aiohttp_pool_size = aiohttp_pool_size
 
         # Handle cookies with validation
         cookies_path = cookies or os.getenv("YTDLP_COOKIES")
@@ -98,6 +121,100 @@ class TikTokClient:
             count = self.proxy_manager.get_proxy_count()
             return f"rotating ({count} proxies)"
         return "None"
+
+    def _get_bypass_headers(self, referer_url: str) -> dict[str, str]:
+        """Get bypass headers dynamically from yt-dlp.
+
+        This uses yt-dlp's standard headers so when yt-dlp updates their
+        bypass logic, we automatically get the changes.
+
+        Args:
+            referer_url: The referer URL to set in headers
+
+        Returns:
+            Dict of headers for media download
+        """
+        headers = dict(YTDLP_STD_HEADERS)  # Copy to avoid mutation
+        headers["Referer"] = referer_url
+        return headers
+
+    def _get_cookies_from_context(
+        self, download_context: dict[str, Any]
+    ) -> dict[str, str]:
+        """Extract cookies from yt-dlp context.
+
+        Gets all cookies set by yt-dlp's TikTok extractor during extraction.
+        This includes any authentication cookies needed for media downloads.
+
+        Args:
+            download_context: Dict containing 'ydl' with YoutubeDL instance
+
+        Returns:
+            Dict of cookie name -> value
+        """
+        cookies: dict[str, str] = {}
+        try:
+            ydl = download_context.get("ydl")
+            if ydl and hasattr(ydl, "cookiejar"):
+                for cookie in ydl.cookiejar:
+                    cookies[cookie.name] = cookie.value
+        except Exception as e:
+            logger.debug(f"Failed to extract cookies from context: {e}")
+        return cookies
+
+    async def _download_media_async(
+        self, media_url: str, download_context: dict[str, Any]
+    ) -> Optional[bytes]:
+        """Download media asynchronously using aiohttp with yt-dlp bypass.
+
+        This is the primary download method - uses async aiohttp for non-blocking
+        downloads with headers and cookies dynamically imported from yt-dlp.
+
+        Args:
+            media_url: Direct URL to the media on TikTok CDN
+            download_context: Dict containing 'ydl', 'ie', 'referer_url', and 'proxy'
+
+        Returns:
+            Media bytes if successful, None otherwise
+        """
+        referer_url = download_context.get("referer_url", "https://www.tiktok.com/")
+        headers = self._get_bypass_headers(referer_url)
+        cookies = self._get_cookies_from_context(download_context)
+
+        # Use proxy from context unless data_only_proxy is True
+        proxy = None
+        if not self.data_only_proxy:
+            proxy = download_context.get("proxy")
+
+        connector = self._get_connector(self.aiohttp_pool_size)
+        timeout = ClientTimeout(total=60, connect=10)
+
+        try:
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                connector_owner=False,  # Don't close shared connector
+            ) as session:
+                async with session.get(
+                    media_url,
+                    headers=headers,
+                    cookies=cookies,
+                    proxy=proxy,
+                ) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        logger.error(
+                            f"Media download failed with status {response.status} "
+                            f"for {media_url}"
+                        )
+                        return None
+        except aiohttp.ClientError as e:
+            logger.error(f"aiohttp media download failed for {media_url}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error downloading media {media_url}: {e}")
+            return None
 
     async def regex_check(
         self, video_link: str
@@ -184,12 +301,16 @@ class TikTokClient:
             return match.group(1)
         return None
 
-    def _get_ydl_opts(self, use_proxy: bool = True) -> dict[str, Any]:
+    def _get_ydl_opts(
+        self, use_proxy: bool = True, explicit_proxy: Optional[str] = None
+    ) -> dict[str, Any]:
         """Get base yt-dlp options.
 
         Args:
-            use_proxy: If True and proxy_manager exists, get next proxy from rotation.
+            use_proxy: If True and no explicit_proxy is given, use proxy from config.
                        If False, no proxy is used (for media downloads when data_only_proxy=True).
+            explicit_proxy: If provided, use this specific proxy instead of getting one
+                           from rotation. Used for per-request proxy assignment.
 
         Returns:
             Dict of yt-dlp options.
@@ -199,7 +320,11 @@ class TikTokClient:
             "no_warnings": True,
         }
 
-        if use_proxy and self.proxy_manager:
+        # Use explicit proxy if provided, otherwise get from rotation if enabled
+        if explicit_proxy is not None:
+            opts["proxy"] = explicit_proxy
+            logger.debug(f"Using explicit proxy: {explicit_proxy}")
+        elif use_proxy and self.proxy_manager:
             proxy = self.proxy_manager.get_next_proxy()
             if proxy is not None:  # None means direct connection
                 opts["proxy"] = proxy
@@ -456,7 +581,7 @@ class TikTokClient:
             return None
 
     def _extract_with_context_sync(
-        self, url: str, video_id: str
+        self, url: str, video_id: str, request_proxy: Optional[str] = None
     ) -> Tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
         """
         Extract TikTok data and return the download context for later media downloads.
@@ -464,17 +589,24 @@ class TikTokClient:
         This method keeps the YoutubeDL instance alive so it can be reused for
         downloading media (videos, images) with the same auth context.
 
+        Args:
+            url: The TikTok URL to extract
+            video_id: The video ID extracted from the URL
+            request_proxy: Optional explicit proxy to use for this request.
+                          If provided, this proxy will be stored in download_context
+                          for use in media downloads (per-request proxy assignment).
+
         Returns:
             Tuple of (video_data, status, download_context)
             - video_data: Raw TikTok API response
             - status: Error status string or None
-            - download_context: Dict with 'ydl', 'ie', 'referer_url' for media downloads
+            - download_context: Dict with 'ydl', 'ie', 'referer_url', 'proxy' for media downloads
 
         Note:
             The caller is responsible for closing the YDL instance in download_context
             when done. On error paths, this method closes the YDL instance before returning.
         """
-        ydl_opts = self._get_ydl_opts()
+        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=request_proxy)
         ydl = None
 
         try:
@@ -521,6 +653,7 @@ class TikTokClient:
                 "ydl": ydl,
                 "ie": ie,
                 "referer_url": url,
+                "proxy": request_proxy,  # Store proxy for per-request assignment
             }
 
             # Success - transfer ownership of ydl to caller via download_context
@@ -632,11 +765,10 @@ class TikTokClient:
 
     async def download_image(self, image_url: str, video_info: VideoInfo) -> bytes:
         """
-        Download an image using the yt-dlp context from video extraction.
+        Download an image using async aiohttp with yt-dlp bypass headers/cookies.
 
-        This method uses the same YoutubeDL instance that was used to extract
-        the video info, ensuring all cookies and authentication set by yt-dlp's
-        TikTok extractor are used for the image download.
+        This method uses the download context that was saved during video extraction,
+        applying the same cookies and headers for authentication.
 
         Args:
             image_url: Direct URL to the image on TikTok CDN
@@ -655,8 +787,8 @@ class TikTokClient:
                 "VideoInfo has no download context - was it extracted as a slideshow?"
             )
 
-        result = await self._run_sync(
-            self._download_image_sync, image_url, video_info._download_context
+        result = await self._download_media_async(
+            image_url, video_info._download_context
         )
 
         if result is None:
@@ -688,6 +820,15 @@ class TikTokClient:
         context_transferred = False  # Track if context ownership was transferred
 
         try:
+            # Get proxy once for the entire request (per-request proxy assignment)
+            request_proxy: Optional[str] = None
+            if self.proxy_manager:
+                request_proxy = self.proxy_manager.get_next_proxy()
+                if request_proxy:
+                    logger.debug(f"Using proxy for request: {request_proxy}")
+                else:
+                    logger.debug("Using direct connection (no proxy)")
+
             # Resolve short URLs
             full_url = await self._resolve_url(video_link)
             video_id = self._extract_video_id(full_url)
@@ -698,10 +839,10 @@ class TikTokClient:
                     f"Could not extract video ID from {video_link}"
                 )
 
-            # First, extract raw data with download context for authenticated downloads
-            # Use _extract_with_context_sync to keep YDL alive for both videos and slideshows
+            # Extract raw data with download context for authenticated downloads
+            # Pass request_proxy for per-request proxy assignment
             video_data, status, download_context = await self._run_sync(
-                self._extract_with_context_sync, full_url, video_id
+                self._extract_with_context_sync, full_url, video_id, request_proxy
             )
 
             # Check for error status and raise appropriate exception
@@ -787,10 +928,8 @@ class TikTokClient:
                     f"Could not find video URL for {video_link}"
                 )
 
-            # Download video directly to memory using yt-dlp context
-            video_bytes = await self._run_sync(
-                self._download_media_to_memory_sync, video_url, download_context
-            )
+            # Download video using async aiohttp with yt-dlp bypass headers/cookies
+            video_bytes = await self._download_media_async(video_url, download_context)
 
             # Close the download context - it's no longer needed for videos
             # (unlike slideshows where we keep it for image downloads)
