@@ -1260,6 +1260,115 @@ class TikTokClient:
             logger.error(f"Error extracting music for video {video_id}: {e}")
             raise TikTokExtractionError(f"Failed to extract music: {e}") from e
 
+    async def music_with_retry(
+        self,
+        video_id: int,
+        max_attempts: int = 3,
+        request_timeout: float = 10.0,
+        base_delay: float = 1.0,
+        on_retry: Callable[[int], Awaitable[None]] | None = None,
+    ) -> MusicInfo:
+        """
+        Extract music info with retry logic and per-request timeout.
+
+        Each request times out after `request_timeout` seconds. On timeout or
+        transient errors (network, rate limit, extraction), retries with exponential
+        backoff. Does NOT retry on permanent errors (deleted, private, region).
+
+        Args:
+            video_id: TikTok video ID
+            max_attempts: Maximum number of attempts (default: 3)
+            request_timeout: Timeout per request in seconds (default: 10)
+            base_delay: Base delay for exponential backoff in seconds (default: 1.0)
+            on_retry: Optional async callback called with attempt number (1, 2, 3...)
+                     before each attempt. Use for updating status (e.g., emoji reactions).
+
+        Returns:
+            MusicInfo object containing audio data
+
+        Raises:
+            TikTokDeletedError: Video was deleted (not retried)
+            TikTokPrivateError: Video is private (not retried)
+            TikTokRegionError: Video geo-blocked (not retried)
+            TikTokNetworkError: Network error after all retries exhausted
+            TikTokRateLimitError: Rate limited after all retries exhausted
+            TikTokExtractionError: Extraction error after all retries exhausted
+
+        Example:
+            async def update_status(attempt: int):
+                emojis = ["👀", "🔄", "⏳"]
+                await message.react([ReactionTypeEmoji(emoji=emojis[attempt - 1])])
+
+            music_info = await client.music_with_retry(
+                video_id,
+                max_attempts=3,
+                request_timeout=10.0,
+                on_retry=update_status,
+            )
+        """
+        last_error: Exception | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Call status callback before each attempt
+                if on_retry:
+                    await on_retry(attempt)
+
+                async with asyncio.timeout(request_timeout):
+                    return await self.music(video_id)
+
+            except asyncio.TimeoutError as e:
+                logger.warning(
+                    f"Attempt {attempt}/{max_attempts} timed out after "
+                    f"{request_timeout}s for music from video {video_id}"
+                )
+                last_error = e
+
+            except (
+                TikTokNetworkError,
+                TikTokRateLimitError,
+                TikTokExtractionError,
+            ) as e:
+                logger.warning(
+                    f"Attempt {attempt}/{max_attempts} failed for music from video {video_id}: {e}"
+                )
+                last_error = e
+
+            except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
+                # Permanent errors - don't retry, raise immediately
+                raise
+
+            except TikTokError:
+                # Any other TikTok error - don't retry
+                raise
+
+            # Exponential backoff with jitter (only if not last attempt)
+            if attempt < max_attempts:
+                # Calculate delay: base_delay * 2^(attempt-1) = 1s, 2s, 4s...
+                delay = base_delay * (2 ** (attempt - 1))
+                # Add jitter (±10%) to prevent thundering herd
+                jitter = delay * 0.1 * (2 * random.random() - 1)
+                delay = max(0.5, delay + jitter)  # Minimum 0.5s delay
+                logger.debug(
+                    f"Retry backoff: sleeping {delay:.2f}s before attempt {attempt + 1}"
+                )
+                await asyncio.sleep(delay)
+
+        # All attempts exhausted
+        logger.error(
+            f"All {max_attempts} attempts failed for music from video {video_id}: {last_error}"
+        )
+
+        if isinstance(last_error, asyncio.TimeoutError):
+            raise TikTokNetworkError(f"Request timed out after {max_attempts} attempts")
+
+        if last_error:
+            raise last_error
+
+        raise TikTokExtractionError(
+            f"Failed to extract music after {max_attempts} attempts"
+        )
+
 
 # Backwards compatibility alias
 ttapi = TikTokClient
