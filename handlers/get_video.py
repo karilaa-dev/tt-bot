@@ -13,7 +13,7 @@ from data.db_service import (
     increase_ad_count,
 )
 from data.loader import bot
-from tiktok_api import TikTokClient, TikTokError
+from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.queue_manager import QueueManager
 from misc.utils import start_manager, error_catch, lang_func
 from misc.video_types import send_video_result, send_image_result, get_error_message
@@ -40,8 +40,11 @@ def try_again_button(lang: str):
 
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
-    # Api init
-    api = TikTokClient()
+    # Api init with proxy support
+    api = TikTokClient(
+        proxy_manager=ProxyManager.get_instance(),
+        data_only_proxy=config["proxy"]["data_only"],
+    )
     # Status message var
     status_message = False
     # Group chat set
