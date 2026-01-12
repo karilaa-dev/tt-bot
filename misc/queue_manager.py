@@ -19,11 +19,6 @@ class QueueManager:
     Features:
     - Per-user tracking for info queue (limits concurrent requests per user)
     - Bypass option for inline downloads
-    - Optional global semaphores for limiting total concurrent operations
-
-    Configuration:
-        Global limits are enabled when max_concurrent_info > 0 or max_concurrent_send > 0.
-        Set to 0 to disable global limits and only use per-user limits.
 
     Usage:
         queue = QueueManager.get_instance()
@@ -42,40 +37,18 @@ class QueueManager:
 
     _instance: QueueManager | None = None
 
-    def __init__(
-        self,
-        max_info: int,
-        max_send: int,
-        max_user_queue: int,
-    ):
+    def __init__(self, max_user_queue: int):
         """
         Initialize the queue manager.
 
         Args:
-            max_info: Maximum concurrent TikTok API info requests (global).
-                     Set to 0 to disable global limiting.
-            max_send: Maximum concurrent Telegram sends (global).
-                     Set to 0 to disable global limiting.
             max_user_queue: Maximum videos per user in info queue
         """
-        # Only create semaphores if limits are enabled (> 0)
-        self._use_global_info_limit = max_info > 0
-        self._use_global_send_limit = max_send > 0
-
-        self.info_semaphore = (
-            asyncio.Semaphore(max_info) if self._use_global_info_limit else None
-        )
-        self.send_semaphore = (
-            asyncio.Semaphore(max_send) if self._use_global_send_limit else None
-        )
         self.max_user_queue = max_user_queue
         self._user_info_counts: dict[int, int] = {}
         self._lock = asyncio.Lock()
 
-        logger.info(
-            f"QueueManager initialized: max_info={max_info} (enabled={self._use_global_info_limit}), "
-            f"max_send={max_send} (enabled={self._use_global_send_limit}), max_user_queue={max_user_queue}"
-        )
+        logger.info(f"QueueManager initialized: max_user_queue={max_user_queue}")
 
     @classmethod
     def get_instance(cls) -> QueueManager:
@@ -83,8 +56,6 @@ class QueueManager:
         if cls._instance is None:
             queue_config = config["queue"]
             cls._instance = cls(
-                max_info=queue_config["max_concurrent_info"],
-                max_send=queue_config["max_concurrent_send"],
                 max_user_queue=queue_config["max_user_queue_size"],
             )
         return cls._instance
@@ -123,10 +94,6 @@ class QueueManager:
             # Increment user count
             self._user_info_counts[user_id] = self._user_info_counts.get(user_id, 0) + 1
 
-        # Acquire global semaphore if enabled
-        if self._use_global_info_limit and self.info_semaphore:
-            await self.info_semaphore.acquire()
-
         logger.debug(
             f"User {user_id} acquired info slot "
             f"(user_count={self._user_info_counts.get(user_id, 0)})"
@@ -139,10 +106,6 @@ class QueueManager:
         This method is async to properly acquire the lock and prevent
         race conditions when multiple coroutines release concurrently.
         """
-        # Release global semaphore if enabled
-        if self._use_global_info_limit and self.info_semaphore:
-            self.info_semaphore.release()
-
         async with self._lock:
             if user_id in self._user_info_counts:
                 self._user_info_counts[user_id] -= 1
@@ -181,37 +144,6 @@ class QueueManager:
         finally:
             if acquired:
                 await self.release_info_for_user(user_id)
-
-    @asynccontextmanager
-    async def send_queue(self) -> AsyncGenerator[None, None]:
-        """
-        Context manager for send queue.
-
-        Usage:
-            async with queue.send_queue():
-                await send_video_result(...)
-        """
-        if self._use_global_send_limit and self.send_semaphore:
-            await self.send_semaphore.acquire()
-        try:
-            yield
-        finally:
-            if self._use_global_send_limit and self.send_semaphore:
-                self.send_semaphore.release()
-
-    @property
-    def info_available_slots(self) -> int:
-        """Current number of available info request slots (0 if disabled)."""
-        if self.info_semaphore:
-            return self.info_semaphore._value
-        return 0
-
-    @property
-    def send_available_slots(self) -> int:
-        """Current number of available send slots (0 if disabled)."""
-        if self.send_semaphore:
-            return self.send_semaphore._value
-        return 0
 
     @property
     def active_users_count(self) -> int:

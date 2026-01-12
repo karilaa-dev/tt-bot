@@ -76,8 +76,6 @@ class LogsConfig(TypedDict):
 class QueueConfig(TypedDict):
     """Type definition for queue and retry configuration."""
 
-    max_concurrent_info: int
-    max_concurrent_send: int
     max_user_queue_size: int
     retry_max_attempts: int
     retry_request_timeout: float
@@ -127,8 +125,6 @@ config: Config = {
         "daily_stats_message_id": os.getenv("DAILY_STATS_MESSAGE_ID", "0"),
     },
     "queue": {
-        "max_concurrent_info": _parse_int_env("MAX_CONCURRENT_INFO", 4),
-        "max_concurrent_send": _parse_int_env("MAX_CONCURRENT_SEND", 8),
         "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
         "retry_max_attempts": _parse_int_env("RETRY_MAX_ATTEMPTS", 3),
         "retry_request_timeout": float(os.getenv("RETRY_REQUEST_TIMEOUT", "10")),
