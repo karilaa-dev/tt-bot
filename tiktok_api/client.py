@@ -5,7 +5,7 @@ import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Awaitable, Callable, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 import aiohttp
 import yt_dlp
@@ -21,6 +21,9 @@ from .exceptions import (
 )
 from .models import MusicInfo, VideoInfo
 
+if TYPE_CHECKING:
+    from .proxy_manager import ProxyManager
+
 logger = logging.getLogger(__name__)
 
 # Regex for extracting video ID from redirected URLs (used by legacy get_id functions)
@@ -34,13 +37,18 @@ class TikTokClient:
     from TikTok URLs. It supports both regular videos and slideshows (image posts).
 
     Args:
-        proxy: Optional proxy URL for requests. If not provided, uses YTDLP_PROXY env var.
+        proxy_manager: Optional ProxyManager instance for round-robin proxy rotation.
+            If provided, each request will use the next proxy in rotation.
+        data_only_proxy: If True, proxy is used only for API extraction, not for
+            media downloads. Defaults to False.
         cookies: Optional path to a Netscape-format cookies file (e.g., exported from browser).
             If not provided, uses YTDLP_COOKIES env var. If the file doesn't exist,
             a warning is logged and cookies are not used.
 
     Example:
-        >>> client = TikTokClient(proxy="http://proxy:8080")
+        >>> from tiktok_api import TikTokClient, ProxyManager
+        >>> proxy_manager = ProxyManager.initialize("proxies.txt", include_host=True)
+        >>> client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
         >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
         >>> print(video_info.author)
         >>> print(video_info.duration)
@@ -51,8 +59,14 @@ class TikTokClient:
 
     _executor = ThreadPoolExecutor(max_workers=4)
 
-    def __init__(self, proxy: Optional[str] = None, cookies: Optional[str] = None):
-        self.proxy = proxy or os.getenv("YTDLP_PROXY")
+    def __init__(
+        self,
+        proxy_manager: Optional["ProxyManager"] = None,
+        data_only_proxy: bool = False,
+        cookies: Optional[str] = None,
+    ):
+        self.proxy_manager = proxy_manager
+        self.data_only_proxy = data_only_proxy
 
         # Handle cookies with validation
         cookies_path = cookies or os.getenv("YTDLP_COOKIES")
@@ -77,6 +91,13 @@ class TikTokClient:
             r"https?://www\.tiktok\.com/@[^\s]+?/photo/[0-9]+"
         )
         self.mus_regex = re.compile(r"https?://www\.tiktok\.com/music/[^\s]+")
+
+    def _get_proxy_info(self) -> str:
+        """Get proxy configuration info for logging."""
+        if self.proxy_manager:
+            count = self.proxy_manager.get_proxy_count()
+            return f"rotating ({count} proxies)"
+        return "None"
 
     async def regex_check(
         self, video_link: str
@@ -163,14 +184,29 @@ class TikTokClient:
             return match.group(1)
         return None
 
-    def _get_ydl_opts(self) -> dict[str, Any]:
-        """Get base yt-dlp options."""
+    def _get_ydl_opts(self, use_proxy: bool = True) -> dict[str, Any]:
+        """Get base yt-dlp options.
+
+        Args:
+            use_proxy: If True and proxy_manager exists, get next proxy from rotation.
+                       If False, no proxy is used (for media downloads when data_only_proxy=True).
+
+        Returns:
+            Dict of yt-dlp options.
+        """
         opts: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
         }
-        if self.proxy:
-            opts["proxy"] = self.proxy
+
+        if use_proxy and self.proxy_manager:
+            proxy = self.proxy_manager.get_next_proxy()
+            if proxy is not None:  # None means direct connection
+                opts["proxy"] = proxy
+                logger.debug(f"Using proxy: {proxy}")
+            else:
+                logger.debug("Using direct connection (no proxy)")
+
         if self.cookies:
             opts["cookiefile"] = self.cookies
             logger.debug(f"yt-dlp using cookie file: {self.cookies}")
@@ -255,7 +291,7 @@ class TikTokClient:
             logger.error(
                 f"yt-dlp download error for video {video_id} ({url}): {e}\n"
                 f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Proxy: {self._get_proxy_info()}\n"
                 f"  Cookies: {self.cookies or 'None'}"
             )
             return None, "extraction"
@@ -264,7 +300,7 @@ class TikTokClient:
             logger.error(
                 f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
                 f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Proxy: {self._get_proxy_info()}\n"
                 f"  Cookies: {self.cookies or 'None'}"
             )
             # Log additional guidance for common issues
@@ -328,6 +364,9 @@ class TikTokClient:
         all cookies/auth set by yt-dlp's TikTok extractor are used. No files are
         written to disk - everything stays in RAM.
 
+        If data_only_proxy is True, creates a new YDL instance without proxy
+        for the download (but still uses cookies from original context).
+
         Args:
             media_url: Direct URL to the media on TikTok CDN
             download_context: Dict containing 'ydl', 'ie', and 'referer_url'
@@ -336,6 +375,10 @@ class TikTokClient:
         Returns:
             Media bytes if successful, None otherwise
         """
+        # If data_only_proxy is True, download without proxy
+        if self.data_only_proxy:
+            return self._download_media_without_proxy_sync(media_url, download_context)
+
         from yt_dlp.networking.common import Request
         import urllib.parse
 
@@ -361,6 +404,55 @@ class TikTokClient:
             return response.read()
         except Exception as e:
             logger.error(f"yt-dlp media download failed for {media_url}: {e}")
+            return None
+
+    def _download_media_without_proxy_sync(
+        self, media_url: str, download_context: dict[str, Any]
+    ) -> Optional[bytes]:
+        """
+        Download media without proxy but with cookies from extraction context.
+
+        Used when data_only_proxy=True to download media directly without going
+        through the proxy. Creates a fresh YDL instance without proxy settings
+        but copies cookies from the original extraction context.
+
+        Args:
+            media_url: Direct URL to the media on TikTok CDN
+            download_context: Dict containing 'ydl', 'ie', and 'referer_url'
+                from the extraction phase
+
+        Returns:
+            Media bytes if successful, None otherwise
+        """
+        from yt_dlp.networking.common import Request
+        import urllib.parse
+
+        # Get cookies from the original extraction context
+        ie = download_context["ie"]
+        referer_url = download_context["referer_url"]
+
+        # Create new YDL without proxy but with cookies
+        opts = self._get_ydl_opts(use_proxy=False)
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                # Get TikTok extractor to set up cookies
+                new_ie = ydl.get_info_extractor("TikTok")
+                new_ie.set_downloader(ydl)
+
+                # Copy cookies from original context to new instance
+                media_host = urllib.parse.urlparse(media_url).hostname
+                tiktok_cookies = ie._get_cookies("https://www.tiktok.com/")
+                for cookie_name, cookie in tiktok_cookies.items():
+                    new_ie._set_cookie(media_host, cookie_name, cookie.value)
+
+                request = Request(media_url, headers={"Referer": referer_url})
+                response = ydl.urlopen(request)
+                return response.read()
+        except Exception as e:
+            logger.error(
+                f"yt-dlp media download (no proxy) failed for {media_url}: {e}"
+            )
             return None
 
     def _extract_with_context_sync(
@@ -462,7 +554,7 @@ class TikTokClient:
             logger.error(
                 f"yt-dlp download error for video {video_id} ({url}): {e}\n"
                 f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Proxy: {self._get_proxy_info()}\n"
                 f"  Cookies: {self.cookies or 'None'}"
             )
             return None, "extraction", None
@@ -471,7 +563,7 @@ class TikTokClient:
             logger.error(
                 f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
                 f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self.proxy or 'None'}\n"
+                f"  Proxy: {self._get_proxy_info()}\n"
                 f"  Cookies: {self.cookies or 'None'}"
             )
             # Log additional guidance for common issues

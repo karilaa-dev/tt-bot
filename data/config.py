@@ -85,6 +85,14 @@ class QueueConfig(TypedDict):
     retry_request_timeout: float
 
 
+class ProxyConfig(TypedDict):
+    """Type definition for proxy configuration."""
+
+    proxy_file: str  # Path to proxy list file (one URL per line)
+    data_only: bool  # Use proxy only for API, not media downloads
+    include_host: bool  # Include host IP in round-robin rotation
+
+
 class Config(TypedDict):
     """Type definition for the main configuration."""
 
@@ -92,6 +100,7 @@ class Config(TypedDict):
     api: ApiConfig
     logs: LogsConfig
     queue: QueueConfig
+    proxy: ProxyConfig
 
 
 config: Config = {
@@ -126,6 +135,11 @@ config: Config = {
         "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
         "retry_max_attempts": _parse_int_env("RETRY_MAX_ATTEMPTS", 3),
         "retry_request_timeout": float(os.getenv("RETRY_REQUEST_TIMEOUT", "10")),
+    },
+    "proxy": {
+        "proxy_file": os.getenv("PROXY_FILE", ""),
+        "data_only": os.getenv("PROXY_DATA_ONLY", "false").lower() == "true",
+        "include_host": os.getenv("PROXY_INCLUDE_HOST", "false").lower() == "true",
     },
 }
 
