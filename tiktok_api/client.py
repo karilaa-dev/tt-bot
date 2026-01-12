@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -63,7 +64,11 @@ class TikTokClient:
         >>> client = TikTokClient(cookies="cookies.txt")
     """
 
-    _executor = ThreadPoolExecutor(max_workers=4)
+    # Scale executor with CPU cores for better throughput under load
+    _executor = ThreadPoolExecutor(
+        max_workers=min(32, (os.cpu_count() or 4) * 4),
+        thread_name_prefix="tiktok_sync_",
+    )
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
 
@@ -79,6 +84,14 @@ class TikTokClient:
                     enable_cleanup_closed=True,
                 )
             return cls._aiohttp_connector
+
+    @classmethod
+    async def close_connector(cls) -> None:
+        """Close shared aiohttp connector. Call on application shutdown."""
+        with cls._connector_lock:
+            if cls._aiohttp_connector and not cls._aiohttp_connector.closed:
+                await cls._aiohttp_connector.close()
+                cls._aiohttp_connector = None
 
     def __init__(
         self,
@@ -187,7 +200,8 @@ class TikTokClient:
             proxy = download_context.get("proxy")
 
         connector = self._get_connector(self.aiohttp_pool_size)
-        timeout = ClientTimeout(total=60, connect=10)
+        # Add sock_read timeout to prevent slow-drip attacks holding connections
+        timeout = ClientTimeout(total=60, connect=10, sock_read=30)
 
         try:
             async with aiohttp.ClientSession(
@@ -283,15 +297,24 @@ class TikTokClient:
         return video_id
 
     async def _resolve_url(self, url: str) -> str:
-        """Resolve short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs."""
+        """Resolve short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs.
+
+        Uses shared connector for connection pooling efficiency.
+        """
         if "vm.tiktok.com" in url or "vt.tiktok.com" in url:
-            async with aiohttp.ClientSession() as client:
-                try:
-                    async with client.get(url, allow_redirects=True) as response:
+            connector = self._get_connector(self.aiohttp_pool_size)
+            timeout = ClientTimeout(total=15, connect=5, sock_read=10)
+            try:
+                async with aiohttp.ClientSession(
+                    connector=connector,
+                    timeout=timeout,
+                    connector_owner=False,  # Don't close shared connector
+                ) as session:
+                    async with session.get(url, allow_redirects=True) as response:
                         return str(response.url)
-                except Exception as e:
-                    logger.error(f"Failed to resolve URL {url}: {e}")
-                    return url
+            except Exception as e:
+                logger.error(f"Failed to resolve URL {url}: {e}")
+                return url
         return url
 
     def _extract_video_id(self, url: str) -> Optional[str]:
@@ -796,6 +819,77 @@ class TikTokClient:
 
         return result
 
+    async def detect_image_format(self, image_url: str, video_info: VideoInfo) -> str:
+        """
+        Detect image format using HTTP Range request (only fetches first 20 bytes).
+
+        This is much more efficient than downloading the entire image just to
+        check its format.
+
+        Args:
+            image_url: Direct URL to the image on TikTok CDN
+            video_info: VideoInfo object with download context
+
+        Returns:
+            File extension string: ".jpg", ".webp", ".heic", or ".jpg" (default)
+        """
+        if not video_info._download_context:
+            # Fallback: assume needs processing if no context
+            return ".heic"
+
+        referer_url = video_info._download_context.get(
+            "referer_url", "https://www.tiktok.com/"
+        )
+        headers = self._get_bypass_headers(referer_url)
+        headers["Range"] = "bytes=0-19"  # Only fetch first 20 bytes
+        cookies = self._get_cookies_from_context(video_info._download_context)
+
+        # Use proxy from context unless data_only_proxy is True
+        proxy = None
+        if not self.data_only_proxy:
+            proxy = video_info._download_context.get("proxy")
+
+        connector = self._get_connector(self.aiohttp_pool_size)
+        timeout = ClientTimeout(total=10, connect=5, sock_read=5)
+
+        try:
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                connector_owner=False,
+            ) as session:
+                async with session.get(
+                    image_url,
+                    headers=headers,
+                    cookies=cookies,
+                    proxy=proxy,
+                ) as response:
+                    if response.status in (200, 206):  # 206 = Partial Content
+                        data = await response.read()
+                        return self._detect_format_from_bytes(data)
+                    else:
+                        logger.warning(
+                            f"Range request returned status {response.status} for {image_url}"
+                        )
+                        return ".heic"  # Assume needs processing on error
+        except Exception as e:
+            logger.debug(f"Range request failed for {image_url}: {e}")
+            return ".heic"  # Assume needs processing on error
+
+    @staticmethod
+    def _detect_format_from_bytes(data: bytes) -> str:
+        """Detect image format from magic bytes."""
+        if data.startswith(b"\xff\xd8\xff"):
+            return ".jpg"
+        elif data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+            return ".webp"
+        elif len(data) >= 12 and (
+            data[4:12] == b"ftypheic" or data[4:12] == b"ftypmif1"
+        ):
+            return ".heic"
+        else:
+            return ".jpg"  # Unknown format, default to jpg
+
     async def video(self, video_link: str) -> VideoInfo:
         """
         Extract video/slideshow data from TikTok URL.
@@ -965,6 +1059,10 @@ class TikTokClient:
         except TikTokError:
             # Re-raise TikTok errors as-is
             raise
+        except asyncio.CancelledError:
+            # Handle cancellation (e.g., from timeout) - ensure cleanup happens
+            logger.debug(f"Video extraction cancelled for {video_link}")
+            raise
         except aiohttp.ClientError as e:
             logger.error(f"Network error extracting video {video_link}: {e}")
             raise TikTokNetworkError(f"Network error: {e}") from e
@@ -981,19 +1079,21 @@ class TikTokClient:
         video_link: str,
         max_attempts: int = 3,
         request_timeout: float = 10.0,
+        base_delay: float = 1.0,
         on_retry: Callable[[int], Awaitable[None]] | None = None,
     ) -> VideoInfo:
         """
         Extract video info with retry logic and per-request timeout.
 
         Each request times out after `request_timeout` seconds. On timeout or
-        transient errors (network, rate limit, extraction), retries immediately.
-        Does NOT retry on permanent errors (deleted, private, region).
+        transient errors (network, rate limit, extraction), retries with exponential
+        backoff. Does NOT retry on permanent errors (deleted, private, region).
 
         Args:
             video_link: TikTok video URL
             max_attempts: Maximum number of attempts (default: 3)
             request_timeout: Timeout per request in seconds (default: 10)
+            base_delay: Base delay for exponential backoff in seconds (default: 1.0)
             on_retry: Optional async callback called with attempt number (1, 2, 3...)
                      before each attempt. Use for updating status (e.g., emoji reactions).
 
@@ -1037,8 +1137,6 @@ class TikTokClient:
                     f"{request_timeout}s for {video_link}"
                 )
                 last_error = e
-                # Brief delay to allow emoji update to register
-                await asyncio.sleep(0.5)
 
             except (
                 TikTokNetworkError,
@@ -1049,8 +1147,6 @@ class TikTokClient:
                     f"Attempt {attempt}/{max_attempts} failed for {video_link}: {e}"
                 )
                 last_error = e
-                # Brief delay to allow emoji update to register
-                await asyncio.sleep(0.5)
 
             except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
                 # Permanent errors - don't retry, raise immediately
@@ -1059,6 +1155,18 @@ class TikTokClient:
             except TikTokError:
                 # Any other TikTok error - don't retry
                 raise
+
+            # Exponential backoff with jitter (only if not last attempt)
+            if attempt < max_attempts:
+                # Calculate delay: base_delay * 2^(attempt-1) = 1s, 2s, 4s...
+                delay = base_delay * (2 ** (attempt - 1))
+                # Add jitter (±10%) to prevent thundering herd
+                jitter = delay * 0.1 * (2 * random.random() - 1)
+                delay = max(0.5, delay + jitter)  # Minimum 0.5s delay
+                logger.debug(
+                    f"Retry backoff: sleeping {delay:.2f}s before attempt {attempt + 1}"
+                )
+                await asyncio.sleep(delay)
 
         # All attempts exhausted
         logger.error(

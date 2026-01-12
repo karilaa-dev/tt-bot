@@ -139,11 +139,14 @@ try:
     from PIL import Image
     import pillow_heif
 
-    # Register HEIF opener with pillow
+    # Register HEIF opener with pillow once at module load
+    # This avoids repeated registration overhead per-image
     pillow_heif.register_heif_opener()
     IMAGE_CONVERSION_AVAILABLE = True
+    _HEIF_REGISTERED = True
 except ImportError:
     IMAGE_CONVERSION_AVAILABLE = False
+    _HEIF_REGISTERED = False
 
 
 def music_button(video_id, lang):
@@ -272,8 +275,8 @@ async def detect_image_processing_needed(
     Check if an image needs processing by examining its format.
     Returns True if the image is not in JPEG or WebP format.
 
-    Uses yt-dlp client to download image bytes for format detection,
-    ensuring proper authentication headers are used.
+    Uses HTTP Range request to fetch only the first 20 bytes for efficient
+    format detection without downloading the entire image.
 
     Args:
         image_link: URL of the image to check
@@ -284,10 +287,8 @@ async def detect_image_processing_needed(
         True if image needs processing (conversion), False otherwise
     """
     try:
-        # Download the image using yt-dlp client (respects auth/cookies)
-        image_data = await client.download_image(image_link, video_info)
-        # Check first bytes for format detection
-        extension = detect_image_format(image_data[:20])
+        # Use Range request to fetch only first 20 bytes (efficient)
+        extension = await client.detect_image_format(image_link, video_info)
         return extension not in [".jpg", ".webp"]
     except Exception:
         # If we can't check, assume processing might be needed
@@ -526,11 +527,12 @@ def convert_image_to_jpeg_optimized(image_data):
     """
     Convert any image data to JPEG format with a focus on minimizing
     computing power and achieving a good size/quality ratio.
+
+    Note: pillow_heif.register_heif_opener() is called once at module load,
+    not per-image, for better performance.
     """
     try:
-        # Register HEIF opener with Pillow
-        pillow_heif.register_heif_opener()
-
+        # HEIF opener is already registered at module level
         with Image.open(io.BytesIO(image_data)) as img:
             # 1. Handle Mode Conversion (as in your script, good for minimizing processing)
             #    Pillow-heif usually loads HEIC into RGB or RGBA directly.
