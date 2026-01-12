@@ -4,8 +4,9 @@ services:
     image: ghcr.io/karilaa-dev/tt-bot:latest
     env_file:
       - .env
-    volumes:
-      - ./proxies.txt:/app/proxies.txt:ro
+    # volumes:
+    # - ./cookies.txt:/app/cookies.txt
+    # - ./proxies.txt:/app/proxies.txt:ro
     restart: unless-stopped
     depends_on:
       - db
