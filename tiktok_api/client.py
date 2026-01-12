@@ -88,10 +88,13 @@ class TikTokClient:
     @classmethod
     async def close_connector(cls) -> None:
         """Close shared aiohttp connector. Call on application shutdown."""
+        # Grab and clear connector under lock
         with cls._connector_lock:
-            if cls._aiohttp_connector and not cls._aiohttp_connector.closed:
-                await cls._aiohttp_connector.close()
-                cls._aiohttp_connector = None
+            connector = cls._aiohttp_connector
+            cls._aiohttp_connector = None
+        # Close outside lock to avoid blocking
+        if connector and not connector.closed:
+            await connector.close()
 
     def __init__(
         self,
