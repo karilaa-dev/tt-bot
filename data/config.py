@@ -87,7 +87,15 @@ class ProxyConfig(TypedDict):
     proxy_file: str  # Path to proxy list file (one URL per line)
     data_only: bool  # Use proxy only for API, not media downloads
     include_host: bool  # Include host IP in round-robin rotation
-    aiohttp_pool_size: int  # Connection pool size for async media downloads
+
+
+class PerformanceConfig(TypedDict):
+    """Type definition for performance configuration."""
+
+    thread_pool_size: int  # ThreadPoolExecutor workers for sync yt-dlp calls
+    aiohttp_pool_size: int  # Total aiohttp connection pool size
+    aiohttp_limit_per_host: int  # Per-host connection limit
+    max_concurrent_images: int  # Max parallel image downloads per slideshow
 
 
 class Config(TypedDict):
@@ -98,6 +106,7 @@ class Config(TypedDict):
     logs: LogsConfig
     queue: QueueConfig
     proxy: ProxyConfig
+    performance: PerformanceConfig
 
 
 config: Config = {
@@ -133,7 +142,12 @@ config: Config = {
         "proxy_file": os.getenv("PROXY_FILE", ""),
         "data_only": os.getenv("PROXY_DATA_ONLY", "false").lower() == "true",
         "include_host": os.getenv("PROXY_INCLUDE_HOST", "false").lower() == "true",
-        "aiohttp_pool_size": _parse_int_env("AIOHTTP_POOL_SIZE", 100),
+    },
+    "performance": {
+        "thread_pool_size": _parse_int_env("THREAD_POOL_SIZE", 128),
+        "aiohttp_pool_size": _parse_int_env("AIOHTTP_POOL_SIZE", 200),
+        "aiohttp_limit_per_host": _parse_int_env("AIOHTTP_LIMIT_PER_HOST", 50),
+        "max_concurrent_images": _parse_int_env("MAX_CONCURRENT_IMAGES", 20),
     },
 }
 

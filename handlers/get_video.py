@@ -40,11 +40,12 @@ def try_again_button(lang: str):
 
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
-    # Api init with proxy support
+    # Api init with proxy support and performance settings
     api = TikTokClient(
         proxy_manager=ProxyManager.get_instance(),
         data_only_proxy=config["proxy"]["data_only"],
-        aiohttp_pool_size=config["proxy"]["aiohttp_pool_size"],
+        aiohttp_pool_size=config["performance"]["aiohttp_pool_size"],
+        aiohttp_limit_per_host=config["performance"]["aiohttp_limit_per_host"],
     )
     # Status message var
     status_message = False

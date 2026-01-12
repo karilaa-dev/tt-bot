@@ -318,6 +318,43 @@ async def download_image(
     return await client.download_image(image_link, video_info)
 
 
+async def download_images_parallel(
+    image_urls: list[str],
+    client: TikTokClient,
+    video_info: VideoInfo,
+    max_concurrent: int | None = None,
+) -> list[bytes | BaseException]:
+    """
+    Download multiple images in parallel with concurrency limit.
+
+    Uses semaphore to prevent overwhelming TikTok CDN while maximizing throughput.
+    This is significantly faster than sequential downloads for slideshows.
+
+    Args:
+        image_urls: List of image URLs to download
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context
+        max_concurrent: Maximum concurrent downloads. If None, uses config value.
+
+    Returns:
+        List of image bytes (or exceptions for failed downloads)
+    """
+    if max_concurrent is None:
+        perf_config = config.get("performance")
+        max_concurrent = perf_config["max_concurrent_images"] if perf_config else 20
+
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def download_with_limit(url: str) -> bytes:
+        async with semaphore:
+            return await client.download_image(url, video_info)
+
+    return await asyncio.gather(
+        *[download_with_limit(url) for url in image_urls],
+        return_exceptions=True,  # Don't fail all if one fails
+    )
+
+
 async def check_and_convert_image(image_data, executor, loop):
     """
     Check image type and convert to JPEG if it's not WebP or JPEG.
