@@ -361,17 +361,23 @@ class TikTokClient:
         return opts
 
     def _extract_raw_data_sync(
-        self, url: str, video_id: str
+        self, url: str, video_id: str, explicit_proxy: Optional[str] = None
     ) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
         """
         Extract raw TikTok data using yt-dlp's internal API.
         This method supports both videos AND slideshows.
 
+        Args:
+            url: The TikTok URL to extract
+            video_id: The video ID extracted from the URL
+            explicit_proxy: Optional explicit proxy to use for this request.
+                           If provided, this proxy is used instead of rotation.
+
         NOTE: This code relies on yt-dlp's private API (_extract_web_data_and_status),
         which may change or be removed in future yt-dlp releases. Keep yt-dlp up-to-date
         and be prepared to update this code if the private API changes.
         """
-        ydl_opts = self._get_ydl_opts()
+        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=explicit_proxy)
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -470,9 +476,17 @@ class TikTokClient:
             )
             return None, "extraction"
 
-    def _download_audio_sync(self, url: str) -> Optional[bytes]:
-        """Download audio using yt-dlp's urlopen (for direct audio URLs)."""
-        ydl_opts = self._get_ydl_opts()
+    def _download_audio_sync(
+        self, url: str, explicit_proxy: Optional[str] = None
+    ) -> Optional[bytes]:
+        """Download audio using yt-dlp's urlopen (for direct audio URLs).
+
+        Args:
+            url: Direct URL to the audio file
+            explicit_proxy: Optional explicit proxy to use for this request.
+                           If provided, this proxy is used instead of rotation.
+        """
+        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=explicit_proxy)
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -919,9 +933,9 @@ class TikTokClient:
             if self.proxy_manager:
                 request_proxy = self.proxy_manager.get_next_proxy()
                 if request_proxy:
-                    logger.debug(f"Using proxy for request: {request_proxy}")
+                    logger.info(f"Video attempt using proxy: {request_proxy}")
                 else:
-                    logger.debug("Using direct connection (no proxy)")
+                    logger.info("Video attempt using direct connection (no proxy)")
 
             # Resolve short URLs
             full_url = await self._resolve_url(video_link)
@@ -1032,6 +1046,12 @@ class TikTokClient:
 
             if video_bytes is None:
                 raise TikTokExtractionError(f"Failed to download video {video_link}")
+
+            # Log successful download with proxy info
+            proxy_info = request_proxy or "direct connection"
+            logger.info(
+                f"Successfully downloaded video {video_id} using proxy: {proxy_info}"
+            )
 
             # Extract metadata from raw data
             duration = video_info.get("duration")
@@ -1202,12 +1222,21 @@ class TikTokClient:
             TikTokExtractionError: Generic extraction failure
         """
         try:
+            # Get proxy once for the entire request (per-request proxy assignment)
+            request_proxy: Optional[str] = None
+            if self.proxy_manager:
+                request_proxy = self.proxy_manager.get_next_proxy()
+                if request_proxy:
+                    logger.info(f"Music attempt using proxy: {request_proxy}")
+                else:
+                    logger.info("Music attempt using direct connection (no proxy)")
+
             # Construct a URL with the video ID
             url = f"https://www.tiktok.com/@_/video/{video_id}"
 
             # Extract raw data to get music info
             video_data, status = await self._run_sync(
-                self._extract_raw_data_sync, url, str(video_id)
+                self._extract_raw_data_sync, url, str(video_id), request_proxy
             )
 
             # Check for error status and raise appropriate exception
@@ -1226,12 +1255,20 @@ class TikTokClient:
             if not music_url:
                 raise TikTokExtractionError(f"No music URL found for video {video_id}")
 
-            # Download audio using yt-dlp
-            audio_bytes = await self._run_sync(self._download_audio_sync, music_url)
+            # Download audio using yt-dlp with the same proxy
+            audio_bytes = await self._run_sync(
+                self._download_audio_sync, music_url, request_proxy
+            )
             if audio_bytes is None:
                 raise TikTokExtractionError(
                     f"Failed to download audio for video {video_id}"
                 )
+
+            # Log successful download with proxy info
+            proxy_info = request_proxy or "direct connection"
+            logger.info(
+                f"Successfully downloaded music from video {video_id} using proxy: {proxy_info}"
+            )
 
             # Get the music cover URL from music object
             cover_url = (
