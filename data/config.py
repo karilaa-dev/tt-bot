@@ -54,8 +54,6 @@ class BotConfig(TypedDict):
     stats_ids: list[int]
     tg_server: str
     db_url: str
-    db_path: str
-    db_name: str
     storage_channel: int | None
 
 
@@ -113,8 +111,6 @@ config: Config = {
         "stats_ids": _parse_json_list("STATS_IDS"),
         "tg_server": os.getenv("TG_SERVER", "https://api.telegram.org"),
         "db_url": os.getenv("DB_URL", ""),
-        "db_path": os.getenv("DB_PATH", ""),
-        "db_name": os.getenv("DB_NAME", ""),
         # Channel ID for uploading videos to get file_id.
         # Parsed as int; returns None if unset/empty. Callers using send_video/send_document
         # must check for None before using this value.
