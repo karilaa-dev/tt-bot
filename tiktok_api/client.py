@@ -204,28 +204,51 @@ class TikTokClient:
         """
         headers = dict(YTDLP_STD_HEADERS)  # Copy to avoid mutation
         headers["Referer"] = referer_url
+        # Add Origin header for CORS - TikTok CDN often requires this
+        headers["Origin"] = "https://www.tiktok.com"
+        # Ensure Accept header is set for media
+        headers["Accept"] = "*/*"
+        # Some CDNs check for Sec-Fetch headers (modern browsers send these)
+        headers["Sec-Fetch-Dest"] = "image"
+        headers["Sec-Fetch-Mode"] = "no-cors"
+        headers["Sec-Fetch-Site"] = "cross-site"
         return headers
 
     def _get_cookies_from_context(
-        self, download_context: dict[str, Any]
+        self, download_context: dict[str, Any], media_url: Optional[str] = None
     ) -> dict[str, str]:
-        """Extract cookies from yt-dlp context.
+        """Extract cookies from yt-dlp context for media download.
 
-        Gets all cookies set by yt-dlp's TikTok extractor during extraction.
-        This includes any authentication cookies needed for media downloads.
+        Uses yt-dlp's InfoExtractor to get cookies for the specific media URL.
+        This properly handles TikTok's cookie propagation to CDN domains.
 
         Args:
-            download_context: Dict containing 'ydl' with YoutubeDL instance
+            download_context: Dict containing 'ydl', 'ie' with YoutubeDL instance
+            media_url: Optional media URL to get cookies for (for CDN domain matching)
 
         Returns:
             Dict of cookie name -> value
         """
         cookies: dict[str, str] = {}
         try:
-            ydl = download_context.get("ydl")
-            if ydl and hasattr(ydl, "cookiejar"):
-                for cookie in ydl.cookiejar:
-                    cookies[cookie.name] = cookie.value
+            ie = download_context.get("ie")
+            if ie:
+                # Get cookies from TikTok main domain first
+                tiktok_cookies = ie._get_cookies("https://www.tiktok.com/")
+                for cookie_name, cookie in tiktok_cookies.items():
+                    cookies[cookie_name] = cookie.value
+
+                # If media_url is provided, also get cookies for that specific domain
+                if media_url:
+                    media_cookies = ie._get_cookies(media_url)
+                    for cookie_name, cookie in media_cookies.items():
+                        cookies[cookie_name] = cookie.value
+            else:
+                # Fallback: extract all cookies from cookiejar
+                ydl = download_context.get("ydl")
+                if ydl and hasattr(ydl, "cookiejar"):
+                    for cookie in ydl.cookiejar:
+                        cookies[cookie.name] = cookie.value
         except Exception as e:
             logger.debug(f"Failed to extract cookies from context: {e}")
         return cookies
@@ -247,7 +270,9 @@ class TikTokClient:
         """
         referer_url = download_context.get("referer_url", "https://www.tiktok.com/")
         headers = self._get_bypass_headers(referer_url)
-        cookies = self._get_cookies_from_context(download_context)
+
+        # Get cookies using yt-dlp's cookie handling for proper domain matching
+        cookies = self._get_cookies_from_context(download_context, media_url)
 
         # Use proxy from context unless data_only_proxy is True
         proxy = None
@@ -774,7 +799,9 @@ class TikTokClient:
         )
         headers = self._get_bypass_headers(referer_url)
         headers["Range"] = "bytes=0-19"  # Only fetch first 20 bytes
-        cookies = self._get_cookies_from_context(video_info._download_context)
+        cookies = self._get_cookies_from_context(
+            video_info._download_context, image_url
+        )
 
         # Use proxy from context unless data_only_proxy is True
         proxy = None
