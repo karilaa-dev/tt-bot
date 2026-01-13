@@ -52,7 +52,8 @@ async def main() -> None:
     finally:
         # Cleanup shared resources on shutdown
         logging.info("Shutting down: cleaning up TikTokClient resources...")
-        await TikTokClient.close_connector()
+        await TikTokClient.close_curl_session()  # curl_cffi session for media downloads
+        await TikTokClient.close_connector()  # aiohttp connector for URL resolution
         TikTokClient.shutdown_executor()
         logging.info("TikTokClient resources cleaned up")
 

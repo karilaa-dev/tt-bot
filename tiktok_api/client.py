@@ -9,6 +9,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
+# Type alias for download progress callback: (bytes_downloaded, total_bytes or None)
+ProgressCallback = Callable[[int, Optional[int]], None]
+
 import aiohttp
 from aiohttp import TCPConnector, ClientTimeout
 import yt_dlp
@@ -173,18 +176,26 @@ class TikTokClient:
 
         The session uses yt-dlp's BROWSER_TARGETS to select the best impersonation
         target, ensuring TLS fingerprint matches a real browser.
+
+        Pool size is configurable via CURL_POOL_SIZE environment variable.
         """
         with cls._curl_session_lock:
             # Check if session needs to be created
             # Note: CurlAsyncSession doesn't have is_closed, we track via _curl_session being None
             if cls._curl_session is None:
+                from data.config import config
+
+                perf_config = config.get("performance", {})
+                pool_size = perf_config.get("curl_pool_size", 200)
+
                 cls._impersonate_target = cls._get_impersonate_target()
                 cls._curl_session = CurlAsyncSession(
                     impersonate=cls._impersonate_target,
-                    max_clients=200,  # Connection pool size matching aiohttp
+                    max_clients=pool_size,
                 )
                 logger.info(
-                    f"Created curl_cffi session with impersonate={cls._impersonate_target}"
+                    f"Created curl_cffi session with impersonate={cls._impersonate_target}, "
+                    f"max_clients={pool_size}"
                 )
             return cls._curl_session
 
@@ -235,7 +246,10 @@ class TikTokClient:
 
     @classmethod
     def _get_connector(cls, pool_size: int, limit_per_host: int = 50) -> TCPConnector:
-        """Get or create shared aiohttp connector with connection pooling.
+        """Get or create shared aiohttp connector for URL resolution.
+
+        Note: This is only used for resolving short URLs (vm.tiktok.com, vt.tiktok.com).
+        Media downloads use curl_cffi for browser impersonation.
 
         Args:
             pool_size: Total connection pool size
@@ -375,20 +389,43 @@ class TikTokClient:
         return cookies
 
     async def _download_media_async(
-        self, media_url: str, download_context: dict[str, Any]
+        self,
+        media_url: str,
+        download_context: dict[str, Any],
+        duration: Optional[int] = None,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+        chunk_size: int = 65536,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> Optional[bytes]:
         """Download media asynchronously using curl_cffi with browser impersonation.
 
-        Uses yt-dlp's BROWSER_TARGETS to dynamically select the impersonation target,
-        ensuring TLS fingerprint matches a real browser and bypasses anti-bot detection.
+        Features:
+        - Uses yt-dlp's BROWSER_TARGETS for TLS fingerprint impersonation
+        - Conditional streaming for long videos (> threshold) to reduce memory spikes
+        - Automatic retry with exponential backoff for CDN failures
+        - Optional progress callback for download monitoring
 
         Args:
             media_url: Direct URL to the media on TikTok CDN
             download_context: Dict containing 'ydl', 'ie', 'referer_url', and 'proxy'
+            duration: Video duration in seconds. If > threshold, uses streaming download.
+            max_retries: Maximum retry attempts for retryable errors (default: 3)
+            base_delay: Base delay in seconds for exponential backoff (default: 1.0)
+            chunk_size: Chunk size for streaming downloads in bytes (default: 64KB)
+            progress_callback: Optional callback(downloaded_bytes, total_bytes) for progress
 
         Returns:
             Media bytes if successful, None otherwise
         """
+        from data.config import config
+
+        perf_config = config.get("performance", {})
+        streaming_threshold = perf_config.get("streaming_duration_threshold", 300)
+
+        # Use streaming for long videos (> 5 minutes by default)
+        use_streaming = duration is not None and duration > streaming_threshold
+
         referer_url = download_context.get("referer_url", "https://www.tiktok.com/")
         headers = self._get_bypass_headers(referer_url)
 
@@ -402,30 +439,87 @@ class TikTokClient:
 
         session = self._get_curl_session()
 
-        try:
-            response = await session.get(
-                media_url,
-                headers=headers,
-                cookies=cookies,
-                proxy=proxy,
-                timeout=60,
-                allow_redirects=True,
-            )
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = await session.get(
+                    media_url,
+                    headers=headers,
+                    cookies=cookies,
+                    proxy=proxy,
+                    timeout=60,
+                    allow_redirects=True,
+                    stream=use_streaming,
+                )
 
-            if response.status_code == 200:
-                return response.content
-            else:
+                if response.status_code == 200:
+                    if use_streaming:
+                        # Stream in chunks for long videos to reduce memory spikes
+                        total_size = response.headers.get("content-length")
+                        total_size = int(total_size) if total_size else None
+
+                        chunks: list[bytes] = []
+                        downloaded = 0
+                        async for chunk in response.aiter_content(chunk_size):
+                            chunks.append(chunk)
+                            downloaded += len(chunk)
+                            if progress_callback:
+                                progress_callback(downloaded, total_size)
+
+                        if use_streaming and duration:
+                            logger.debug(
+                                f"Streamed {downloaded} bytes for {duration}s video"
+                            )
+                        return b"".join(chunks)
+                    else:
+                        # Direct content for short videos (faster, less overhead)
+                        return response.content
+
+                elif response.status_code in (403, 429, 500, 502, 503, 504):
+                    # Retryable error - CDN issues, rate limiting, etc.
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        jitter = delay * 0.1 * random.random()
+                        logger.warning(
+                            f"CDN returned {response.status_code} for {media_url}, "
+                            f"retry {attempt}/{max_retries} after {delay:.1f}s"
+                        )
+                        await asyncio.sleep(delay + jitter)
+                        continue
+                    else:
+                        logger.error(
+                            f"Media download failed after {max_retries} attempts "
+                            f"with status {response.status_code} for {media_url}"
+                        )
+                        return None
+                else:
+                    # Non-retryable error (e.g., 404)
+                    logger.error(
+                        f"Media download failed with status {response.status_code} "
+                        f"for {media_url}"
+                    )
+                    return None
+
+            except CurlError as e:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"curl_cffi error for {media_url}, "
+                        f"retry {attempt}/{max_retries} after {delay:.1f}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
                 logger.error(
-                    f"Media download failed with status {response.status_code} "
-                    f"for {media_url}"
+                    f"curl_cffi download failed after {max_retries} attempts "
+                    f"for {media_url}: {e}"
                 )
                 return None
-        except CurlError as e:
-            logger.error(f"curl_cffi media download failed for {media_url}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error downloading media {media_url}: {e}")
-            return None
+
+            except Exception as e:
+                # Unexpected errors - don't retry
+                logger.error(f"Unexpected error downloading media {media_url}: {e}")
+                return None
+
+        return None  # Should not reach here, but satisfy type checker
 
     async def regex_check(
         self, video_link: str
@@ -1055,10 +1149,17 @@ class TikTokClient:
                     f"No download context available for {video_link}"
                 )
 
+            # Get video info and extract metadata early (needed for download decisions)
+            video_info = video_data.get("video", {})
+
+            # Extract duration BEFORE download - needed for streaming decision
+            duration = video_info.get("duration")
+            if duration:
+                duration = int(duration)
+
             # Get video URL from raw TikTok data
             # Try multiple paths as TikTok API structure can vary
             video_url = None
-            video_info = video_data.get("video", {})
 
             # Try playAddr first (primary playback URL)
             play_addr = video_info.get("playAddr")
@@ -1089,8 +1190,11 @@ class TikTokClient:
                     f"Could not find video URL for {video_link}"
                 )
 
-            # Download video using async aiohttp with yt-dlp bypass headers/cookies
-            video_bytes = await self._download_media_async(video_url, download_context)
+            # Download video using curl_cffi with browser impersonation
+            # Pass duration for conditional streaming (streams if > 5 minutes)
+            video_bytes = await self._download_media_async(
+                video_url, download_context, duration=duration
+            )
 
             # Close the download context - it's no longer needed for videos
             # (unlike slideshows where we keep it for image downloads)
@@ -1106,11 +1210,7 @@ class TikTokClient:
                 f"Successfully downloaded video {video_id} using proxy: {proxy_info}"
             )
 
-            # Extract metadata from raw data
-            duration = video_info.get("duration")
-            if duration:
-                duration = int(duration)
-
+            # Extract remaining metadata from raw data
             width = video_info.get("width")
             height = video_info.get("height")
             author = video_data.get("author", {}).get("uniqueId", "")
