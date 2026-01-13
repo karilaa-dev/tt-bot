@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, ReactionTypeEmoji
 
 from data.config import locale, second_ids, config
@@ -39,15 +40,16 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     # Remove music button (ignore if already removed - handles double-clicks)
     try:
         await call_msg.edit_reply_markup()
-    except:
-        pass
+    except TelegramBadRequest:
+        logging.debug("Music button already removed (double-click)")
 
     # Try to send initial reaction
     try:
         await call_msg.react(
             [ReactionTypeEmoji(emoji=RETRY_EMOJIS[0])], disable_notification=True
         )
-    except:
+    except TelegramBadRequest:
+        logging.debug("Reactions not allowed, falling back to status message")
         status_message = await call_msg.reply("⏳", disable_notification=True)
 
     # Define callback to update emoji on each retry attempt
@@ -99,19 +101,19 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
         if status_message:
             try:
                 await status_message.delete()
-            except:
-                pass
+            except TelegramBadRequest:
+                logging.debug("Status message already deleted")
         else:
             try:
                 await call_msg.react([ReactionTypeEmoji(emoji="😢")])
-            except:
-                pass
+            except TelegramBadRequest:
+                logging.debug("Failed to set error reaction")
         if not group_chat:
             await call_msg.reply(get_error_message(e, lang))
         try:
             await call_msg.edit_reply_markup(reply_markup=music_button(video_id, lang))
-        except:
-            pass
+        except TelegramBadRequest:
+            logging.debug("Failed to restore music button")
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)
         logging.error(error_text)
@@ -128,5 +130,7 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
             else:
                 if not status_message:
                     await call_msg.react([])
-        except:
-            pass
+        except TelegramBadRequest:
+            logging.debug("Failed to update UI during error cleanup")
+        except Exception as cleanup_err:
+            logging.warning(f"Unexpected error during cleanup: {cleanup_err}")

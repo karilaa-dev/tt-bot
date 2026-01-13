@@ -1,6 +1,7 @@
 import logging
 
 from aiogram import Router, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -91,7 +92,8 @@ async def send_tiktok_video(message: Message):
             await message.react(
                 [ReactionTypeEmoji(emoji=RETRY_EMOJIS[0])], disable_notification=True
             )
-        except:
+        except TelegramBadRequest:
+            logging.debug("Reactions not allowed, falling back to status message")
             # Send status message if reaction is not allowed
             status_message = await message.reply("⏳", disable_notification=True)
 
@@ -142,8 +144,8 @@ async def send_tiktok_video(message: Message):
                 else:
                     try:
                         await message.react([ReactionTypeEmoji(emoji="😢")])
-                    except:
-                        pass
+                    except TelegramBadRequest:
+                        logging.debug("Failed to set error reaction")
                 if not group_chat:
                     await message.reply(get_error_message(e, lang))
                 return
@@ -154,8 +156,8 @@ async def send_tiktok_video(message: Message):
                 await message.react(
                     [ReactionTypeEmoji(emoji="👨‍💻")], disable_notification=True
                 )
-            except:
-                pass
+            except TelegramBadRequest:
+                logging.debug("Failed to set processing reaction")
 
         # Use try/finally to ensure video_info resources are cleaned up
         # (especially download context for slideshows)
@@ -187,14 +189,36 @@ async def send_tiktok_video(message: Message):
                         file_mode,
                         reply_to_message_id=message.message_id,
                     )
-                except:
+                except TelegramBadRequest as e:
+                    logging.warning(f"Failed to send video: {e}")
                     if not group_chat:
                         await message.reply(locale[lang]["error"])
                         if not status_message:
-                            await message.react([ReactionTypeEmoji(emoji="😢")])
+                            try:
+                                await message.react([ReactionTypeEmoji(emoji="😢")])
+                            except TelegramBadRequest:
+                                pass
                     else:
                         if not status_message:
-                            await message.react([])
+                            try:
+                                await message.react([])
+                            except TelegramBadRequest:
+                                pass
+                except Exception as e:
+                    logging.error(f"Unexpected error sending video: {e}")
+                    if not group_chat:
+                        await message.reply(locale[lang]["error"])
+                        if not status_message:
+                            try:
+                                await message.react([ReactionTypeEmoji(emoji="😢")])
+                            except TelegramBadRequest:
+                                pass
+                    else:
+                        if not status_message:
+                            try:
+                                await message.react([])
+                            except TelegramBadRequest:
+                                pass
                 was_processed = False  # Videos are not processed
 
             # Show ad if applicable (only in private chats)
@@ -255,8 +279,10 @@ async def send_tiktok_video(message: Message):
             else:
                 if not status_message:
                     await message.react([])
-        except:
-            pass
+        except TelegramBadRequest:
+            logging.debug("Failed to update UI during error cleanup")
+        except Exception as cleanup_err:
+            logging.warning(f"Unexpected error during cleanup: {cleanup_err}")
 
 
 @video_router.callback_query(F.data == RETRY_CALLBACK_PREFIX)
@@ -278,8 +304,8 @@ async def handle_retry_callback(callback: CallbackQuery):
     try:
         if hasattr(callback.message, "delete"):
             await callback.message.delete()
-    except:
-        pass
+    except TelegramBadRequest:
+        logging.debug("Retry button message already deleted")
 
     # Answer the callback to remove loading state
     await callback.answer()

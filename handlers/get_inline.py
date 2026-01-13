@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     InlineQuery,
     ChosenInlineResult,
@@ -192,13 +193,17 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
             await bot.edit_message_text(
                 inline_message_id=message_id, text=get_error_message(e, lang)
             )
-        except:
-            pass
+        except TelegramBadRequest:
+            logging.debug("Failed to update inline error message")
+        except Exception as err:
+            logging.warning(f"Unexpected error updating inline message: {err}")
     except Exception as e:  # If something went wrong
         logging.error(e)
         try:
             await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["error"]
             )
-        except:
-            pass
+        except TelegramBadRequest:
+            logging.debug("Failed to update inline error message")
+        except Exception as err:
+            logging.warning(f"Unexpected error updating inline message: {err}")

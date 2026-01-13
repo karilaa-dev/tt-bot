@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 
 import aiohttp
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
     InputMediaDocument,
@@ -548,8 +549,10 @@ async def send_image_result(
     if processing_message:
         try:
             await processing_message.delete()
-        except:
-            pass  # Ignore errors if message can't be deleted
+        except TelegramBadRequest:
+            logging.debug("Processing message already deleted")
+        except Exception as e:
+            logging.warning(f"Unexpected error deleting processing message: {e}")
 
     await final[0].reply(
         result_caption(lang, video_info.link, bool(image_limit)),
