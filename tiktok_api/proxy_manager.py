@@ -2,8 +2,10 @@
 
 import logging
 import os
+import re
 import threading
 from typing import Optional
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,26 @@ class ProxyManager:
         self._rotation_lock = threading.Lock()
         self._load_proxies(proxy_file, include_host)
 
+    def _encode_proxy_auth(self, proxy_url: str) -> str:
+        """URL-encode username and password in proxy URL.
+
+        Args:
+            proxy_url: Proxy URL (e.g., http://user:pass@host:port)
+
+        Returns:
+            Proxy URL with encoded credentials
+        """
+        # Pattern to match proxy URL with auth: protocol://user:pass@host:port
+        match = re.match(r"^(https?|socks5)://([^:@]+):([^@]+)@(.+)$", proxy_url)
+        if match:
+            protocol, username, password, host_port = match.groups()
+            # URL-encode username and password (safe characters: unreserved chars per RFC 3986)
+            encoded_username = quote(username, safe="")
+            encoded_password = quote(password, safe="")
+            return f"{protocol}://{encoded_username}:{encoded_password}@{host_port}"
+        # No auth or invalid format, return as-is
+        return proxy_url
+
     def _load_proxies(self, file_path: str, include_host: bool) -> None:
         """Load proxies from file.
 
@@ -70,7 +92,9 @@ class ProxyManager:
                     # Skip empty lines and comments
                     if not line or line.startswith("#"):
                         continue
-                    self._proxies.append(line)
+                    # URL-encode authentication credentials
+                    encoded_proxy = self._encode_proxy_auth(line)
+                    self._proxies.append(encoded_proxy)
         except Exception as e:
             logger.error(f"Failed to load proxy file {file_path}: {e}")
 
