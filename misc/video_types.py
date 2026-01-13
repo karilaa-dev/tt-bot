@@ -49,12 +49,40 @@ def get_image_executor() -> concurrent.futures.ProcessPoolExecutor:
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
 
+async def download_thumbnail(
+    cover_url: str | None, video_id: int
+) -> BufferedInputFile | None:
+    """Download cover image for use as video thumbnail.
+
+    Only used for videos longer than 1 minute to provide a proper preview.
+
+    Args:
+        cover_url: URL of the cover image
+        video_id: Video ID for filename
+
+    Returns:
+        BufferedInputFile with thumbnail data, or None if download failed
+    """
+    if not cover_url:
+        return None
+    try:
+        async with aiohttp.ClientSession() as client:
+            async with client.get(cover_url, allow_redirects=True) as response:
+                if response.status == 200:
+                    cover_bytes = await response.read()
+                    return BufferedInputFile(cover_bytes, f"{video_id}_thumb.jpg")
+    except Exception as e:
+        logger.warning(f"Failed to download video thumbnail: {e}")
+    return None
+
+
 async def upload_video_to_storage(
     video_data: bytes,
     video_info: VideoInfo,
     user_id: int | None = None,
     username: str | None = None,
     full_name: str | None = None,
+    thumbnail: BufferedInputFile | None = None,
 ) -> str | None:
     """
     Upload video to storage channel to get a file_id.
@@ -67,6 +95,7 @@ async def upload_video_to_storage(
         user_id: Telegram user ID who requested the video (optional)
         username: Telegram username who requested the video (optional)
         full_name: Telegram user's full name (optional)
+        thumbnail: Video thumbnail for videos > 1 minute (optional)
 
     Returns:
         file_id string if successful, None otherwise
@@ -101,6 +130,10 @@ async def upload_video_to_storage(
             caption=caption,
             parse_mode="HTML",
             disable_notification=True,
+            width=video_info.width,
+            height=video_info.height,
+            duration=video_info.duration,
+            thumbnail=thumbnail,
         )
         if message.video:
             return message.video.file_id
@@ -184,9 +217,19 @@ async def send_video_result(
         if not isinstance(video_data, bytes):
             raise ValueError("Video data must be bytes for inline messages")
 
+        # Download thumbnail for videos > 1 minute
+        thumbnail = None
+        if video_duration and video_duration > 60:
+            thumbnail = await download_thumbnail(video_info.cover, video_id)
+
         # Upload to storage channel to get file_id
         file_id = await upload_video_to_storage(
-            video_data, video_info, user_id, username, full_name
+            video_data,
+            video_info,
+            user_id,
+            username,
+            full_name,
+            thumbnail=thumbnail,
         )
         if not file_id:
             raise ValueError(
@@ -195,7 +238,11 @@ async def send_video_result(
             )
 
         video_media = InputMediaVideo(
-            media=file_id, caption=result_caption(lang, video_info.link)
+            media=file_id,
+            caption=result_caption(lang, video_info.link),
+            width=video_info.width,
+            height=video_info.height,
+            duration=video_duration,
         )
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
         return
@@ -216,6 +263,11 @@ async def send_video_result(
             disable_content_type_detection=True,
         )
     else:
+        # Download thumbnail for videos > 1 minute
+        thumbnail = None
+        if video_duration and video_duration > 60:
+            thumbnail = await download_thumbnail(video_info.cover, video_id)
+
         await bot.send_video(
             chat_id=targed_id,
             video=video_file,
@@ -223,6 +275,7 @@ async def send_video_result(
             height=video_info.height,
             width=video_info.width,
             duration=video_duration,
+            thumbnail=thumbnail,
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
         )
