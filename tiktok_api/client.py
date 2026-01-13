@@ -627,11 +627,22 @@ class TikTokClient:
         return video_id
 
     async def _resolve_url(self, url: str) -> str:
-        """Resolve short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs.
+        """Resolve short URLs to full URLs.
+
+        Handles:
+        - vm.tiktok.com short links
+        - vt.tiktok.com short links
+        - www.tiktok.com/t/ short links
 
         Uses shared connector for connection pooling efficiency.
         """
-        if "vm.tiktok.com" in url or "vt.tiktok.com" in url:
+        # Check for various short URL formats
+        is_short_url = (
+            "vm.tiktok.com" in url
+            or "vt.tiktok.com" in url
+            or "/t/" in url  # Handles www.tiktok.com/t/XXX format
+        )
+        if is_short_url:
             connector = self._get_connector(
                 self.aiohttp_pool_size, self.aiohttp_limit_per_host
             )
