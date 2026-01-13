@@ -1034,6 +1034,7 @@ class TikTokClient:
 
         session = self._get_curl_session()
 
+        response = None
         try:
             response = await session.get(
                 image_url,
@@ -1052,6 +1053,9 @@ class TikTokClient:
         except Exception as e:
             logger.debug(f"Range request failed for {image_url}: {e}")
             return ".heic"  # Assume needs processing on error
+        finally:
+            if response is not None:
+                response.close()
 
     @staticmethod
     def _detect_format_from_bytes(data: bytes) -> str:
