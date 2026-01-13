@@ -8,6 +8,7 @@ import aiohttp
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
+    InlineKeyboardMarkup,
     InputMediaDocument,
     InputMediaPhoto,
     InputMediaVideo,
@@ -48,6 +49,37 @@ def get_image_executor() -> concurrent.futures.ProcessPoolExecutor:
 # Storage channel for uploading videos to get file_id (required for inline messages)
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
+# Shared aiohttp session for cover/thumbnail downloads
+# Reusing sessions is more efficient than creating new ones per request
+_http_session: aiohttp.ClientSession | None = None
+
+
+def _get_http_session() -> aiohttp.ClientSession:
+    """Get or create a shared aiohttp ClientSession for HTTP requests."""
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        _http_session = aiohttp.ClientSession()
+    return _http_session
+
+
+async def _download_url(url: str) -> bytes | None:
+    """Download content from a URL using the shared HTTP session.
+
+    Args:
+        url: URL to download from
+
+    Returns:
+        Downloaded bytes or None if the download failed
+    """
+    try:
+        session = _get_http_session()
+        async with session.get(url, allow_redirects=True) as response:
+            if response.status == 200:
+                return await response.read()
+    except Exception as e:
+        logger.warning(f"Failed to download from {url}: {e}")
+    return None
+
 
 async def download_thumbnail(
     cover_url: str | None, video_id: int
@@ -65,14 +97,9 @@ async def download_thumbnail(
     """
     if not cover_url:
         return None
-    try:
-        async with aiohttp.ClientSession() as client:
-            async with client.get(cover_url, allow_redirects=True) as response:
-                if response.status == 200:
-                    cover_bytes = await response.read()
-                    return BufferedInputFile(cover_bytes, f"{video_id}_thumb.jpg")
-    except Exception as e:
-        logger.warning(f"Failed to download video thumbnail: {e}")
+    cover_bytes = await _download_url(cover_url)
+    if cover_bytes:
+        return BufferedInputFile(cover_bytes, f"{video_id}_thumb.jpg")
     return None
 
 
@@ -134,6 +161,7 @@ async def upload_video_to_storage(
             height=video_info.height,
             duration=video_info.duration,
             thumbnail=thumbnail,
+            supports_streaming=True,
         )
         if message.video:
             return message.video.file_id
@@ -183,13 +211,13 @@ except ImportError:
     _HEIF_REGISTERED = False
 
 
-def music_button(video_id, lang):
+def music_button(video_id: int, lang: str) -> InlineKeyboardMarkup:
     keyb = InlineKeyboardBuilder()
     keyb.button(text=locale[lang]["get_sound"], callback_data=f"id/{video_id}")
     return keyb.as_markup()
 
 
-def result_caption(lang, link, group_warning=None):
+def result_caption(lang: str, link: str, group_warning: bool | None = None) -> str:
     result = locale[lang]["result"].format(locale[lang]["bot_tag"], link)
     if group_warning:
         result += locale[lang]["group_warning"]
@@ -197,16 +225,16 @@ def result_caption(lang, link, group_warning=None):
 
 
 async def send_video_result(
-    targed_id,
+    targed_id: int | str,
     video_info: VideoInfo,
-    lang,
-    file_mode,
-    inline_message=False,
-    reply_to_message_id=None,
+    lang: str,
+    file_mode: bool,
+    inline_message: bool = False,
+    reply_to_message_id: int | None = None,
     user_id: int | None = None,
     username: str | None = None,
     full_name: str | None = None,
-):
+) -> None:
     video_id = video_info.id
     video_data = video_info.data
     video_duration = video_info.duration
@@ -243,6 +271,7 @@ async def send_video_result(
             width=video_info.width,
             height=video_info.height,
             duration=video_duration,
+            supports_streaming=True,
         )
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
         return
@@ -276,12 +305,15 @@ async def send_video_result(
             width=video_info.width,
             duration=video_duration,
             thumbnail=thumbnail,
+            supports_streaming=True,
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
         )
 
 
-async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
+async def send_music_result(
+    query_msg, music_info: MusicInfo, lang: str, group_chat: bool
+) -> None:
     video_id = music_info.id
     audio_data = music_info.data
     cover_url = music_info.cover
@@ -290,21 +322,14 @@ async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
     if isinstance(audio_data, bytes):
         audio_bytes = audio_data
     else:
-        # Fallback: try to download from URL
-        async with aiohttp.ClientSession() as client:
-            async with client.get(audio_data, allow_redirects=True) as audio_request:
-                audio_bytes = await audio_request.read()
+        # Fallback: try to download from URL using shared session
+        downloaded = await _download_url(audio_data)
+        if downloaded is None:
+            raise ValueError(f"Failed to download audio from {audio_data}")
+        audio_bytes = downloaded
 
-    # Download cover from URL
-    cover_bytes = None
-    if cover_url:
-        try:
-            async with aiohttp.ClientSession() as client:
-                async with client.get(cover_url, allow_redirects=True) as cover_request:
-                    if cover_request.status == 200:
-                        cover_bytes = await cover_request.read()
-        except Exception as e:
-            logger.warning(f"Failed to download cover: {e}")
+    # Download cover from URL using shared session
+    cover_bytes = await _download_url(cover_url) if cover_url else None
 
     audio = BufferedInputFile(audio_bytes, f"{video_id}.mp3")
     cover = BufferedInputFile(cover_bytes, f"{video_id}.jpg") if cover_bytes else None
@@ -479,10 +504,14 @@ async def convert_single_image(
 
 
 async def send_image_result(
-    user_msg, video_info: VideoInfo, lang, file_mode, image_limit, client: TikTokClient
-):
+    user_msg,
+    video_info: VideoInfo,
+    lang: str,
+    file_mode: bool,
+    image_limit: int | None,
+    client: TikTokClient,
+) -> bool:
     video_id = video_info.id
-    image_number = 0
     # Use image_urls property for slideshows
     image_data = video_info.image_urls
     if image_limit:
@@ -533,7 +562,7 @@ async def send_image_result(
             was_processed = True  # Mark that processing occurred
 
         # Use persistent executor to avoid "cannot schedule new futures after shutdown" errors
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_image_executor()
         last_part = len(images) - 1
         final = None
@@ -603,20 +632,22 @@ async def send_image_result(
         try:
             await processing_message.delete()
         except TelegramBadRequest:
-            logging.debug("Processing message already deleted")
+            logger.debug("Processing message already deleted")
         except Exception as e:
-            logging.warning(f"Unexpected error deleting processing message: {e}")
+            logger.warning(f"Unexpected error deleting processing message: {e}")
 
-    await final[0].reply(
-        result_caption(lang, video_info.link, bool(image_limit)),
-        reply_markup=music_button(video_id, lang),
-        disable_web_page_preview=True,
-    )
+    # Reply with caption to the first message in the final batch
+    if final and len(final) > 0:
+        await final[0].reply(
+            result_caption(lang, video_info.link, bool(image_limit)),
+            reply_markup=music_button(video_id, lang),
+            disable_web_page_preview=True,
+        )
 
     return was_processed
 
 
-def convert_image_to_jpeg_optimized(image_data):
+def convert_image_to_jpeg_optimized(image_data: bytes) -> bytes:
     """
     Convert any image data to JPEG format with a focus on minimizing
     computing power and achieving a good size/quality ratio.
@@ -660,7 +691,7 @@ def convert_image_to_jpeg_optimized(image_data):
         return image_data  # Returning original data as in your example
 
 
-def detect_image_format(image_data):
+def detect_image_format(image_data: bytes) -> str:
     """Detect image format from magic bytes and return appropriate extension."""
     if image_data.startswith(b"\xff\xd8\xff"):
         # JPEG
@@ -678,7 +709,7 @@ def detect_image_format(image_data):
 
 async def get_image_data_raw(
     image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-):
+) -> BufferedInputFile:
     """
     Download image data and create BufferedInputFile with correct extension
     based on the actual image format, without any conversion.
@@ -709,7 +740,7 @@ async def get_image_data_raw(
 
 async def get_image_data(
     image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-):
+) -> BufferedInputFile:
     """Get image data with conversion if needed - for compatibility.
 
     Uses yt-dlp client for authenticated downloads.
@@ -722,19 +753,19 @@ async def get_image_data(
 
     # Only convert if it's not JPEG or WebP
     if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in [".jpg", ".webp"]:
-        # Not a JPEG or WebP, convert it in a separate process for speed
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-            try:
-                # Run conversion in separate process
-                converted_data = await loop.run_in_executor(
-                    executor, convert_image_to_jpeg_optimized, image_data
-                )
-                image_data = converted_data
-                extension = ".jpg"  # After conversion, it's always JPEG
-            except Exception as e:
-                logger.error(f"Failed to convert image {file_name}: {e}")
-                # Continue with original data if conversion fails
+        # Use shared executor for efficiency
+        loop = asyncio.get_running_loop()
+        executor = get_image_executor()
+        try:
+            # Run conversion in separate process
+            converted_data = await loop.run_in_executor(
+                executor, convert_image_to_jpeg_optimized, image_data
+            )
+            image_data = converted_data
+            extension = ".jpg"  # After conversion, it's always JPEG
+        except Exception as e:
+            logger.error(f"Failed to convert image {file_name}: {e}")
+            # Continue with original data if conversion fails
 
     # Create filename with correct extension
     final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
