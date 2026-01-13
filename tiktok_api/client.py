@@ -634,15 +634,17 @@ class TikTokClient:
         return None
 
     def _get_ydl_opts(
-        self, use_proxy: bool = True, explicit_proxy: Optional[str] = None
+        self, use_proxy: bool = True, explicit_proxy: Any = ...
     ) -> dict[str, Any]:
         """Get base yt-dlp options.
 
         Args:
             use_proxy: If True and no explicit_proxy is given, use proxy from config.
                        If False, no proxy is used (for media downloads when data_only_proxy=True).
-            explicit_proxy: If provided, use this specific proxy instead of getting one
-                           from rotation. Used for per-request proxy assignment.
+            explicit_proxy: If provided (including None), use this specific proxy decision
+                           instead of getting one from rotation. Pass None to force direct
+                           connection. Uses sentinel default (...) to distinguish "not provided"
+                           from "provided as None".
 
         Returns:
             Dict of yt-dlp options.
@@ -652,10 +654,13 @@ class TikTokClient:
             "no_warnings": True,
         }
 
-        # Use explicit proxy if provided, otherwise get from rotation if enabled
-        if explicit_proxy is not None:
-            opts["proxy"] = explicit_proxy
-            logger.debug(f"Using explicit proxy: {explicit_proxy}")
+        # Use explicit proxy decision if it was provided (even if None = direct connection)
+        if explicit_proxy is not ...:
+            if explicit_proxy is not None:
+                opts["proxy"] = explicit_proxy
+                logger.debug(f"Using explicit proxy: {explicit_proxy}")
+            else:
+                logger.debug("Using explicit direct connection (no proxy)")
         elif use_proxy and self.proxy_manager:
             proxy = self.proxy_manager.get_next_proxy()
             if proxy is not None:  # None means direct connection
@@ -670,7 +675,7 @@ class TikTokClient:
         return opts
 
     def _extract_raw_data_sync(
-        self, url: str, video_id: str, explicit_proxy: Optional[str] = None
+        self, url: str, video_id: str, explicit_proxy: Any = ...
     ) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
         """
         Extract raw TikTok data using yt-dlp's internal API.
@@ -679,8 +684,9 @@ class TikTokClient:
         Args:
             url: The TikTok URL to extract
             video_id: The video ID extracted from the URL
-            explicit_proxy: Optional explicit proxy to use for this request.
-                           If provided, this proxy is used instead of rotation.
+            explicit_proxy: Explicit proxy decision for this request. If provided
+                           (including None), uses this instead of rotation. Pass None
+                           to force direct connection.
 
         NOTE: This code relies on yt-dlp's private API (_extract_web_data_and_status),
         which may change or be removed in future yt-dlp releases. Keep yt-dlp up-to-date
@@ -786,7 +792,7 @@ class TikTokClient:
             return None, "extraction"
 
     def _extract_with_context_sync(
-        self, url: str, video_id: str, request_proxy: Optional[str] = None
+        self, url: str, video_id: str, request_proxy: Any = ...
     ) -> Tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
         """
         Extract TikTok data and return the download context for later media downloads.
@@ -797,9 +803,10 @@ class TikTokClient:
         Args:
             url: The TikTok URL to extract
             video_id: The video ID extracted from the URL
-            request_proxy: Optional explicit proxy to use for this request.
-                          If provided, this proxy will be stored in download_context
-                          for use in media downloads (per-request proxy assignment).
+            request_proxy: Explicit proxy decision for this request. If provided
+                          (including None), uses this instead of rotation and stores
+                          in download_context for media downloads. Pass None to force
+                          direct connection.
 
         Returns:
             Tuple of (video_data, status, download_context)
@@ -1042,6 +1049,7 @@ class TikTokClient:
                 cookies=cookies,
                 proxy=proxy,
                 timeout=10,
+                allow_redirects=True,
             )
             if response.status_code in (200, 206):  # 206 = Partial Content
                 return self._detect_format_from_bytes(response.content)
