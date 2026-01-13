@@ -261,7 +261,7 @@ async def stats_user_download(call: CallbackQuery):
 
 
 @stats_router.callback_query(F.data == "stats_referral")
-async def stats_other(call: CallbackQuery):
+async def stats_referral(call: CallbackQuery):
     temp = await call.message.edit_text("<code>Loading...</code>")
     result = "<b>🗣Referral Stats</b>\n"
     top_referrals = await get_referral_stats()

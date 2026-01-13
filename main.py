@@ -10,6 +10,7 @@ from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
+from misc.video_types import close_http_session
 from stats.misc import update_overall_stats, update_daily_stats
 from tiktok_api import ProxyManager, TikTokClient
 
@@ -55,6 +56,7 @@ async def main() -> None:
         await TikTokClient.close_curl_session()  # curl_cffi session for media downloads
         await TikTokClient.close_connector()  # aiohttp connector for URL resolution
         TikTokClient.shutdown_executor()
+        await close_http_session()  # aiohttp session for thumbnail/cover downloads
         logging.info("TikTokClient resources cleaned up")
 
 

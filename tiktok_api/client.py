@@ -440,6 +440,7 @@ class TikTokClient:
         session = self._get_curl_session()
 
         for attempt in range(1, max_retries + 1):
+            response = None
             try:
                 response = await session.get(
                     media_url,
@@ -453,7 +454,12 @@ class TikTokClient:
 
                 if response.status_code == 200:
                     if use_streaming:
-                        # Stream in chunks for long videos to reduce memory spikes
+                        # Stream in chunks for long videos to reduce memory spikes.
+                        # Note: We still buffer all chunks in memory before returning.
+                        # This is intentional for simplicity - the streaming reduces
+                        # peak memory during download by not loading the entire response
+                        # at once, but the final join still requires full size in memory.
+                        # For truly large files, consider streaming to disk instead.
                         total_size = response.headers.get("content-length")
                         total_size = int(total_size) if total_size else None
 
@@ -518,6 +524,15 @@ class TikTokClient:
                 # Unexpected errors - don't retry
                 logger.error(f"Unexpected error downloading media {media_url}: {e}")
                 return None
+
+            finally:
+                # Ensure response is properly closed to release connection back to pool.
+                # curl_cffi responses should be closed to prevent connection leaks.
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass  # Ignore errors during cleanup
 
         return None  # Should not reach here, but satisfy type checker
 
