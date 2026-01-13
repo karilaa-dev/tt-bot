@@ -40,6 +40,7 @@
   "error_region": "<b>Fiidiyowgan laguma heli karo aagaaga.</b>",
   "error_network": "<b>Khalad shabakad ayaa dhacay.</b>\nFadlan isku day mar kale.",
   "error_rate_limit": "<b>Codsiyo badan ayaa la sameeyay.</b>\nFadlan sug wakhti yar oo isku day mar kale.",
+  "error_too_long": "<b>Fiidiyowgan waa dheer yahay.</b>\nMudda ugu badan ee la ogol yahay waa 30 daqiiqo.",
   "error_queue_full": "<b>Fadlan sug!</b>\nWaxaad horeba u leedahay {0} fiidiyow oo la hawlgalayo. Isku day mar kale.",
   "try_again_button": "Isku day mar kale",
   "inline_retry_attempt": "🔄 Isku day {0} ee {1}..."

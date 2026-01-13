@@ -41,6 +41,7 @@ from .exceptions import (
     TikTokPrivateError,
     TikTokRateLimitError,
     TikTokRegionError,
+    TikTokVideoTooLongError,
 )
 from .models import MusicInfo, VideoInfo
 
@@ -1171,6 +1172,21 @@ class TikTokClient:
             duration = video_info.get("duration")
             if duration:
                 duration = int(duration)
+
+            # Check if video exceeds maximum duration (configurable via MAX_VIDEO_DURATION env)
+            # This prevents downloading very large files that would strain resources
+            # Default: 1800 seconds (30 minutes). Set to 0 to disable limit.
+            from data.config import config
+
+            perf_config = config.get("performance", {})
+            max_video_duration = perf_config.get("max_video_duration", 1800)
+            if max_video_duration > 0 and duration and duration > max_video_duration:
+                logger.warning(
+                    f"Video {video_link} exceeds max duration: {duration}s > {max_video_duration}s"
+                )
+                raise TikTokVideoTooLongError(
+                    f"Video is {duration // 60} minutes long, max allowed is {max_video_duration // 60} minutes"
+                )
 
             # Get video URL from raw TikTok data
             # Try multiple paths as TikTok API structure can vary

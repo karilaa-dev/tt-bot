@@ -41,3 +41,9 @@ class TikTokExtractionError(TikTokError):
     """Generic extraction/parsing error (invalid ID, unknown failure, etc.)."""
 
     pass
+
+
+class TikTokVideoTooLongError(TikTokError):
+    """Video exceeds the maximum allowed duration."""
+
+    pass

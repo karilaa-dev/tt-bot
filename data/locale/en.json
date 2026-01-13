@@ -40,6 +40,7 @@
   "error_region": "<b>This video is not available in your region.</b>",
   "error_network": "<b>Network error occurred.</b>\nPlease try again.",
   "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again.",
+  "error_too_long": "<b>This video is too long.</b>\nMaximum allowed duration is 30 minutes.",
   "error_queue_full": "<b>Please wait!</b>\nYou already have {0} videos processing. Try again in a moment.",
   "try_again_button": "Try Again",
   "inline_retry_attempt": "🔄 Attempt {0} of {1}..."

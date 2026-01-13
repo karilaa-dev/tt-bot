@@ -29,6 +29,7 @@ from .exceptions import (
     TikTokPrivateError,
     TikTokRateLimitError,
     TikTokRegionError,
+    TikTokVideoTooLongError,
 )
 from .models import MusicInfo, VideoInfo
 from .proxy_manager import ProxyManager
@@ -50,4 +51,5 @@ __all__ = [
     "TikTokRateLimitError",
     "TikTokRegionError",
     "TikTokExtractionError",
+    "TikTokVideoTooLongError",
 ]

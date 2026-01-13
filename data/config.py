@@ -100,6 +100,7 @@ class PerformanceConfig(TypedDict):
     streaming_duration_threshold: (
         int  # Use streaming for videos longer than this (seconds)
     )
+    max_video_duration: int  # Maximum video duration in seconds (0 = no limit)
 
 
 class Config(TypedDict):
@@ -156,6 +157,7 @@ config: Config = {
         "streaming_duration_threshold": _parse_int_env(
             "STREAMING_DURATION_THRESHOLD", 300
         ),
+        "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 1800),  # 30 minutes
     },
 }
 

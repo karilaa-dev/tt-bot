@@ -27,6 +27,7 @@ from tiktok_api import (
     TikTokRateLimitError,
     TikTokRegionError,
     TikTokExtractionError,
+    TikTokVideoTooLongError,
     VideoInfo,
     MusicInfo,
 )
@@ -220,6 +221,10 @@ def get_error_message(error: TikTokError, lang: str) -> str:
     elif isinstance(error, TikTokRegionError):
         return lang_dict.get(
             "error_region", "This video is not available in your region."
+        )
+    elif isinstance(error, TikTokVideoTooLongError):
+        return lang_dict.get(
+            "error_too_long", "This video is too long (max 30 minutes)."
         )
     else:  # TikTokExtractionError and any other
         return lang_dict.get(
