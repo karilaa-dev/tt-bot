@@ -16,6 +16,20 @@ import yt_dlp
 # Dynamic import of yt-dlp bypass mechanisms (updates automatically with yt-dlp)
 from yt_dlp.utils import std_headers as YTDLP_STD_HEADERS
 
+# curl_cffi for browser impersonation (TLS fingerprint bypass)
+import curl_cffi
+from curl_cffi.requests import AsyncSession as CurlAsyncSession
+from curl_cffi import CurlError
+
+# Import yt-dlp's browser targets for dynamic impersonation
+# This ensures impersonation targets update automatically with yt-dlp
+try:
+    from yt_dlp.networking._curlcffi import BROWSER_TARGETS, _TARGETS_COMPAT_LOOKUP
+except ImportError:
+    # Fallback if yt-dlp structure changes or curl_cffi not available during import
+    BROWSER_TARGETS = {}
+    _TARGETS_COMPAT_LOOKUP = {}
+
 from .exceptions import (
     TikTokDeletedError,
     TikTokError,
@@ -42,8 +56,10 @@ class TikTokClient:
     This client uses yt-dlp internally to extract video/slideshow data and music
     from TikTok URLs. It supports both regular videos and slideshows (image posts).
 
-    All media downloads (video, audio, images) use async aiohttp with yt-dlp's
-    bypass headers and cookies for high-throughput performance.
+    All media downloads (video, audio, images) use curl_cffi with browser
+    impersonation (TLS fingerprint spoofing) derived from yt-dlp's BROWSER_TARGETS.
+    This automatically updates when you update yt-dlp, ensuring compatibility
+    with TikTok's anti-bot detection.
 
     Args:
         proxy_manager: Optional ProxyManager instance for round-robin proxy rotation.
@@ -75,6 +91,115 @@ class TikTokClient:
 
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
+
+    # curl_cffi session for browser-impersonated media downloads
+    _curl_session: Optional[CurlAsyncSession] = None
+    _curl_session_lock = threading.Lock()
+    _impersonate_target: Optional[str] = None
+
+    @classmethod
+    def _get_impersonate_target(cls) -> str:
+        """Get the best impersonation target from yt-dlp's BROWSER_TARGETS.
+
+        Uses the same priority as yt-dlp:
+        1. Prioritize desktop over mobile (non-ios, non-android)
+        2. Prioritize Chrome > Safari > Firefox > Edge > Tor
+        3. Prioritize newest version
+
+        This ensures the impersonation target updates automatically when you
+        update yt-dlp, without any hardcoded values.
+
+        Returns:
+            curl_cffi-compatible impersonate string (e.g., "chrome136")
+        """
+        import itertools
+
+        # Get curl_cffi version as tuple for comparison
+        try:
+            curl_cffi_version = tuple(
+                int(x) for x in curl_cffi.__version__.split(".")[:2]
+            )
+        except (ValueError, AttributeError):
+            curl_cffi_version = (0, 9)  # Minimum supported version
+
+        # Collect all available targets for our curl_cffi version
+        available_targets: dict[str, Any] = {}
+        for version, targets in BROWSER_TARGETS.items():
+            if curl_cffi_version >= version:
+                available_targets.update(targets)
+
+        if not available_targets:
+            # Fallback to a common target if BROWSER_TARGETS is empty
+            logger.warning(
+                "No BROWSER_TARGETS available from yt-dlp, using 'chrome' fallback"
+            )
+            return "chrome"
+
+        # Sort by yt-dlp's priority (same logic as _curlcffi.py)
+        # This ensures we pick the same target yt-dlp would use
+        sorted_targets = sorted(
+            available_targets.items(),
+            key=lambda x: (
+                # deprioritize mobile targets since they give very different behavior
+                x[1].os not in ("ios", "android"),
+                # prioritize tor < edge < firefox < safari < chrome
+                ("tor", "edge", "firefox", "safari", "chrome").index(x[1].client)
+                if x[1].client in ("tor", "edge", "firefox", "safari", "chrome")
+                else -1,
+                # prioritize newest version
+                float(x[1].version) if x[1].version else 0,
+                # group by os name
+                x[1].os or "",
+            ),
+            reverse=True,
+        )
+
+        # Get the best target name
+        best_name = sorted_targets[0][0]
+
+        # Apply compatibility lookup for older curl_cffi versions
+        if curl_cffi_version < (0, 11):
+            best_name = _TARGETS_COMPAT_LOOKUP.get(best_name, best_name)
+
+        logger.debug(
+            f"Selected impersonation target: {best_name} "
+            f"(curl_cffi {curl_cffi.__version__})"
+        )
+        return best_name
+
+    @classmethod
+    def _get_curl_session(cls) -> CurlAsyncSession:
+        """Get or create shared curl_cffi AsyncSession with browser impersonation.
+
+        The session uses yt-dlp's BROWSER_TARGETS to select the best impersonation
+        target, ensuring TLS fingerprint matches a real browser.
+        """
+        with cls._curl_session_lock:
+            # Check if session needs to be created
+            # Note: CurlAsyncSession doesn't have is_closed, we track via _curl_session being None
+            if cls._curl_session is None:
+                cls._impersonate_target = cls._get_impersonate_target()
+                cls._curl_session = CurlAsyncSession(
+                    impersonate=cls._impersonate_target,
+                    max_clients=200,  # Connection pool size matching aiohttp
+                )
+                logger.info(
+                    f"Created curl_cffi session with impersonate={cls._impersonate_target}"
+                )
+            return cls._curl_session
+
+    @classmethod
+    async def close_curl_session(cls) -> None:
+        """Close shared curl_cffi session. Call on application shutdown."""
+        with cls._curl_session_lock:
+            session = cls._curl_session
+            cls._curl_session = None
+            cls._impersonate_target = None
+        if session is not None:
+            try:
+                await session.close()
+            except Exception as e:
+                logger.debug(f"Error closing curl_cffi session: {e}")
 
     @classmethod
     def set_executor_size(cls, size: int) -> None:
@@ -252,10 +377,10 @@ class TikTokClient:
     async def _download_media_async(
         self, media_url: str, download_context: dict[str, Any]
     ) -> Optional[bytes]:
-        """Download media asynchronously using aiohttp with yt-dlp bypass.
+        """Download media asynchronously using curl_cffi with browser impersonation.
 
-        This is the primary download method - uses async aiohttp for non-blocking
-        downloads with headers and cookies dynamically imported from yt-dlp.
+        Uses yt-dlp's BROWSER_TARGETS to dynamically select the impersonation target,
+        ensuring TLS fingerprint matches a real browser and bypasses anti-bot detection.
 
         Args:
             media_url: Direct URL to the media on TikTok CDN
@@ -275,34 +400,28 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = download_context.get("proxy")
 
-        connector = self._get_connector(
-            self.aiohttp_pool_size, self.aiohttp_limit_per_host
-        )
-        # Add sock_read timeout to prevent slow-drip attacks holding connections
-        timeout = ClientTimeout(total=60, connect=10, sock_read=30)
+        session = self._get_curl_session()
 
         try:
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                connector_owner=False,  # Don't close shared connector
-            ) as session:
-                async with session.get(
-                    media_url,
-                    headers=headers,
-                    cookies=cookies,
-                    proxy=proxy,
-                ) as response:
-                    if response.status == 200:
-                        return await response.read()
-                    else:
-                        logger.error(
-                            f"Media download failed with status {response.status} "
-                            f"for {media_url}"
-                        )
-                        return None
-        except aiohttp.ClientError as e:
-            logger.error(f"aiohttp media download failed for {media_url}: {e}")
+            response = await session.get(
+                media_url,
+                headers=headers,
+                cookies=cookies,
+                proxy=proxy,
+                timeout=60,
+                allow_redirects=True,
+            )
+
+            if response.status_code == 200:
+                return response.content
+            else:
+                logger.error(
+                    f"Media download failed with status {response.status_code} "
+                    f"for {media_url}"
+                )
+                return None
+        except CurlError as e:
+            logger.error(f"curl_cffi media download failed for {media_url}: {e}")
             return None
         except Exception as e:
             logger.error(f"Unexpected error downloading media {media_url}: {e}")
@@ -776,8 +895,7 @@ class TikTokClient:
         """
         Detect image format using HTTP Range request (only fetches first 20 bytes).
 
-        This is much more efficient than downloading the entire image just to
-        check its format.
+        Uses curl_cffi with browser impersonation for TLS fingerprint bypass.
 
         Args:
             image_url: Direct URL to the image on TikTok CDN
@@ -804,31 +922,23 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = video_info._download_context.get("proxy")
 
-        connector = self._get_connector(
-            self.aiohttp_pool_size, self.aiohttp_limit_per_host
-        )
-        timeout = ClientTimeout(total=10, connect=5, sock_read=5)
+        session = self._get_curl_session()
 
         try:
-            async with aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                connector_owner=False,
-            ) as session:
-                async with session.get(
-                    image_url,
-                    headers=headers,
-                    cookies=cookies,
-                    proxy=proxy,
-                ) as response:
-                    if response.status in (200, 206):  # 206 = Partial Content
-                        data = await response.read()
-                        return self._detect_format_from_bytes(data)
-                    else:
-                        logger.warning(
-                            f"Range request returned status {response.status} for {image_url}"
-                        )
-                        return ".heic"  # Assume needs processing on error
+            response = await session.get(
+                image_url,
+                headers=headers,
+                cookies=cookies,
+                proxy=proxy,
+                timeout=10,
+            )
+            if response.status_code in (200, 206):  # 206 = Partial Content
+                return self._detect_format_from_bytes(response.content)
+            else:
+                logger.warning(
+                    f"Range request returned status {response.status_code} for {image_url}"
+                )
+                return ".heic"  # Assume needs processing on error
         except Exception as e:
             logger.debug(f"Range request failed for {image_url}: {e}")
             return ".heic"  # Assume needs processing on error
