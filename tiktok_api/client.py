@@ -193,8 +193,8 @@ class TikTokClient:
     def _get_bypass_headers(self, referer_url: str) -> dict[str, str]:
         """Get bypass headers dynamically from yt-dlp.
 
-        This uses yt-dlp's standard headers so when yt-dlp updates their
-        bypass logic, we automatically get the changes.
+        Uses yt-dlp's standard headers which are updated with each yt-dlp release.
+        We add Origin and Referer for CORS compliance with TikTok CDN.
 
         Args:
             referer_url: The referer URL to set in headers
@@ -204,14 +204,10 @@ class TikTokClient:
         """
         headers = dict(YTDLP_STD_HEADERS)  # Copy to avoid mutation
         headers["Referer"] = referer_url
-        # Add Origin header for CORS - TikTok CDN often requires this
         headers["Origin"] = "https://www.tiktok.com"
-        # Ensure Accept header is set for media
         headers["Accept"] = "*/*"
-        # Some CDNs check for Sec-Fetch headers (modern browsers send these)
-        headers["Sec-Fetch-Dest"] = "image"
-        headers["Sec-Fetch-Mode"] = "no-cors"
-        headers["Sec-Fetch-Site"] = "cross-site"
+        # Avoid hardcoding Sec-Fetch-* headers; incorrect values can break
+        # audio/video downloads. Let the browser/client defaults apply.
         return headers
 
     def _get_cookies_from_context(
