@@ -54,8 +54,6 @@ class BotConfig(TypedDict):
     stats_ids: list[int]
     tg_server: str
     db_url: str
-    db_path: str
-    db_name: str
     storage_channel: int | None
 
 
@@ -78,8 +76,6 @@ class LogsConfig(TypedDict):
 class QueueConfig(TypedDict):
     """Type definition for queue and retry configuration."""
 
-    max_concurrent_info: int
-    max_concurrent_send: int
     max_user_queue_size: int
     retry_max_attempts: int
     retry_request_timeout: float
@@ -93,6 +89,20 @@ class ProxyConfig(TypedDict):
     include_host: bool  # Include host IP in round-robin rotation
 
 
+class PerformanceConfig(TypedDict):
+    """Type definition for performance configuration."""
+
+    thread_pool_size: int  # ThreadPoolExecutor workers for sync yt-dlp calls
+    aiohttp_pool_size: int  # Total aiohttp connection pool size (legacy, for redirects)
+    aiohttp_limit_per_host: int  # Per-host connection limit
+    max_concurrent_images: int  # Max parallel image downloads per slideshow
+    curl_pool_size: int  # curl_cffi max_clients for media downloads
+    streaming_duration_threshold: (
+        int  # Use streaming for videos longer than this (seconds)
+    )
+    max_video_duration: int  # Maximum video duration in seconds (0 = no limit)
+
+
 class Config(TypedDict):
     """Type definition for the main configuration."""
 
@@ -101,6 +111,7 @@ class Config(TypedDict):
     logs: LogsConfig
     queue: QueueConfig
     proxy: ProxyConfig
+    performance: PerformanceConfig
 
 
 config: Config = {
@@ -112,8 +123,6 @@ config: Config = {
         "stats_ids": _parse_json_list("STATS_IDS"),
         "tg_server": os.getenv("TG_SERVER", "https://api.telegram.org"),
         "db_url": os.getenv("DB_URL", ""),
-        "db_path": os.getenv("DB_PATH", ""),
-        "db_name": os.getenv("DB_NAME", ""),
         # Channel ID for uploading videos to get file_id.
         # Parsed as int; returns None if unset/empty. Callers using send_video/send_document
         # must check for None before using this value.
@@ -130,8 +139,6 @@ config: Config = {
         "daily_stats_message_id": os.getenv("DAILY_STATS_MESSAGE_ID", "0"),
     },
     "queue": {
-        "max_concurrent_info": _parse_int_env("MAX_CONCURRENT_INFO", 4),
-        "max_concurrent_send": _parse_int_env("MAX_CONCURRENT_SEND", 8),
         "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
         "retry_max_attempts": _parse_int_env("RETRY_MAX_ATTEMPTS", 3),
         "retry_request_timeout": float(os.getenv("RETRY_REQUEST_TIMEOUT", "10")),
@@ -140,6 +147,17 @@ config: Config = {
         "proxy_file": os.getenv("PROXY_FILE", ""),
         "data_only": os.getenv("PROXY_DATA_ONLY", "false").lower() == "true",
         "include_host": os.getenv("PROXY_INCLUDE_HOST", "false").lower() == "true",
+    },
+    "performance": {
+        "thread_pool_size": _parse_int_env("THREAD_POOL_SIZE", 128),
+        "aiohttp_pool_size": _parse_int_env("AIOHTTP_POOL_SIZE", 200),
+        "aiohttp_limit_per_host": _parse_int_env("AIOHTTP_LIMIT_PER_HOST", 50),
+        "max_concurrent_images": _parse_int_env("MAX_CONCURRENT_IMAGES", 20),
+        "curl_pool_size": _parse_int_env("CURL_POOL_SIZE", 200),
+        "streaming_duration_threshold": _parse_int_env(
+            "STREAMING_DURATION_THRESHOLD", 300
+        ),
+        "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 1800),  # 30 minutes
     },
 }
 

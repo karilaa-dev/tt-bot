@@ -5,8 +5,11 @@ import concurrent.futures
 import logging
 
 import aiohttp
+from aiohttp import ClientTimeout
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
     BufferedInputFile,
+    InlineKeyboardMarkup,
     InputMediaDocument,
     InputMediaPhoto,
     InputMediaVideo,
@@ -24,6 +27,7 @@ from tiktok_api import (
     TikTokRateLimitError,
     TikTokRegionError,
     TikTokExtractionError,
+    TikTokVideoTooLongError,
     VideoInfo,
     MusicInfo,
 )
@@ -47,6 +51,89 @@ def get_image_executor() -> concurrent.futures.ProcessPoolExecutor:
 # Storage channel for uploading videos to get file_id (required for inline messages)
 STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
+# Shared aiohttp session for cover/thumbnail downloads
+# Reusing sessions is more efficient than creating new ones per request
+_http_session: aiohttp.ClientSession | None = None
+
+# Timeout configuration for HTTP requests
+_HTTP_TIMEOUT = ClientTimeout(total=30, connect=10, sock_read=20)
+
+
+def _get_http_session() -> aiohttp.ClientSession:
+    """Get or create a shared aiohttp ClientSession for HTTP requests.
+
+    The session is configured with:
+    - 30s total timeout (prevents hanging requests)
+    - 10s connect timeout
+    - 20s read timeout
+    """
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        connector = aiohttp.TCPConnector(
+            limit=100,  # Total connection pool size
+            limit_per_host=20,  # Per-host limit to avoid overwhelming single CDN
+            ttl_dns_cache=300,  # Cache DNS for 5 minutes
+            enable_cleanup_closed=True,
+        )
+        _http_session = aiohttp.ClientSession(
+            timeout=_HTTP_TIMEOUT,
+            connector=connector,
+        )
+    return _http_session
+
+
+async def close_http_session() -> None:
+    """Close the shared aiohttp session. Call on application shutdown.
+
+    This should be called in the main.py shutdown sequence to properly
+    release all connections and prevent socket leaks.
+    """
+    global _http_session
+    if _http_session is not None and not _http_session.closed:
+        await _http_session.close()
+        _http_session = None
+
+
+async def _download_url(url: str) -> bytes | None:
+    """Download content from a URL using the shared HTTP session.
+
+    Args:
+        url: URL to download from
+
+    Returns:
+        Downloaded bytes or None if the download failed
+    """
+    try:
+        session = _get_http_session()
+        async with session.get(url, allow_redirects=True) as response:
+            if response.status == 200:
+                return await response.read()
+    except Exception as e:
+        logger.warning(f"Failed to download from {url}: {e}")
+    return None
+
+
+async def download_thumbnail(
+    cover_url: str | None, video_id: int
+) -> BufferedInputFile | None:
+    """Download cover image for use as video thumbnail.
+
+    Only used for videos longer than 1 minute to provide a proper preview.
+
+    Args:
+        cover_url: URL of the cover image
+        video_id: Video ID for filename
+
+    Returns:
+        BufferedInputFile with thumbnail data, or None if download failed
+    """
+    if not cover_url:
+        return None
+    cover_bytes = await _download_url(cover_url)
+    if cover_bytes:
+        return BufferedInputFile(cover_bytes, f"{video_id}_thumb.jpg")
+    return None
+
 
 async def upload_video_to_storage(
     video_data: bytes,
@@ -54,6 +141,7 @@ async def upload_video_to_storage(
     user_id: int | None = None,
     username: str | None = None,
     full_name: str | None = None,
+    thumbnail: BufferedInputFile | None = None,
 ) -> str | None:
     """
     Upload video to storage channel to get a file_id.
@@ -66,6 +154,7 @@ async def upload_video_to_storage(
         user_id: Telegram user ID who requested the video (optional)
         username: Telegram username who requested the video (optional)
         full_name: Telegram user's full name (optional)
+        thumbnail: Video thumbnail for videos > 1 minute (optional)
 
     Returns:
         file_id string if successful, None otherwise
@@ -100,6 +189,11 @@ async def upload_video_to_storage(
             caption=caption,
             parse_mode="HTML",
             disable_notification=True,
+            width=video_info.width,
+            height=video_info.height,
+            duration=video_info.duration,
+            thumbnail=thumbnail,
+            supports_streaming=True,
         )
         if message.video:
             return message.video.file_id
@@ -128,6 +222,10 @@ def get_error_message(error: TikTokError, lang: str) -> str:
         return lang_dict.get(
             "error_region", "This video is not available in your region."
         )
+    elif isinstance(error, TikTokVideoTooLongError):
+        return lang_dict.get(
+            "error_too_long", "This video is too long (max 30 minutes)."
+        )
     else:  # TikTokExtractionError and any other
         return lang_dict.get(
             "error", "An error occurred while processing your request."
@@ -139,20 +237,23 @@ try:
     from PIL import Image
     import pillow_heif
 
-    # Register HEIF opener with pillow
+    # Register HEIF opener with pillow once at module load
+    # This avoids repeated registration overhead per-image
     pillow_heif.register_heif_opener()
     IMAGE_CONVERSION_AVAILABLE = True
+    _HEIF_REGISTERED = True
 except ImportError:
     IMAGE_CONVERSION_AVAILABLE = False
+    _HEIF_REGISTERED = False
 
 
-def music_button(video_id, lang):
+def music_button(video_id: int, lang: str) -> InlineKeyboardMarkup:
     keyb = InlineKeyboardBuilder()
     keyb.button(text=locale[lang]["get_sound"], callback_data=f"id/{video_id}")
     return keyb.as_markup()
 
 
-def result_caption(lang, link, group_warning=None):
+def result_caption(lang: str, link: str, group_warning: bool | None = None) -> str:
     result = locale[lang]["result"].format(locale[lang]["bot_tag"], link)
     if group_warning:
         result += locale[lang]["group_warning"]
@@ -160,16 +261,16 @@ def result_caption(lang, link, group_warning=None):
 
 
 async def send_video_result(
-    targed_id,
+    targed_id: int | str,
     video_info: VideoInfo,
-    lang,
-    file_mode,
-    inline_message=False,
-    reply_to_message_id=None,
+    lang: str,
+    file_mode: bool,
+    inline_message: bool = False,
+    reply_to_message_id: int | None = None,
     user_id: int | None = None,
     username: str | None = None,
     full_name: str | None = None,
-):
+) -> None:
     video_id = video_info.id
     video_data = video_info.data
     video_duration = video_info.duration
@@ -180,9 +281,19 @@ async def send_video_result(
         if not isinstance(video_data, bytes):
             raise ValueError("Video data must be bytes for inline messages")
 
+        # Download thumbnail for videos > 1 minute
+        thumbnail = None
+        if video_duration and video_duration > 60:
+            thumbnail = await download_thumbnail(video_info.cover, video_id)
+
         # Upload to storage channel to get file_id
         file_id = await upload_video_to_storage(
-            video_data, video_info, user_id, username, full_name
+            video_data,
+            video_info,
+            user_id,
+            username,
+            full_name,
+            thumbnail=thumbnail,
         )
         if not file_id:
             raise ValueError(
@@ -191,7 +302,12 @@ async def send_video_result(
             )
 
         video_media = InputMediaVideo(
-            media=file_id, caption=result_caption(lang, video_info.link)
+            media=file_id,
+            caption=result_caption(lang, video_info.link),
+            width=video_info.width,
+            height=video_info.height,
+            duration=video_duration,
+            supports_streaming=True,
         )
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
         return
@@ -212,6 +328,11 @@ async def send_video_result(
             disable_content_type_detection=True,
         )
     else:
+        # Download thumbnail for videos > 1 minute
+        thumbnail = None
+        if video_duration and video_duration > 60:
+            thumbnail = await download_thumbnail(video_info.cover, video_id)
+
         await bot.send_video(
             chat_id=targed_id,
             video=video_file,
@@ -219,12 +340,16 @@ async def send_video_result(
             height=video_info.height,
             width=video_info.width,
             duration=video_duration,
+            thumbnail=thumbnail,
+            supports_streaming=True,
             reply_markup=music_button(video_id, lang),
             reply_to_message_id=reply_to_message_id,
         )
 
 
-async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
+async def send_music_result(
+    query_msg, music_info: MusicInfo, lang: str, group_chat: bool
+) -> None:
     video_id = music_info.id
     audio_data = music_info.data
     cover_url = music_info.cover
@@ -233,21 +358,14 @@ async def send_music_result(query_msg, music_info: MusicInfo, lang, group_chat):
     if isinstance(audio_data, bytes):
         audio_bytes = audio_data
     else:
-        # Fallback: try to download from URL
-        async with aiohttp.ClientSession() as client:
-            async with client.get(audio_data, allow_redirects=True) as audio_request:
-                audio_bytes = await audio_request.read()
+        # Fallback: try to download from URL using shared session
+        downloaded = await _download_url(audio_data)
+        if downloaded is None:
+            raise ValueError(f"Failed to download audio from {audio_data}")
+        audio_bytes = downloaded
 
-    # Download cover from URL
-    cover_bytes = None
-    if cover_url:
-        try:
-            async with aiohttp.ClientSession() as client:
-                async with client.get(cover_url, allow_redirects=True) as cover_request:
-                    if cover_request.status == 200:
-                        cover_bytes = await cover_request.read()
-        except Exception as e:
-            logger.warning(f"Failed to download cover: {e}")
+    # Download cover from URL using shared session
+    cover_bytes = await _download_url(cover_url) if cover_url else None
 
     audio = BufferedInputFile(audio_bytes, f"{video_id}.mp3")
     cover = BufferedInputFile(cover_bytes, f"{video_id}.jpg") if cover_bytes else None
@@ -272,8 +390,8 @@ async def detect_image_processing_needed(
     Check if an image needs processing by examining its format.
     Returns True if the image is not in JPEG or WebP format.
 
-    Uses yt-dlp client to download image bytes for format detection,
-    ensuring proper authentication headers are used.
+    Uses HTTP Range request to fetch only the first 20 bytes for efficient
+    format detection without downloading the entire image.
 
     Args:
         image_link: URL of the image to check
@@ -284,10 +402,8 @@ async def detect_image_processing_needed(
         True if image needs processing (conversion), False otherwise
     """
     try:
-        # Download the image using yt-dlp client (respects auth/cookies)
-        image_data = await client.download_image(image_link, video_info)
-        # Check first bytes for format detection
-        extension = detect_image_format(image_data[:20])
+        # Use Range request to fetch only first 20 bytes (efficient)
+        extension = await client.detect_image_format(image_link, video_info)
         return extension not in [".jpg", ".webp"]
     except Exception:
         # If we can't check, assume processing might be needed
@@ -315,6 +431,43 @@ async def download_image(
         TikTokNetworkError: If the download fails
     """
     return await client.download_image(image_link, video_info)
+
+
+async def download_images_parallel(
+    image_urls: list[str],
+    client: TikTokClient,
+    video_info: VideoInfo,
+    max_concurrent: int | None = None,
+) -> list[bytes | BaseException]:
+    """
+    Download multiple images in parallel with concurrency limit.
+
+    Uses semaphore to prevent overwhelming TikTok CDN while maximizing throughput.
+    This is significantly faster than sequential downloads for slideshows.
+
+    Args:
+        image_urls: List of image URLs to download
+        client: TikTokClient instance for authenticated downloads
+        video_info: VideoInfo containing download context
+        max_concurrent: Maximum concurrent downloads. If None, uses config value.
+
+    Returns:
+        List of image bytes (or exceptions for failed downloads)
+    """
+    if max_concurrent is None:
+        perf_config = config.get("performance")
+        max_concurrent = perf_config["max_concurrent_images"] if perf_config else 20
+
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def download_with_limit(url: str) -> bytes:
+        async with semaphore:
+            return await client.download_image(url, video_info)
+
+    return await asyncio.gather(
+        *[download_with_limit(url) for url in image_urls],
+        return_exceptions=True,  # Don't fail all if one fails
+    )
 
 
 async def check_and_convert_image(image_data, executor, loop):
@@ -387,10 +540,14 @@ async def convert_single_image(
 
 
 async def send_image_result(
-    user_msg, video_info: VideoInfo, lang, file_mode, image_limit, client: TikTokClient
-):
+    user_msg,
+    video_info: VideoInfo,
+    lang: str,
+    file_mode: bool,
+    image_limit: int | None,
+    client: TikTokClient,
+) -> bool:
     video_id = video_info.id
-    image_number = 0
     # Use image_urls property for slideshows
     image_data = video_info.image_urls
     if image_limit:
@@ -441,7 +598,7 @@ async def send_image_result(
             was_processed = True  # Mark that processing occurred
 
         # Use persistent executor to avoid "cannot schedule new futures after shutdown" errors
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         executor = get_image_executor()
         last_part = len(images) - 1
         final = None
@@ -510,27 +667,32 @@ async def send_image_result(
     if processing_message:
         try:
             await processing_message.delete()
-        except:
-            pass  # Ignore errors if message can't be deleted
+        except TelegramBadRequest:
+            logger.debug("Processing message already deleted")
+        except Exception as e:
+            logger.warning(f"Unexpected error deleting processing message: {e}")
 
-    await final[0].reply(
-        result_caption(lang, video_info.link, bool(image_limit)),
-        reply_markup=music_button(video_id, lang),
-        disable_web_page_preview=True,
-    )
+    # Reply with caption to the first message in the final batch
+    if final and len(final) > 0:
+        await final[0].reply(
+            result_caption(lang, video_info.link, bool(image_limit)),
+            reply_markup=music_button(video_id, lang),
+            disable_web_page_preview=True,
+        )
 
     return was_processed
 
 
-def convert_image_to_jpeg_optimized(image_data):
+def convert_image_to_jpeg_optimized(image_data: bytes) -> bytes:
     """
     Convert any image data to JPEG format with a focus on minimizing
     computing power and achieving a good size/quality ratio.
+
+    Note: pillow_heif.register_heif_opener() is called once at module load,
+    not per-image, for better performance.
     """
     try:
-        # Register HEIF opener with Pillow
-        pillow_heif.register_heif_opener()
-
+        # HEIF opener is already registered at module level
         with Image.open(io.BytesIO(image_data)) as img:
             # 1. Handle Mode Conversion (as in your script, good for minimizing processing)
             #    Pillow-heif usually loads HEIC into RGB or RGBA directly.
@@ -565,7 +727,7 @@ def convert_image_to_jpeg_optimized(image_data):
         return image_data  # Returning original data as in your example
 
 
-def detect_image_format(image_data):
+def detect_image_format(image_data: bytes) -> str:
     """Detect image format from magic bytes and return appropriate extension."""
     if image_data.startswith(b"\xff\xd8\xff"):
         # JPEG
@@ -583,7 +745,7 @@ def detect_image_format(image_data):
 
 async def get_image_data_raw(
     image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-):
+) -> BufferedInputFile:
     """
     Download image data and create BufferedInputFile with correct extension
     based on the actual image format, without any conversion.
@@ -614,7 +776,7 @@ async def get_image_data_raw(
 
 async def get_image_data(
     image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-):
+) -> BufferedInputFile:
     """Get image data with conversion if needed - for compatibility.
 
     Uses yt-dlp client for authenticated downloads.
@@ -627,19 +789,19 @@ async def get_image_data(
 
     # Only convert if it's not JPEG or WebP
     if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in [".jpg", ".webp"]:
-        # Not a JPEG or WebP, convert it in a separate process for speed
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
-            try:
-                # Run conversion in separate process
-                converted_data = await loop.run_in_executor(
-                    executor, convert_image_to_jpeg_optimized, image_data
-                )
-                image_data = converted_data
-                extension = ".jpg"  # After conversion, it's always JPEG
-            except Exception as e:
-                logger.error(f"Failed to convert image {file_name}: {e}")
-                # Continue with original data if conversion fails
+        # Use shared executor for efficiency
+        loop = asyncio.get_running_loop()
+        executor = get_image_executor()
+        try:
+            # Run conversion in separate process
+            converted_data = await loop.run_in_executor(
+                executor, convert_image_to_jpeg_optimized, image_data
+            )
+            image_data = converted_data
+            extension = ".jpg"  # After conversion, it's always JPEG
+        except Exception as e:
+            logger.error(f"Failed to convert image {file_name}: {e}")
+            # Continue with original data if conversion fails
 
     # Create filename with correct extension
     final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"

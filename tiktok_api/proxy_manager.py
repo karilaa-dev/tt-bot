@@ -105,6 +105,18 @@ class ProxyManager:
         """Get total number of proxies in rotation (including host if enabled)."""
         return len(self._proxies)
 
+    def peek_current(self) -> str | None:
+        """Peek at current proxy without rotating (for logging only).
+
+        Returns:
+            Current proxy URL that would be returned by get_next_proxy(),
+            or None for direct connection.
+        """
+        with self._rotation_lock:
+            if not self._proxies:
+                return None
+            return self._proxies[self._index]
+
     def has_proxies(self) -> bool:
         """Check if any proxies are configured (excluding direct connection)."""
         return any(p is not None for p in self._proxies)
