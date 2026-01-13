@@ -719,9 +719,100 @@ class TikTokClient:
 
                 try:
                     # Use yt-dlp's internal method to get raw webpage data
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
+                    # NOTE: When using a proxy, yt-dlp's impersonate=True feature
+                    # doesn't work correctly. We need to download without impersonate.
+                    if self.proxy_manager and self.proxy_manager.has_proxies():
+                        # Download webpage without impersonate to avoid proxy issues
+                        res = ie._download_webpage_handle(
+                            normalized_url, video_id, fatal=False, impersonate=False
+                        )
+                        if res is False:
+                            raise TikTokExtractionError(
+                                f"Failed to download webpage for video {video_id}"
+                            )
+
+                        webpage, urlh = res
+
+                        # Check for login redirect
+                        import urllib.parse
+
+                        if urllib.parse.urlparse(urlh.url).path == "/login":
+                            raise TikTokExtractionError(
+                                "TikTok is requiring login for access to this content"
+                            )
+
+                        # Extract data manually using yt-dlp's helper methods
+                        video_data = None
+                        status = -1
+
+                        # Try universal data first
+                        if universal_data := ie._get_universal_data(webpage, video_id):
+                            from yt_dlp.utils import traverse_obj
+
+                            status = (
+                                traverse_obj(
+                                    universal_data,
+                                    ("webapp.video-detail", "statusCode", {int}),
+                                )
+                                or 0
+                            )
+                            video_data = traverse_obj(
+                                universal_data,
+                                (
+                                    "webapp.video-detail",
+                                    "itemInfo",
+                                    "itemStruct",
+                                    {dict},
+                                ),
+                            )
+
+                        # Try sigi state data
+                        elif sigi_data := ie._get_sigi_state(webpage, video_id):
+                            from yt_dlp.utils import traverse_obj
+
+                            status = (
+                                traverse_obj(
+                                    sigi_data, ("VideoPage", "statusCode", {int})
+                                )
+                                or 0
+                            )
+                            video_data = traverse_obj(
+                                sigi_data, ("ItemModule", video_id, {dict})
+                            )
+
+                        # Try next.js data
+                        elif next_data := ie._search_nextjs_data(
+                            webpage, video_id, default={}
+                        ):
+                            from yt_dlp.utils import traverse_obj
+
+                            status = (
+                                traverse_obj(
+                                    next_data,
+                                    ("props", "pageProps", "statusCode", {int}),
+                                )
+                                or 0
+                            )
+                            video_data = traverse_obj(
+                                next_data,
+                                (
+                                    "props",
+                                    "pageProps",
+                                    "itemInfo",
+                                    "itemStruct",
+                                    {dict},
+                                ),
+                            )
+
+                        if not video_data:
+                            raise TikTokExtractionError(
+                                "Unable to extract webpage video data"
+                            )
+                    else:
+                        # No proxy, use the standard method with impersonate
+                        video_data, status = ie._extract_web_data_and_status(
+                            normalized_url, video_id
+                        )
                 except AttributeError as e:
                     logger.error(
                         f"Failed to call yt-dlp internal method: {e}. "
@@ -847,9 +938,86 @@ class TikTokClient:
             try:
                 # Use yt-dlp's internal method to get raw webpage data
                 # This also sets up all necessary cookies
-                video_data, status = ie._extract_web_data_and_status(
-                    normalized_url, video_id
-                )
+                # NOTE: When using a proxy, yt-dlp's impersonate=True feature
+                # doesn't work correctly. We need to download without impersonate.
+                if self.proxy_manager and self.proxy_manager.has_proxies():
+                    # Download webpage without impersonate to avoid proxy issues
+                    res = ie._download_webpage_handle(
+                        normalized_url, video_id, fatal=False, impersonate=False
+                    )
+                    if res is False:
+                        raise TikTokExtractionError(
+                            f"Failed to download webpage for video {video_id}"
+                        )
+
+                    webpage, urlh = res
+
+                    # Check for login redirect
+                    import urllib.parse
+
+                    if urllib.parse.urlparse(urlh.url).path == "/login":
+                        raise TikTokExtractionError(
+                            "TikTok is requiring login for access to this content"
+                        )
+
+                    # Extract data manually using yt-dlp's helper methods
+                    video_data = None
+                    status = -1
+
+                    # Try universal data first
+                    if universal_data := ie._get_universal_data(webpage, video_id):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(
+                                universal_data,
+                                ("webapp.video-detail", "statusCode", {int}),
+                            )
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            universal_data,
+                            ("webapp.video-detail", "itemInfo", "itemStruct", {dict}),
+                        )
+
+                    # Try sigi state data
+                    elif sigi_data := ie._get_sigi_state(webpage, video_id):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(sigi_data, ("VideoPage", "statusCode", {int}))
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            sigi_data, ("ItemModule", video_id, {dict})
+                        )
+
+                    # Try next.js data
+                    elif next_data := ie._search_nextjs_data(
+                        webpage, video_id, default={}
+                    ):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(
+                                next_data, ("props", "pageProps", "statusCode", {int})
+                            )
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            next_data,
+                            ("props", "pageProps", "itemInfo", "itemStruct", {dict}),
+                        )
+
+                    if not video_data:
+                        raise TikTokExtractionError(
+                            "Unable to extract webpage video data"
+                        )
+                else:
+                    # No proxy, use the standard method with impersonate
+                    video_data, status = ie._extract_web_data_and_status(
+                        normalized_url, video_id
+                    )
             except AttributeError as e:
                 logger.error(
                     f"Failed to call yt-dlp internal method: {e}. "
