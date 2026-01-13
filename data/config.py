@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from json import loads as json_loads
 from pathlib import Path
@@ -42,6 +43,19 @@ def _parse_json_list(key: str) -> list[int]:
         return []
     except (ValueError, TypeError):
         return []
+
+
+def _parse_log_level(key: str, default: str = "INFO") -> int:
+    """Parse an environment variable as a logging level, returning default if unset/invalid."""
+    value = os.getenv(key, default).upper().strip()
+    level_map = {
+        "DEBUG": logging.DEBUG,
+        "INFO": logging.INFO,
+        "WARNING": logging.WARNING,
+        "ERROR": logging.ERROR,
+        "CRITICAL": logging.CRITICAL,
+    }
+    return level_map.get(value, logging.INFO)
 
 
 class BotConfig(TypedDict):
@@ -103,6 +117,12 @@ class PerformanceConfig(TypedDict):
     max_video_duration: int  # Maximum video duration in seconds (0 = no limit)
 
 
+class LoggingConfig(TypedDict):
+    """Type definition for logging configuration."""
+
+    log_level: int  # Logging level (e.g., logging.INFO, logging.DEBUG)
+
+
 class Config(TypedDict):
     """Type definition for the main configuration."""
 
@@ -112,6 +132,7 @@ class Config(TypedDict):
     queue: QueueConfig
     proxy: ProxyConfig
     performance: PerformanceConfig
+    logging: LoggingConfig
 
 
 config: Config = {
@@ -158,6 +179,9 @@ config: Config = {
             "STREAMING_DURATION_THRESHOLD", 300
         ),
         "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 1800),  # 30 minutes
+    },
+    "logging": {
+        "log_level": _parse_log_level("LOG_LEVEL", "INFO"),
     },
 }
 

@@ -54,6 +54,28 @@ logger = logging.getLogger(__name__)
 _redirect_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+?/([0-9]+)")
 
 
+def _strip_proxy_auth(proxy_url: Optional[str]) -> str:
+    """Strip authentication info from proxy URL for safe logging.
+
+    Args:
+        proxy_url: Proxy URL that may contain credentials (e.g., http://user:pass@host:port)
+
+    Returns:
+        Proxy URL without credentials (e.g., http://host:port) or "direct connection" if None
+    """
+    if proxy_url is None:
+        return "direct connection"
+
+    # Match proxy URL pattern: protocol://[user:pass@]host:port
+    match = re.match(r"^(https?://)(?:[^@]+@)?(.+)$", proxy_url)
+    if match:
+        protocol, host_port = match.groups()
+        return f"{protocol}{host_port}"
+
+    # If pattern doesn't match, return as-is (shouldn't happen with valid proxy URLs)
+    return proxy_url
+
+
 class TikTokClient:
     """Client for extracting TikTok video and music information.
 
@@ -441,6 +463,7 @@ class TikTokClient:
         session = self._get_curl_session()
 
         for attempt in range(1, max_retries + 1):
+            logger.debug(f"CDN download attempt {attempt}/{max_retries} for media URL")
             response = None
             try:
                 response = await session.get(
@@ -658,14 +681,16 @@ class TikTokClient:
         if explicit_proxy is not ...:
             if explicit_proxy is not None:
                 opts["proxy"] = explicit_proxy
-                logger.debug(f"Using explicit proxy: {explicit_proxy}")
+                logger.debug(
+                    f"Using explicit proxy: {_strip_proxy_auth(explicit_proxy)}"
+                )
             else:
                 logger.debug("Using explicit direct connection (no proxy)")
         elif use_proxy and self.proxy_manager:
             proxy = self.proxy_manager.get_next_proxy()
             if proxy is not None:  # None means direct connection
                 opts["proxy"] = proxy
-                logger.debug(f"Using proxy: {proxy}")
+                logger.debug(f"Using proxy: {_strip_proxy_auth(proxy)}")
             else:
                 logger.debug("Using direct connection (no proxy)")
 
@@ -1275,14 +1300,11 @@ class TikTokClient:
             request_proxy: Optional[str] = None
             if self.proxy_manager:
                 request_proxy = self.proxy_manager.get_next_proxy()
-                if request_proxy:
-                    logger.info(f"Video attempt using proxy: {request_proxy}")
-                else:
-                    logger.info("Video attempt using direct connection (no proxy)")
 
             # Resolve short URLs
             full_url = await self._resolve_url(video_link)
             video_id = self._extract_video_id(full_url)
+            logger.debug(f"Extracted video ID: {video_id} from URL: {full_url}")
 
             if not video_id:
                 logger.error(f"Could not extract video ID from {video_link}")
@@ -1415,11 +1437,8 @@ class TikTokClient:
             if video_bytes is None:
                 raise TikTokExtractionError(f"Failed to download video {video_link}")
 
-            # Log successful download with proxy info
-            proxy_info = request_proxy or "direct connection"
-            logger.info(
-                f"Successfully downloaded video {video_id} using proxy: {proxy_info}"
-            )
+            # Log successful download
+            logger.info(f"Successfully downloaded video {video_id}")
 
             # Extract remaining metadata from raw data
             width = video_info.get("width")
@@ -1507,6 +1526,7 @@ class TikTokClient:
         last_error: Exception | None = None
 
         for attempt in range(1, max_attempts + 1):
+            logger.debug(f"Attempt {attempt}/{max_attempts} for video: {video_link}")
             try:
                 # Call status callback before each attempt
                 if on_retry:
@@ -1594,13 +1614,10 @@ class TikTokClient:
             request_proxy: Optional[str] = None
             if self.proxy_manager:
                 request_proxy = self.proxy_manager.get_next_proxy()
-                if request_proxy:
-                    logger.info(f"Music attempt using proxy: {request_proxy}")
-                else:
-                    logger.info("Music attempt using direct connection (no proxy)")
 
             # Construct a URL with the video ID
             url = f"https://www.tiktok.com/@_/video/{video_id}"
+            logger.debug(f"Using video ID: {video_id} for music extraction")
 
             # Extract with context (keeps YDL alive for authenticated downloads)
             video_data, status, download_context = await self._run_sync(
@@ -1635,11 +1652,8 @@ class TikTokClient:
                     f"Failed to download audio for video {video_id}"
                 )
 
-            # Log successful download with proxy info
-            proxy_info = request_proxy or "direct connection"
-            logger.info(
-                f"Successfully downloaded music from video {video_id} using proxy: {proxy_info}"
-            )
+            # Log successful download
+            logger.info(f"Successfully downloaded music from video {video_id}")
 
             # Get the music cover URL from music object
             cover_url = (
