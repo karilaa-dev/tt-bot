@@ -43,24 +43,28 @@ class ProxyManager:
         self._load_proxies(proxy_file, include_host)
 
     def _encode_proxy_auth(self, proxy_url: str) -> str:
-        """URL-encode username and password in proxy URL.
+        """URL-encode username and password in proxy URL."""
+        from urllib.parse import urlsplit, urlunsplit
 
-        Args:
-            proxy_url: Proxy URL (e.g., http://user:pass@host:port)
+        try:
+            parts = urlsplit(proxy_url)
+        except Exception:
+            return proxy_url
 
-        Returns:
-            Proxy URL with encoded credentials
-        """
-        # Pattern to match proxy URL with auth: protocol://user:pass@host:port
-        match = re.match(r"^(https?|socks5)://([^:@]+):([^@]+)@(.+)$", proxy_url)
-        if match:
-            protocol, username, password, host_port = match.groups()
-            # URL-encode username and password (safe characters: unreserved chars per RFC 3986)
-            encoded_username = quote(username, safe="")
-            encoded_password = quote(password, safe="")
-            return f"{protocol}://{encoded_username}:{encoded_password}@{host_port}"
-        # No auth or invalid format, return as-is
-        return proxy_url
+        if not parts.username and not parts.password:
+            return proxy_url
+
+        username = quote(parts.username or "", safe="")
+        password = quote(parts.password or "", safe="")
+
+        host = parts.hostname or ""
+        netloc = host
+        if parts.port:
+            netloc = f"{host}:{parts.port}"
+        if parts.username is not None:
+            netloc = f"{username}:{password}@{netloc}"
+
+        return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
     def _load_proxies(self, file_path: str, include_host: bool) -> None:
         """Load proxies from file.

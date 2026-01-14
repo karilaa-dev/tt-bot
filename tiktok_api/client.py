@@ -6,6 +6,7 @@ import os
 import random
 import re
 import threading
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
@@ -564,6 +565,13 @@ class TikTokClient:
                     if universal_data:
                         from yt_dlp.utils import traverse_obj
 
+                        # Debug: log universal data keys
+                        if isinstance(universal_data, dict):
+                            logger.debug(f"Universal data keys: {list(universal_data.keys())[:10]}")
+                            video_detail = universal_data.get("webapp.video-detail")
+                            if video_detail:
+                                logger.debug(f"Video-detail keys: {list(video_detail.keys())[:10] if isinstance(video_detail, dict) else type(video_detail)}")
+
                         status = (
                             traverse_obj(
                                 universal_data,
@@ -586,6 +594,13 @@ class TikTokClient:
                         logger.debug(f"Sigi state data found: {sigi_data is not None}")
                         if sigi_data:
                             from yt_dlp.utils import traverse_obj
+
+                            # Debug: log sigi state keys
+                            if isinstance(sigi_data, dict):
+                                logger.debug(f"Sigi state keys: {list(sigi_data.keys())[:10]}")
+                                item_module = sigi_data.get("ItemModule")
+                                if item_module:
+                                    logger.debug(f"ItemModule keys: {list(item_module.keys())[:5] if isinstance(item_module, dict) else type(item_module)}")
 
                             status = (
                                 traverse_obj(
@@ -642,6 +657,27 @@ class TikTokClient:
                         return None, "region"
 
                 if not video_data:
+                    # Debug: log webpage sample when extraction fails (likely blocked/CAPTCHA)
+                    webpage_len = len(webpage) if webpage else 0
+                    
+                    # Detect TikTok WAF challenge page
+                    is_waf_challenge = (
+                        webpage_len < 5000 
+                        and "SlardarWAF" in webpage 
+                        and "_wafchallengeid" in webpage
+                    )
+                    
+                    if is_waf_challenge:
+                        logger.warning(f"TikTok WAF challenge detected for video {video_id} - request was rate limited")
+                        raise TikTokExtractionError(
+                            f"TikTok WAF rate limit - too many requests for {video_id}"
+                        )
+                    elif webpage_len < 5000:
+                        # Very small response - likely blocked, dump the whole thing
+                        logger.debug(f"Extraction failed - small response ({webpage_len} bytes), content: {webpage[:1000]!r}")
+                    else:
+                        # Larger response but still failed - log a sample
+                        logger.debug(f"Extraction failed - response {webpage_len} bytes, first 500: {webpage[:500]!r}")
                     raise TikTokExtractionError(
                         f"Unable to extract video data from webpage for {video_id}"
                     )
@@ -1067,10 +1103,13 @@ class TikTokClient:
         Uses shared connector for connection pooling efficiency.
         """
         # Check for various short URL formats
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        path = parsed.path or ""
+
         is_short_url = (
-            "vm.tiktok.com" in url
-            or "vt.tiktok.com" in url
-            or "/t/" in url  # Handles www.tiktok.com/t/XXX format
+            host in {"vm.tiktok.com", "vt.tiktok.com"}
+            or (host in {"www.tiktok.com", "tiktok.com"} and path.startswith("/t/"))
         )
         if is_short_url:
             connector = self._get_connector(
@@ -1206,7 +1245,10 @@ class TikTokClient:
 
         max_retries = 3
         for attempt in range(1, max_retries + 1):
-            logger.debug(f"Image download attempt {attempt}/{max_retries}")
+            logger.debug(
+                f"Image download attempt {attempt}/{max_retries} "
+                f"(proxy: {_strip_proxy_auth(proxy)})"
+            )
             response = None
             try:
                 response = await session.get(
@@ -1223,12 +1265,33 @@ class TikTokClient:
                     )
                     return response.content
 
+                if response.status_code in (403, 429, 500, 502, 503, 504) and attempt < max_retries:
+                    if self.proxy_manager and not self.data_only_proxy:
+                        old_proxy = proxy
+                        proxy = self.proxy_manager.get_next_proxy()
+                        logger.warning(
+                            f"Image CDN returned {response.status_code}, rotating proxy: "
+                            f"{_strip_proxy_auth(old_proxy)} -> {_strip_proxy_auth(proxy)}"
+                        )
+                    await asyncio.sleep(1.0 * (2 ** (attempt - 1)))
+                    continue
+
                 logger.warning(
                     f"Image download attempt {attempt}/{max_retries} "
                     f"failed with status {response.status_code}"
                 )
 
             except Exception as e:
+                if attempt < max_retries and self.proxy_manager and not self.data_only_proxy:
+                    old_proxy = proxy
+                    proxy = self.proxy_manager.get_next_proxy()
+                    logger.warning(
+                        f"Image download error, rotating proxy: "
+                        f"{_strip_proxy_auth(old_proxy)} -> {_strip_proxy_auth(proxy)}: {e}"
+                    )
+                    await asyncio.sleep(1.0 * (2 ** (attempt - 1)))
+                    continue
+
                 logger.warning(
                     f"Image download attempt {attempt}/{max_retries} "
                     f"failed with error: {e}"
@@ -1239,9 +1302,6 @@ class TikTokClient:
                         response.close()
                     except Exception:
                         pass
-
-            if attempt < max_retries:
-                await asyncio.sleep(1.0 * attempt)  # Exponential backoff
 
         raise TikTokNetworkError(f"Failed to download image after {max_retries} attempts: {image_url}")
 
