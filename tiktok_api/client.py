@@ -66,13 +66,12 @@ def _strip_proxy_auth(proxy_url: Optional[str]) -> str:
     if proxy_url is None:
         return "direct connection"
 
-    # Match proxy URL pattern: protocol://[user:pass@]host:port
-    match = re.match(r"^(https?://)(?:[^@]+@)?(.+)$", proxy_url)
+    # Match proxy URL pattern: scheme://[user:pass@]host:port
+    match = re.match(r"^((?:https?|socks5h?|socks4a?)://)(?:[^@]+@)?(.+)$", proxy_url)
     if match:
-        protocol, host_port = match.groups()
-        return f"{protocol}{host_port}"
+        scheme, host_port = match.groups()
+        return f"{scheme}{host_port}"
 
-    # If pattern doesn't match, return as-is (shouldn't happen with valid proxy URLs)
     return proxy_url
 
 

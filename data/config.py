@@ -47,7 +47,6 @@ def _parse_json_list(key: str) -> list[int]:
 
 def _parse_log_level(key: str, default: str = "INFO") -> int:
     """Parse an environment variable as a logging level, returning default if unset/invalid."""
-    value = os.getenv(key, default).upper().strip()
     level_map = {
         "DEBUG": logging.DEBUG,
         "INFO": logging.INFO,
@@ -55,7 +54,10 @@ def _parse_log_level(key: str, default: str = "INFO") -> int:
         "ERROR": logging.ERROR,
         "CRITICAL": logging.CRITICAL,
     }
-    return level_map.get(value, logging.INFO)
+
+    default_level = level_map.get(default.upper().strip(), logging.INFO)
+    value = os.getenv(key, default).upper().strip()
+    return level_map.get(value, default_level)
 
 
 class BotConfig(TypedDict):
