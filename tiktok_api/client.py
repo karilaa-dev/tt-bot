@@ -475,8 +475,8 @@ class TikTokClient:
         )
 
         if not any([has_universal, has_sigi, has_next]):
-            # Log preview to help diagnose what TikTok returned
-            logger.warning(f"No data patterns found! HTML preview: {html[:2000]}")
+            # Log preview at DEBUG level to avoid exposing sensitive data in production logs
+            logger.debug(f"No data patterns found! HTML preview: {html[:2000]}")
 
         video_data, status = self._parse_webpage_data(html, video_id)
 

@@ -75,12 +75,16 @@ class QueueManager:
             return True
 
     async def _decrement_count(self, user_id: int) -> None:
-        """Decrement queue count."""
+        """Decrement queue count and cleanup lock if no longer needed."""
         async with self._dict_lock:
             if user_id in self._user_queue_counts:
                 self._user_queue_counts[user_id] -= 1
                 if self._user_queue_counts[user_id] <= 0:
                     del self._user_queue_counts[user_id]
+                    # Clean up lock when user has no active requests
+                    # This prevents unbounded memory growth with many unique users
+                    if user_id in self._user_locks:
+                        del self._user_locks[user_id]
             logger.debug(
                 f"User {user_id} queue: {self._user_queue_counts.get(user_id, 0)}/{self.max_queue_size}"
             )
