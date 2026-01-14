@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Union
-
-logger = logging.getLogger(__name__)
+from typing import List, Optional, Union
 
 
 @dataclass
@@ -17,9 +14,9 @@ class VideoInfo:
         type: Content type - "video" for videos, "images" for slideshows
         data: Video bytes (for videos) or list of image URLs (for slideshows)
         id: Unique TikTok video/post ID
-        cover: Thumbnail/cover image URL
-        width: Video width in pixels (None for slideshows)
-        height: Video height in pixels (None for slideshows)
+        cover: Thumbnail/cover image URL (only for videos > 1 minute)
+        width: Video width in pixels (only for videos > 1 minute)
+        height: Video height in pixels (only for videos > 1 minute)
         duration: Video duration in seconds (None for slideshows)
         author: Author's username
         link: Original TikTok link
@@ -37,53 +34,10 @@ class VideoInfo:
     link: str
     url: Optional[str] = None  # Only present for videos
 
-    # Download context for slideshows (set by TikTokClient).
-    # Contains yt-dlp YoutubeDL instance and TikTok extractor with cookies/auth
-    # already configured from the extraction phase. This allows image downloads
-    # to use the same authentication context as the video info extraction.
-    # Structure: {'ydl': YoutubeDL, 'ie': TikTokIE, 'referer_url': str}
-    _download_context: Optional[dict[str, Any]] = field(default=None, repr=False)
-
-    # Track whether close() was called to avoid double-close and __del__ warnings
-    _closed: bool = field(default=False, repr=False)
-
-    def close(self) -> None:
-        """Close the download context and release resources.
-
-        Call this method when you're done using the VideoInfo,
-        especially for slideshows where the download context is kept alive
-        for image downloads.
-
-        This is idempotent - calling close() multiple times is safe.
-        """
-        if self._closed:
-            return
-
-        if self._download_context and "ydl" in self._download_context:
-            try:
-                self._download_context["ydl"].close()
-            except Exception:
-                pass  # Ignore errors during cleanup
-            self._download_context = None
-
-        self._closed = True
-
-    def __enter__(self) -> VideoInfo:
-        """Enter context manager."""
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit context manager and close resources."""
-        self.close()
-
-    def __del__(self) -> None:
-        """Destructor - warn if resources were not explicitly closed."""
-        if self._download_context is not None and not self._closed:
-            logger.warning(
-                f"VideoInfo(id={self.id}) was garbage collected without close() - "
-                "potential resource leak. Call close() or use 'with' statement."
-            )
-            self.close()
+    # Proxy used for this video extraction (for slideshow image downloads)
+    # This allows image downloads to use the same proxy that successfully
+    # extracted the video info.
+    _proxy: Optional[str] = field(default=None, repr=False)
 
     @property
     def is_video(self) -> bool:

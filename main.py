@@ -18,13 +18,8 @@ from tiktok_api import ProxyManager, TikTokClient
 async def main() -> None:
     await setup_db(config["bot"]["db_url"])
 
-    # Configure TikTokClient executor size for high throughput
-    # Must be called before any TikTokClient is instantiated
-    TikTokClient.set_executor_size(config["performance"]["thread_pool_size"])
     logging.info(
-        f"TikTokClient configured: executor={config['performance']['thread_pool_size']} workers, "
-        f"aiohttp_pool={config['performance']['aiohttp_pool_size']}, "
-        f"limit_per_host={config['performance']['aiohttp_limit_per_host']}"
+        f"TikTokClient configured: curl_pool={config['performance']['curl_pool_size']}"
     )
 
     # Initialize proxy manager if configured
@@ -52,12 +47,12 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         # Cleanup shared resources on shutdown
-        logging.info("Shutting down: cleaning up TikTokClient resources...")
-        await TikTokClient.close_curl_session()  # curl_cffi session for media downloads
-        await TikTokClient.close_connector()  # aiohttp connector for URL resolution
-        TikTokClient.shutdown_executor()
+        logging.info("Shutting down: cleaning up resources...")
+        await (
+            TikTokClient.close_curl_session()
+        )  # curl_cffi session for all TikTok operations
         await close_http_session()  # aiohttp session for thumbnail/cover downloads
-        logging.info("TikTokClient resources cleaned up")
+        logging.info("Resources cleaned up")
 
 
 if __name__ == "__main__":

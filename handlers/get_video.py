@@ -159,110 +159,98 @@ async def send_tiktok_video(message: Message):
             except TelegramBadRequest:
                 logging.debug("Failed to set processing reaction")
 
-        # Use try/finally to ensure video_info resources are cleaned up
-        # (especially download context for slideshows)
-        try:
-            # Send video/images (no global send queue - per-user limit only)
-            if video_info.is_slideshow:  # Process images
-                # Send upload image action
-                await bot.send_chat_action(
-                    chat_id=message.chat.id, action="upload_photo"
-                )
-                if group_chat:
-                    image_limit = 10
-                else:
-                    image_limit = None
-                was_processed = await send_image_result(
-                    message, video_info, lang, file_mode, image_limit, client=api
-                )
-            else:  # Process video
-                # Send upload video action
-                await bot.send_chat_action(
-                    chat_id=message.chat.id, action="upload_video"
-                )
-                # Send video
-                try:
-                    await send_video_result(
-                        message.chat.id,
-                        video_info,
-                        lang,
-                        file_mode,
-                        reply_to_message_id=message.message_id,
-                    )
-                except TelegramBadRequest as e:
-                    logging.warning(f"Failed to send video: {e}")
-                    if not group_chat:
-                        await message.reply(locale[lang]["error"])
-                        if not status_message:
-                            try:
-                                await message.react([ReactionTypeEmoji(emoji="😢")])
-                            except TelegramBadRequest:
-                                pass
-                    else:
-                        if not status_message:
-                            try:
-                                await message.react([])
-                            except TelegramBadRequest:
-                                pass
-                except Exception as e:
-                    logging.error(f"Unexpected error sending video: {e}")
-                    if not group_chat:
-                        await message.reply(locale[lang]["error"])
-                        if not status_message:
-                            try:
-                                await message.react([ReactionTypeEmoji(emoji="😢")])
-                            except TelegramBadRequest:
-                                pass
-                    else:
-                        if not status_message:
-                            try:
-                                await message.react([])
-                            except TelegramBadRequest:
-                                pass
-                was_processed = False  # Videos are not processed
-
-            # Show ad if applicable (only in private chats)
-            if not group_chat:
-                try:
-                    if await should_show_ad(message.chat.id):
-                        await record_ad_show(message.chat.id)
-                        ad_button = InlineKeyboardBuilder()
-                        ad_button.button(
-                            text=locale[lang]["ad_support_button"], url=monetag_url
-                        )
-                        await message.answer(
-                            locale[lang]["ad_support"],
-                            reply_markup=ad_button.as_markup(),
-                        )
-                    else:
-                        await increase_ad_count(message.chat.id)
-                except Exception as e:
-                    logging.error("Can't show ad")
-                    logging.error(e)
-
-            # Clean up status
-            if status_message:
-                await status_message.delete()
+        # Send video/images (no global send queue - per-user limit only)
+        if video_info.is_slideshow:  # Process images
+            # Send upload image action
+            await bot.send_chat_action(chat_id=message.chat.id, action="upload_photo")
+            if group_chat:
+                image_limit = 10
             else:
-                await message.react([])
-
-            # Log to database
+                image_limit = None
+            was_processed = await send_image_result(
+                message, video_info, lang, file_mode, image_limit, client=api
+            )
+        else:  # Process video
+            # Send upload video action
+            await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+            # Send video
             try:
-                await add_video(
+                await send_video_result(
                     message.chat.id,
-                    video_link,
-                    video_info.is_slideshow,
-                    was_processed,
+                    video_info,
+                    lang,
+                    file_mode,
+                    reply_to_message_id=message.message_id,
                 )
-                logging.info(
-                    f"Video Download: CHAT {message.chat.id} - VIDEO {video_link}"
-                )
+            except TelegramBadRequest as e:
+                logging.warning(f"Failed to send video: {e}")
+                if not group_chat:
+                    await message.reply(locale[lang]["error"])
+                    if not status_message:
+                        try:
+                            await message.react([ReactionTypeEmoji(emoji="😢")])
+                        except TelegramBadRequest:
+                            pass
+                else:
+                    if not status_message:
+                        try:
+                            await message.react([])
+                        except TelegramBadRequest:
+                            pass
             except Exception as e:
-                logging.error("Can't write into database")
+                logging.error(f"Unexpected error sending video: {e}")
+                if not group_chat:
+                    await message.reply(locale[lang]["error"])
+                    if not status_message:
+                        try:
+                            await message.react([ReactionTypeEmoji(emoji="😢")])
+                        except TelegramBadRequest:
+                            pass
+                else:
+                    if not status_message:
+                        try:
+                            await message.react([])
+                        except TelegramBadRequest:
+                            pass
+            was_processed = False  # Videos are not processed
+
+        # Show ad if applicable (only in private chats)
+        if not group_chat:
+            try:
+                if await should_show_ad(message.chat.id):
+                    await record_ad_show(message.chat.id)
+                    ad_button = InlineKeyboardBuilder()
+                    ad_button.button(
+                        text=locale[lang]["ad_support_button"], url=monetag_url
+                    )
+                    await message.answer(
+                        locale[lang]["ad_support"],
+                        reply_markup=ad_button.as_markup(),
+                    )
+                else:
+                    await increase_ad_count(message.chat.id)
+            except Exception as e:
+                logging.error("Can't show ad")
                 logging.error(e)
-        finally:
-            # Clean up video_info resources (closes YDL context for slideshows)
-            video_info.close()
+
+        # Clean up status
+        if status_message:
+            await status_message.delete()
+        else:
+            await message.react([])
+
+        # Log to database
+        try:
+            await add_video(
+                message.chat.id,
+                video_link,
+                video_info.is_slideshow,
+                was_processed,
+            )
+            logging.info(f"Video Download: CHAT {message.chat.id} - VIDEO {video_link}")
+        except Exception as e:
+            logging.error("Can't write into database")
+            logging.error(e)
 
     except Exception as e:  # If something went wrong
         error_text = error_catch(e)

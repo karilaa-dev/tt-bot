@@ -148,8 +148,6 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
             )
 
         if video_info.is_slideshow:  # Process image
-            # Clean up resources before returning (close YDL context)
-            video_info.close()
             return await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["only_video_supported"]
             )
@@ -169,10 +167,6 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
                 username=username,
                 full_name=full_name,
             )
-
-        # Clean up video_info resources (videos already closed in video() method,
-        # but call close() for safety - it's idempotent)
-        video_info.close()
 
         try:  # Try to write log into database
             # Write log into database

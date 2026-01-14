@@ -1,7 +1,7 @@
 """TikTok API client for extracting video and music information.
 
 This module provides a clean interface to extract TikTok video/slideshow data
-and music information using yt-dlp internally.
+and music information using curl_cffi with browser impersonation.
 
 Example:
     >>> from tiktok_api import TikTokClient, ProxyManager, VideoInfo, TikTokDeletedError
