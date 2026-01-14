@@ -129,9 +129,9 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         await asyncio.sleep(0.5)
 
     try:
-        # Use queue with bypass_user_limit=True for inline downloads
-        # Inline downloads bypass the per-user queue limit
-        async with queue.info_queue(user_id, bypass_user_limit=True) as acquired:
+        # Use queue with bypass=True for inline downloads
+        # Inline downloads bypass the per-user queue entirely
+        async with queue.user_queue(user_id, bypass=True) as acquired:
             if not acquired:
                 # This shouldn't happen with bypass, but handle anyway
                 await bot.edit_message_text(
