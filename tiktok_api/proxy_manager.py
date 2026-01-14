@@ -62,7 +62,10 @@ class ProxyManager:
         if parts.port:
             netloc = f"{host}:{parts.port}"
         if parts.username is not None:
-            netloc = f"{username}:{password}@{netloc}"
+            if parts.password is None:
+                netloc = f"{username}@{netloc}"
+            else:
+                netloc = f"{username}:{password}@{netloc}"
 
         return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 

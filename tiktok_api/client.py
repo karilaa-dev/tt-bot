@@ -537,7 +537,8 @@ class TikTokClient:
         import urllib.parse
 
         # Check for login redirect
-        if urllib.parse.urlparse(final_url).path == "/login":
+        login_path = urllib.parse.urlparse(final_url).path.rstrip("/")
+        if login_path == "/login":
             raise TikTokExtractionError(
                 "TikTok is requiring login for access to this content"
             )
