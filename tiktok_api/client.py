@@ -214,9 +214,12 @@ class TikTokClient:
 
         # Load cookies from Netscape file
         self._cookies: dict[str, str] = {}
-        cookies_path = cookies or os.getenv("YTDLP_COOKIES")
-        if cookies_path:
-            self._load_cookies(cookies_path)
+        if cookies is None:
+            from data.config import config
+
+            cookies = config.get("tiktok", {}).get("cookies_file", "")
+        if cookies:
+            self._load_cookies(cookies)
 
         # URL patterns
         self.mobile_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+")

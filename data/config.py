@@ -119,6 +119,12 @@ class PerformanceConfig(TypedDict):
     max_video_duration: int  # Maximum video duration in seconds (0 = no limit)
 
 
+class TikTokConfig(TypedDict):
+    """Type definition for TikTok extraction configuration."""
+
+    cookies_file: str  # Path to Netscape-format cookies file (optional)
+
+
 class LoggingConfig(TypedDict):
     """Type definition for logging configuration."""
 
@@ -134,6 +140,7 @@ class Config(TypedDict):
     queue: QueueConfig
     proxy: ProxyConfig
     performance: PerformanceConfig
+    tiktok: TikTokConfig
     logging: LoggingConfig
 
 
@@ -181,6 +188,9 @@ config: Config = {
             "STREAMING_DURATION_THRESHOLD", 300
         ),
         "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 1800),  # 30 minutes
+    },
+    "tiktok": {
+        "cookies_file": os.getenv("YTDLP_COOKIES", ""),
     },
     "logging": {
         "log_level": _parse_log_level("LOG_LEVEL", "INFO"),
