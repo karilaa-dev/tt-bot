@@ -225,6 +225,21 @@ class TikTokClient:
             r"https?://www\.tiktok\.com/@[^\s]+?/photo/[0-9]+"
         )
 
+        # Data extraction patterns (compiled for performance)
+        # Use .*? with DOTALL to handle JSON containing '<' characters (e.g., "I <3 TikTok")
+        self._universal_data_re = re.compile(
+            r'<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)</script>',
+            re.DOTALL,
+        )
+        self._sigi_state_re = re.compile(
+            r'<script[^>]+\bid="(?:SIGI_STATE|sigi-persisted-data)"[^>]*>(.*?)</script>',
+            re.DOTALL,
+        )
+        self._next_data_re = re.compile(
+            r'<script[^>]+id="__NEXT_DATA__"[^>]*>(.*?)</script>',
+            re.DOTALL,
+        )
+
     def _load_cookies(self, cookies_path: str) -> None:
         """Load cookies from Netscape-format file."""
         if not os.path.isabs(cookies_path):
@@ -366,10 +381,7 @@ class TikTokClient:
             Tuple of (video_data dict, status_code)
         """
         # Try UNIVERSAL_DATA first (most common format)
-        match = re.search(
-            r'<script[^>]+\bid="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)</script>',
-            html,
-        )
+        match = self._universal_data_re.search(html)
         if match:
             try:
                 data = json.loads(match.group(1))
@@ -385,10 +397,7 @@ class TikTokClient:
                 pass
 
         # Try SIGI_STATE
-        match = re.search(
-            r'<script[^>]+\bid="(?:SIGI_STATE|sigi-persisted-data)"[^>]*>([^<]+)</script>',
-            html,
-        )
+        match = self._sigi_state_re.search(html)
         if match:
             try:
                 data = json.loads(match.group(1))
@@ -401,10 +410,7 @@ class TikTokClient:
                 pass
 
         # Try Next.js data
-        match = re.search(
-            r'<script[^>]+id="__NEXT_DATA__"[^>]*>([^<]+)</script>',
-            html,
-        )
+        match = self._next_data_re.search(html)
         if match:
             try:
                 data = json.loads(match.group(1))
@@ -702,8 +708,13 @@ class TikTokClient:
             if not video_url:
                 raise TikTokExtractionError("Could not find video URL")
 
+            # Save extraction proxy before download (download may use different proxy
+            # when data_only_proxy=True, but we want to preserve the extraction proxy
+            # for VideoInfo._proxy which is used for slideshow image downloads)
+            extraction_proxy = current_proxy
+
             # Step 3: Download video
-            video_bytes, current_proxy = await self._download_media_with_retry(
+            video_bytes, _ = await self._download_media_with_retry(
                 video_url, current_proxy, full_url
             )
 
@@ -737,7 +748,7 @@ class TikTokClient:
                 author=author,
                 link=video_link,
                 url=video_url,
-                _proxy=current_proxy,
+                _proxy=extraction_proxy,
             )
 
         except TikTokError:
