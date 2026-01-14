@@ -909,19 +909,17 @@ class TikTokClient:
                         total_size = response.headers.get("content-length")
                         total_size = int(total_size) if total_size else None
 
-                        chunks: list[bytes] = []
+                        buf = bytearray()
                         downloaded = 0
                         async for chunk in response.aiter_content(chunk_size):
-                            chunks.append(chunk)
+                            buf.extend(chunk)
                             downloaded += len(chunk)
                             if progress_callback:
                                 progress_callback(downloaded, total_size)
 
                         if duration:
-                            logger.debug(
-                                f"Streamed {downloaded} bytes for {duration}s video"
-                            )
-                        return b"".join(chunks)
+                            logger.debug(f"Streamed {downloaded} bytes for {duration}s video")
+                        return bytes(buf)
                     else:
                         return response.content
 
