@@ -38,6 +38,7 @@
   "error_deleted": "<b>This video has been deleted by the creator.</b>",
   "error_private": "<b>This video is private and cannot be accessed.</b>",
   "error_region": "<b>This video is not available in your region.</b>",
+  "error_invalid_link": "<b>Invalid video link.</b>\nPlease check the link and try again.",
   "error_network": "<b>Network error occurred.</b>\nPlease try again.",
   "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again.",
   "error_too_long": "<b>This video is too long.</b>\nMaximum allowed duration is 30 minutes.",

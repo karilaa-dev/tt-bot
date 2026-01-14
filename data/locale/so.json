@@ -38,6 +38,7 @@
   "error_deleted": "<b>Fiidiyowgan waxaa tirtiray abuurahiisa.</b>",
   "error_private": "<b>Fiidiyowgan waa qarsoon yahay mana la heli karo.</b>",
   "error_region": "<b>Fiidiyowgan laguma heli karo aagaaga.</b>",
+  "error_invalid_link": "<b>Link-a fiidiyowgu ma shaqeynayo.</b>\nFadlan hubi link-a oo isku day mar kale.",
   "error_network": "<b>Khalad shabakad ayaa dhacay.</b>\nFadlan isku day mar kale.",
   "error_rate_limit": "<b>Codsiyo badan ayaa la sameeyay.</b>\nFadlan sug wakhti yar oo isku day mar kale.",
   "error_too_long": "<b>Fiidiyowgan waa dheer yahay.</b>\nMudda ugu badan ee la ogol yahay waa 30 daqiiqo.",

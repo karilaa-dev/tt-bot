@@ -38,6 +38,7 @@
   "error_deleted": "<b>Video này đã bị người tạo xóa.</b>",
   "error_private": "<b>Video này ở chế độ riêng tư và không thể truy cập.</b>",
   "error_region": "<b>Video này không khả dụng ở khu vực của bạn.</b>",
+  "error_invalid_link": "<b>Liên kết video không hợp lệ.</b>\nVui lòng kiểm tra liên kết và thử lại.",
   "error_network": "<b>Đã xảy ra lỗi mạng.</b>\nVui lòng thử lại.",
   "error_rate_limit": "<b>Quá nhiều yêu cầu.</b>\nVui lòng đợi một chút và thử lại.",
   "error_too_long": "<b>Video này quá dài.</b>\nThời lượng tối đa cho phép là 30 phút.",

@@ -29,6 +29,7 @@ from .exceptions import (
     TikTokDeletedError,
     TikTokError,
     TikTokExtractionError,
+    TikTokInvalidLinkError,
     TikTokNetworkError,
     TikTokPrivateError,
     TikTokRateLimitError,
@@ -352,7 +353,7 @@ class TikTokClient:
 
                 return full_url, video_id, current_proxy
 
-            except CurlError as e:
+            except (CurlError, TikTokExtractionError) as e:
                 if attempt < MAX_RETRIES:
                     current_proxy = self._rotate_proxy(current_proxy)
                     delay = 1.0 * (2 ** (attempt - 1))
@@ -621,7 +622,11 @@ class TikTokClient:
     # Public API: Video
     # -------------------------------------------------------------------------
 
-    async def video(self, video_link: str) -> VideoInfo:
+    async def video(
+        self,
+        video_link: str,
+        _resolved: Optional[tuple[str, str, Optional[str]]] = None,
+    ) -> VideoInfo:
         """Extract video/slideshow data from TikTok URL.
 
         Args:
@@ -646,9 +651,12 @@ class TikTokClient:
 
         try:
             # Step 1: Resolve URL and extract video ID
-            full_url, video_id, current_proxy = await self._resolve_and_extract_id(
-                video_link, current_proxy
-            )
+            if _resolved:
+                full_url, video_id, current_proxy = _resolved
+            else:
+                full_url, video_id, current_proxy = await self._resolve_and_extract_id(
+                    video_link, current_proxy
+                )
 
             # Step 2: Fetch video info
             video_data, current_proxy = await self._fetch_video_info_with_retry(
@@ -796,13 +804,20 @@ class TikTokClient:
         """
         last_error: Optional[Exception] = None
 
+        # Resolve URL once before retry loop (has its own 3 retries)
+        current_proxy = self._get_initial_proxy()
+        try:
+            resolved = await self._resolve_and_extract_id(video_link, current_proxy)
+        except (TikTokNetworkError, TikTokExtractionError) as e:
+            raise TikTokInvalidLinkError(f"Invalid video link: {video_link}") from e
+
         for attempt in range(1, max_attempts + 1):
             try:
                 if on_retry:
                     await on_retry(attempt)
 
                 async with asyncio.timeout(request_timeout):
-                    return await self.video(video_link)
+                    return await self.video(video_link, _resolved=resolved)
 
             except asyncio.TimeoutError as e:
                 logger.warning(

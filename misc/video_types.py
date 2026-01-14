@@ -27,6 +27,7 @@ from tiktok_api import (
     TikTokRateLimitError,
     TikTokRegionError,
     TikTokExtractionError,
+    TikTokInvalidLinkError,
     TikTokVideoTooLongError,
     VideoInfo,
     MusicInfo,
@@ -212,6 +213,8 @@ def get_error_message(error: TikTokError, lang: str) -> str:
         return lang_dict.get("error_deleted", "This video has been deleted.")
     elif isinstance(error, TikTokPrivateError):
         return lang_dict.get("error_private", "This video is private.")
+    elif isinstance(error, TikTokInvalidLinkError):
+        return lang_dict.get("error_invalid_link", "Invalid video link.")
     elif isinstance(error, TikTokNetworkError):
         return lang_dict.get("error_network", "Network error occurred.")
     elif isinstance(error, TikTokRateLimitError):
