@@ -17,7 +17,7 @@ from data.config import locale, config
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
-from tiktok_api import TikTokClient, TikTokError
+from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.queue_manager import QueueManager
 from misc.video_types import send_video_result, get_error_message
 
@@ -40,7 +40,7 @@ def please_wait_button(lang):
 @inline_router.inline_query()
 async def handle_inline_query(inline_query: InlineQuery):
     """Handle inline queries and return example results"""
-    api = TikTokClient()
+    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     query_text = inline_query.query.strip()
     user_id = inline_query.from_user.id
     lang = await lang_func(user_id, inline_query.from_user.language_code)
@@ -92,7 +92,7 @@ async def handle_inline_query(inline_query: InlineQuery):
 @inline_router.chosen_inline_result()
 async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     """Handle when user selects an inline result"""
-    api = TikTokClient()
+    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     user_id = chosen_result.from_user.id
     username = chosen_result.from_user.username
     full_name = chosen_result.from_user.full_name
