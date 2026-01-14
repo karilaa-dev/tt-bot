@@ -491,7 +491,7 @@ class TikTokClient:
                     f"Network error after {max_retries} attempts: {e}"
                 ) from e
 
-            except (TikTokError, TikTokDeletedError):
+            except TikTokError:
                 raise
 
             except Exception as e:
@@ -1143,456 +1143,10 @@ class TikTokClient:
             logger.debug(f"yt-dlp using cookie file: {self.cookies}")
         return opts
 
-    def _extract_raw_data_sync(
-        self, url: str, video_id: str, explicit_proxy: Any = ...
-    ) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
-        """
-        Extract raw TikTok data using yt-dlp's internal API.
-        This method supports both videos AND slideshows.
-
-        Args:
-            url: The TikTok URL to extract
-            video_id: The video ID extracted from the URL
-            explicit_proxy: Explicit proxy decision for this request. If provided
-                           (including None), uses this instead of rotation. Pass None
-                           to force direct connection.
-
-        NOTE: This code relies on yt-dlp's private API (_extract_web_data_and_status),
-        which may change or be removed in future yt-dlp releases. Keep yt-dlp up-to-date
-        and be prepared to update this code if the private API changes.
-        """
-        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=explicit_proxy)
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get the TikTok extractor
-                ie = ydl.get_info_extractor("TikTok")
-                ie.set_downloader(ydl)
-
-                # Convert /photo/ to /video/ URL (yt-dlp requirement)
-                normalized_url = url.replace("/photo/", "/video/")
-
-                # Guard: Check if the private method exists before calling it.
-                # This method is part of yt-dlp's internal API and may be absent
-                # in future releases.
-                if not hasattr(ie, "_extract_web_data_and_status"):
-                    logger.error(
-                        "yt-dlp's TikTok extractor is missing '_extract_web_data_and_status' method. "
-                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                        "Please update yt-dlp to a compatible version: pip install -U yt-dlp"
-                    )
-                    raise TikTokExtractionError(
-                        "Incompatible yt-dlp version: missing required internal method. "
-                        "Please update yt-dlp: pip install -U yt-dlp"
-                    )
-
-                try:
-                    # Use yt-dlp's internal method to get raw webpage data
-                    # NOTE: When using a proxy, yt-dlp's impersonate=True feature
-                    # doesn't work correctly. We need to download without impersonate.
-                    if self.proxy_manager and self.proxy_manager.has_proxies():
-                        # Download webpage without impersonate to avoid proxy issues
-                        res = ie._download_webpage_handle(
-                            normalized_url, video_id, fatal=False, impersonate=False
-                        )
-                        if res is False:
-                            raise TikTokExtractionError(
-                                f"Failed to download webpage for video {video_id}"
-                            )
-
-                        webpage, urlh = res
-
-                        # Check for login redirect
-                        import urllib.parse
-
-                        if urllib.parse.urlparse(urlh.url).path == "/login":
-                            raise TikTokExtractionError(
-                                "TikTok is requiring login for access to this content"
-                            )
-
-                        # Extract data manually using yt-dlp's helper methods
-                        video_data = None
-                        status = -1
-
-                        # Try universal data first
-                        if universal_data := ie._get_universal_data(webpage, video_id):
-                            from yt_dlp.utils import traverse_obj
-
-                            status = (
-                                traverse_obj(
-                                    universal_data,
-                                    ("webapp.video-detail", "statusCode", {int}),
-                                )
-                                or 0
-                            )
-                            video_data = traverse_obj(
-                                universal_data,
-                                (
-                                    "webapp.video-detail",
-                                    "itemInfo",
-                                    "itemStruct",
-                                    {dict},
-                                ),
-                            )
-
-                        # Try sigi state data
-                        elif sigi_data := ie._get_sigi_state(webpage, video_id):
-                            from yt_dlp.utils import traverse_obj
-
-                            status = (
-                                traverse_obj(
-                                    sigi_data, ("VideoPage", "statusCode", {int})
-                                )
-                                or 0
-                            )
-                            video_data = traverse_obj(
-                                sigi_data, ("ItemModule", video_id, {dict})
-                            )
-
-                        # Try next.js data
-                        elif next_data := ie._search_nextjs_data(
-                            webpage, video_id, default={}
-                        ):
-                            from yt_dlp.utils import traverse_obj
-
-                            status = (
-                                traverse_obj(
-                                    next_data,
-                                    ("props", "pageProps", "statusCode", {int}),
-                                )
-                                or 0
-                            )
-                            video_data = traverse_obj(
-                                next_data,
-                                (
-                                    "props",
-                                    "pageProps",
-                                    "itemInfo",
-                                    "itemStruct",
-                                    {dict},
-                                ),
-                            )
-
-                        if not video_data:
-                            raise TikTokExtractionError(
-                                "Unable to extract webpage video data"
-                            )
-                    else:
-                        # No proxy, use the standard method with impersonate
-                        video_data, status = ie._extract_web_data_and_status(
-                            normalized_url, video_id
-                        )
-                except AttributeError as e:
-                    logger.error(
-                        f"Failed to call yt-dlp internal method: {e}. "
-                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                        "Please update yt-dlp: pip install -U yt-dlp"
-                    )
-                    raise TikTokExtractionError(
-                        "Incompatible yt-dlp version. Please update yt-dlp: pip install -U yt-dlp"
-                    ) from e
-
-                return video_data, status
-        except yt_dlp.utils.DownloadError as e:
-            error_msg = str(e).lower()
-            if (
-                "unavailable" in error_msg
-                or "removed" in error_msg
-                or "deleted" in error_msg
-            ):
-                logger.warning(f"Video appears deleted: {e}")
-                return None, "deleted"
-            elif "private" in error_msg:
-                logger.warning(f"Video is private: {e}")
-                return None, "private"
-            elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
-                logger.warning(f"Rate limited: {e}")
-                return None, "rate_limit"
-            elif (
-                "region" in error_msg
-                or "geo" in error_msg
-                or "country" in error_msg
-                or "not available in your" in error_msg
-            ):
-                logger.warning(f"Region blocked: {e}")
-                return None, "region"
-            # IP blocked and other errors -> generic extraction error
-            logger.error(
-                f"yt-dlp download error for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            return None, "extraction"
-        except yt_dlp.utils.ExtractorError as e:
-            error_msg = str(e)
-            logger.error(
-                f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            # Log additional guidance for common issues
-            if "unable to extract" in error_msg.lower():
-                logger.error(
-                    "This may indicate TikTok changed their page structure. "
-                    "Try updating yt-dlp: pip install -U yt-dlp\n"
-                    "If the issue persists, check https://github.com/yt-dlp/yt-dlp/issues"
-                )
-            return None, "extraction"
-        except TikTokError:
-            raise
-        except Exception as e:
-            logger.error(
-                f"yt-dlp extraction failed for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Error type: {type(e).__name__}",
-                exc_info=True,
-            )
-            return None, "extraction"
-
-    def _extract_with_context_sync(
-        self, url: str, video_id: str, request_proxy: Any = ...
-    ) -> Tuple[Optional[dict[str, Any]], Optional[str], Optional[dict[str, Any]]]:
-        """
-        Extract TikTok data and return the download context for later media downloads.
-
-        This method keeps the YoutubeDL instance alive so it can be reused for
-        downloading media (videos, images) with the same auth context.
-
-        Args:
-            url: The TikTok URL to extract
-            video_id: The video ID extracted from the URL
-            request_proxy: Explicit proxy decision for this request. If provided
-                          (including None), uses this instead of rotation and stores
-                          in download_context for media downloads. Pass None to force
-                          direct connection.
-
-        Returns:
-            Tuple of (video_data, status, download_context)
-            - video_data: Raw TikTok API response
-            - status: Error status string or None
-            - download_context: Dict with 'ydl', 'ie', 'referer_url', 'proxy' for media downloads
-
-        Note:
-            The caller is responsible for closing the YDL instance in download_context
-            when done. On error paths, this method closes the YDL instance before returning.
-        """
-        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=request_proxy)
-        ydl = None
-
-        try:
-            # Create YDL instance WITHOUT context manager so it stays alive
-            ydl = yt_dlp.YoutubeDL(ydl_opts)
-
-            # Get the TikTok extractor
-            ie = ydl.get_info_extractor("TikTok")
-            ie.set_downloader(ydl)
-
-            # Convert /photo/ to /video/ URL (yt-dlp requirement)
-            normalized_url = url.replace("/photo/", "/video/")
-
-            # Guard: Check if the private method exists
-            if not hasattr(ie, "_extract_web_data_and_status"):
-                logger.error(
-                    "yt-dlp's TikTok extractor is missing '_extract_web_data_and_status' method. "
-                    f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                    "Please update yt-dlp: pip install -U yt-dlp"
-                )
-                raise TikTokExtractionError(
-                    "Incompatible yt-dlp version: missing required internal method. "
-                    "Please update yt-dlp: pip install -U yt-dlp"
-                )
-
-            try:
-                # Use yt-dlp's internal method to get raw webpage data
-                # This also sets up all necessary cookies
-                # NOTE: When using a proxy, yt-dlp's impersonate=True feature
-                # doesn't work correctly. We need to download without impersonate.
-                if self.proxy_manager and self.proxy_manager.has_proxies():
-                    # Download webpage without impersonate to avoid proxy issues
-                    res = ie._download_webpage_handle(
-                        normalized_url, video_id, fatal=False, impersonate=False
-                    )
-                    if res is False:
-                        raise TikTokExtractionError(
-                            f"Failed to download webpage for video {video_id}"
-                        )
-
-                    webpage, urlh = res
-
-                    # Check for login redirect
-                    import urllib.parse
-
-                    if urllib.parse.urlparse(urlh.url).path == "/login":
-                        raise TikTokExtractionError(
-                            "TikTok is requiring login for access to this content"
-                        )
-
-                    # Extract data manually using yt-dlp's helper methods
-                    video_data = None
-                    status = -1
-
-                    # Try universal data first
-                    if universal_data := ie._get_universal_data(webpage, video_id):
-                        from yt_dlp.utils import traverse_obj
-
-                        status = (
-                            traverse_obj(
-                                universal_data,
-                                ("webapp.video-detail", "statusCode", {int}),
-                            )
-                            or 0
-                        )
-                        video_data = traverse_obj(
-                            universal_data,
-                            ("webapp.video-detail", "itemInfo", "itemStruct", {dict}),
-                        )
-
-                    # Try sigi state data
-                    elif sigi_data := ie._get_sigi_state(webpage, video_id):
-                        from yt_dlp.utils import traverse_obj
-
-                        status = (
-                            traverse_obj(sigi_data, ("VideoPage", "statusCode", {int}))
-                            or 0
-                        )
-                        video_data = traverse_obj(
-                            sigi_data, ("ItemModule", video_id, {dict})
-                        )
-
-                    # Try next.js data
-                    elif next_data := ie._search_nextjs_data(
-                        webpage, video_id, default={}
-                    ):
-                        from yt_dlp.utils import traverse_obj
-
-                        status = (
-                            traverse_obj(
-                                next_data, ("props", "pageProps", "statusCode", {int})
-                            )
-                            or 0
-                        )
-                        video_data = traverse_obj(
-                            next_data,
-                            ("props", "pageProps", "itemInfo", "itemStruct", {dict}),
-                        )
-
-                    if not video_data:
-                        raise TikTokExtractionError(
-                            "Unable to extract webpage video data"
-                        )
-                else:
-                    # No proxy, use the standard method with impersonate
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
-            except AttributeError as e:
-                logger.error(
-                    f"Failed to call yt-dlp internal method: {e}. "
-                    f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                    "Please update yt-dlp: pip install -U yt-dlp"
-                )
-                raise TikTokExtractionError(
-                    "Incompatible yt-dlp version. Please update: pip install -U yt-dlp"
-                ) from e
-
-            # Create download context with the live instances
-            download_context = {
-                "ydl": ydl,
-                "ie": ie,
-                "referer_url": url,
-                "proxy": request_proxy,  # Store proxy for per-request assignment
-            }
-
-            # Success - transfer ownership of ydl to caller via download_context
-            # Set ydl to None so finally block doesn't close it
-            ydl = None
-            return video_data, status, download_context
-
-        except yt_dlp.utils.DownloadError as e:
-            error_msg = str(e).lower()
-            if (
-                "unavailable" in error_msg
-                or "removed" in error_msg
-                or "deleted" in error_msg
-            ):
-                logger.warning(f"Video appears deleted: {e}")
-                return None, "deleted", None
-            elif "private" in error_msg:
-                logger.warning(f"Video is private: {e}")
-                return None, "private", None
-            elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
-                logger.warning(f"Rate limited: {e}")
-                return None, "rate_limit", None
-            elif (
-                "region" in error_msg
-                or "geo" in error_msg
-                or "country" in error_msg
-                or "not available in your" in error_msg
-            ):
-                logger.warning(f"Region blocked: {e}")
-                return None, "region", None
-            logger.error(
-                f"yt-dlp download error for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            return None, "extraction", None
-        except yt_dlp.utils.ExtractorError as e:
-            error_msg = str(e)
-            logger.error(
-                f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            # Log additional guidance for common issues
-            if "unable to extract" in error_msg.lower():
-                logger.error(
-                    "This may indicate TikTok changed their page structure. "
-                    "Try updating yt-dlp: pip install -U yt-dlp\n"
-                    "If the issue persists, check https://github.com/yt-dlp/yt-dlp/issues"
-                )
-            return None, "extraction", None
-        except TikTokError:
-            raise
-        except Exception as e:
-            logger.error(
-                f"yt-dlp extraction failed for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Error type: {type(e).__name__}",
-                exc_info=True,
-            )
-            return None, "extraction", None
-        finally:
-            # Close ydl if we still own it (i.e., we didn't successfully transfer
-            # ownership to the caller via download_context)
-            if ydl is not None:
-                try:
-                    ydl.close()
-                except Exception:
-                    pass
-
     async def _run_sync(self, func: Any, *args: Any) -> Any:
         """Run synchronous function in executor."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._get_executor(), func, *args)
-
-    def _close_download_context(
-        self, download_context: Optional[dict[str, Any]]
-    ) -> None:
-        """Close the YoutubeDL instance in a download context if present.
-
-        Args:
-            download_context: Dict containing 'ydl' key with YoutubeDL instance, or None
-        """
-        if download_context and "ydl" in download_context:
-            try:
-                download_context["ydl"].close()
-            except Exception:
-                pass  # Ignore errors during cleanup
 
     def _raise_for_status(self, status: str, video_link: str) -> None:
         """Raise appropriate exception based on status string."""
@@ -1614,10 +1168,9 @@ class TikTokClient:
 
     async def download_image(self, image_url: str, video_info: VideoInfo) -> bytes:
         """
-        Download an image using async aiohttp with yt-dlp bypass headers/cookies.
+        Download an image using curl_cffi with browser impersonation.
 
-        This method uses the download context that was saved during video extraction,
-        applying the same cookies and headers for authentication.
+        Uses the same TLS fingerprint bypass as video downloads.
 
         Args:
             image_url: Direct URL to the image on TikTok CDN
@@ -1636,14 +1189,64 @@ class TikTokClient:
                 "VideoInfo has no download context - was it extracted as a slideshow?"
             )
 
-        result = await self._download_media_async(
-            image_url, video_info._download_context
+        # Extract referer and proxy from context
+        referer_url = video_info._download_context.get(
+            "referer_url", "https://www.tiktok.com/"
+        )
+        proxy = video_info._download_context.get("proxy")
+
+        # Skip proxy for downloads if data_only_proxy is True
+        if self.data_only_proxy:
+            proxy = None
+
+        headers = self._get_bypass_headers(referer_url)
+        session = self._get_curl_session()
+
+        logger.debug(
+            f"Downloading image: {image_url[:80]}... "
+            f"(proxy: {_strip_proxy_auth(proxy)})"
         )
 
-        if result is None:
-            raise TikTokNetworkError(f"Failed to download image: {image_url}")
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            logger.debug(f"Image download attempt {attempt}/{max_retries}")
+            response = None
+            try:
+                response = await session.get(
+                    image_url,
+                    headers=headers,
+                    proxy=proxy,
+                    timeout=60,
+                    allow_redirects=True,
+                )
 
-        return result
+                if response.status_code == 200:
+                    logger.debug(
+                        f"Image download successful: {len(response.content)} bytes"
+                    )
+                    return response.content
+
+                logger.warning(
+                    f"Image download attempt {attempt}/{max_retries} "
+                    f"failed with status {response.status_code}"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"Image download attempt {attempt}/{max_retries} "
+                    f"failed with error: {e}"
+                )
+            finally:
+                if response is not None:
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
+
+            if attempt < max_retries:
+                await asyncio.sleep(1.0 * attempt)  # Exponential backoff
+
+        raise TikTokNetworkError(f"Failed to download image after {max_retries} attempts: {image_url}")
 
     async def detect_image_format(self, image_url: str, video_info: VideoInfo) -> str:
         """
