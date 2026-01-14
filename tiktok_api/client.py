@@ -81,9 +81,17 @@ class TikTokClient:
         >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
     """
 
-    # Shared curl_cffi session
+    # Shared curl_cffi session (class-level singleton)
     _curl_session: Optional[CurlAsyncSession] = None
     _impersonate_target: Optional[str] = None
+    _session_lock: Optional[asyncio.Lock] = None
+
+    @classmethod
+    def _get_session_lock(cls) -> asyncio.Lock:
+        """Get or create session lock. Safe because Lock() creation is atomic."""
+        if cls._session_lock is None:
+            cls._session_lock = asyncio.Lock()
+        return cls._session_lock
 
     @classmethod
     def _get_impersonate_target(cls) -> str:
@@ -127,31 +135,53 @@ class TikTokClient:
         return best_name
 
     @classmethod
-    def _get_curl_session(cls) -> CurlAsyncSession:
-        """Get or create shared curl_cffi AsyncSession."""
-        if cls._curl_session is None:
-            from data.config import config
+    async def _get_curl_session(cls) -> CurlAsyncSession:
+        """Get or create shared curl_cffi AsyncSession (async-safe).
 
-            perf_config = config.get("performance", {})
-            pool_size = perf_config.get("curl_pool_size", 200)
+        Uses double-checked locking to ensure only one session is created
+        even under concurrent first-use from multiple coroutines.
+        """
+        # Fast path - already initialized
+        if cls._curl_session is not None:
+            return cls._curl_session
 
-            cls._impersonate_target = cls._get_impersonate_target()
-            cls._curl_session = CurlAsyncSession(
-                impersonate=cls._impersonate_target,  # type: ignore[arg-type]
-                max_clients=pool_size,
-            )
-            logger.info(
-                f"Created curl_cffi session: impersonate={cls._impersonate_target}, "
-                f"max_clients={pool_size}"
-            )
+        # Slow path - acquire lock and double-check
+        async with cls._get_session_lock():
+            if cls._curl_session is None:
+                from data.config import config
+
+                perf_config = config.get("performance", {})
+                pool_size = perf_config.get("curl_pool_size", 200)
+
+                cls._impersonate_target = cls._get_impersonate_target()
+                cls._curl_session = CurlAsyncSession(
+                    impersonate=cls._impersonate_target,  # type: ignore[arg-type]
+                    max_clients=pool_size,
+                )
+                logger.info(
+                    f"Created curl_cffi session: impersonate={cls._impersonate_target}, "
+                    f"max_clients={pool_size}"
+                )
         return cls._curl_session
+
+    @classmethod
+    async def initialize_session(cls) -> None:
+        """Initialize the shared curl_cffi session.
+
+        Call this at application startup to ensure the session is created
+        before any concurrent requests. This avoids the lock overhead during
+        normal operation.
+        """
+        await cls._get_curl_session()
+        logger.info("TikTokClient session initialized")
 
     @classmethod
     async def close_curl_session(cls) -> None:
         """Close shared curl_cffi session. Call on application shutdown."""
-        session = cls._curl_session
-        cls._curl_session = None
-        cls._impersonate_target = None
+        async with cls._get_session_lock():
+            session = cls._curl_session
+            cls._curl_session = None
+            cls._impersonate_target = None
         if session is not None:
             try:
                 await session.close()
@@ -259,7 +289,7 @@ class TikTokClient:
         if not is_short_url:
             return url
 
-        session = self._get_curl_session()
+        session = await self._get_curl_session()
         headers = self._get_headers()
 
         response = await session.get(
@@ -410,7 +440,7 @@ class TikTokClient:
         # Normalize photo URLs to video URLs (TikTok serves slideshow data on /video/ endpoint)
         normalized_url = url.replace("/photo/", "/video/")
 
-        session = self._get_curl_session()
+        session = await self._get_curl_session()
         headers = self._get_headers(normalized_url)
 
         response = await session.get(
@@ -433,6 +463,21 @@ class TikTokClient:
             raise TikTokPrivateError("TikTok requires login to access this content")
 
         html = response.text
+
+        # Debug logging - also serves as a timing buffer for curl_cffi response handling
+        # (removing this logging has caused intermittent extraction failures)
+        has_universal = "__UNIVERSAL_DATA_FOR_REHYDRATION__" in html
+        has_sigi = "SIGI_STATE" in html or "sigi-persisted-data" in html
+        has_next = "__NEXT_DATA__" in html
+        logger.debug(
+            f"Fetched {len(html)} bytes, patterns: UNIVERSAL={has_universal}, "
+            f"SIGI={has_sigi}, NEXT={has_next}"
+        )
+
+        if not any([has_universal, has_sigi, has_next]):
+            # Log preview to help diagnose what TikTok returned
+            logger.warning(f"No data patterns found! HTML preview: {html[:2000]}")
+
         video_data, status = self._parse_webpage_data(html, video_id)
 
         self._check_status(status, url)
@@ -488,7 +533,7 @@ class TikTokClient:
         timeout: int = 60,
     ) -> bytes:
         """Download media (video, audio, image) from TikTok CDN."""
-        session = self._get_curl_session()
+        session = await self._get_curl_session()
         headers = self._get_headers(referer_url)
 
         response = await session.get(
@@ -949,7 +994,7 @@ class TikTokClient:
         if not self.data_only_proxy and video_info._proxy:
             proxy = video_info._proxy
 
-        session = self._get_curl_session()
+        session = await self._get_curl_session()
         headers = self._get_headers(video_info.link)
         headers["Range"] = "bytes=0-19"
 

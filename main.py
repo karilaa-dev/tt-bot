@@ -30,6 +30,9 @@ async def main() -> None:
         )
         logging.info("Proxy manager initialized")
 
+    # Initialize TikTok client session early to avoid race conditions
+    await TikTokClient.initialize_session()
+
     scheduler.start()
     dp.include_routers(
         user_router,
