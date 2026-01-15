@@ -18,15 +18,6 @@ from tiktok_api import ProxyManager, TikTokClient
 async def main() -> None:
     await setup_db(config["bot"]["db_url"])
 
-    # Configure TikTokClient executor size for high throughput
-    # Must be called before any TikTokClient is instantiated
-    TikTokClient.set_executor_size(config["performance"]["thread_pool_size"])
-    logging.info(
-        f"TikTokClient configured: executor={config['performance']['thread_pool_size']} workers, "
-        f"aiohttp_pool={config['performance']['aiohttp_pool_size']}, "
-        f"limit_per_host={config['performance']['aiohttp_limit_per_host']}"
-    )
-
     # Initialize proxy manager if configured
     if config["proxy"]["proxy_file"]:
         ProxyManager.initialize(

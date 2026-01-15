@@ -24,12 +24,10 @@ async def send_tiktok_sound(callback_query: CallbackQuery):
     chat_id = call_msg.chat.id
     video_id = callback_query.data.lstrip("id/")
     status_message = None
-    # Api init with proxy support and performance settings
+    # Api init with proxy support
     api = TikTokClient(
         proxy_manager=ProxyManager.get_instance(),
         data_only_proxy=config["proxy"]["data_only"],
-        aiohttp_pool_size=config["performance"]["aiohttp_pool_size"],
-        aiohttp_limit_per_host=config["performance"]["aiohttp_limit_per_host"],
     )
     # Group chat set
     group_chat = call_msg.chat.type != "private"
