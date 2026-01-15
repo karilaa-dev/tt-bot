@@ -118,14 +118,7 @@ class ProxyConfig(TypedDict):
 class PerformanceConfig(TypedDict):
     """Type definition for performance configuration."""
 
-    thread_pool_size: int  # ThreadPoolExecutor workers for sync yt-dlp calls
-    aiohttp_pool_size: int  # Total aiohttp connection pool size (legacy, for redirects)
-    aiohttp_limit_per_host: int  # Per-host connection limit
-    max_concurrent_images: int  # Max parallel image downloads per slideshow
-    curl_pool_size: int  # curl_cffi max_clients for media downloads
-    streaming_duration_threshold: (
-        int  # Use streaming for videos longer than this (seconds)
-    )
+    streaming_duration_threshold: int  # Use streaming for videos longer than this (seconds), 0 = never
     max_video_duration: int  # Maximum video duration in seconds (0 = no limit)
 
 
@@ -173,7 +166,7 @@ config: Config = {
         "daily_stats_message_id": os.getenv("DAILY_STATS_MESSAGE_ID", "0"),
     },
     "queue": {
-        "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
+        "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 0),  # 0 = no limit
     },
     "retry": {
         "url_resolve_max_retries": _parse_int_env("URL_RESOLVE_MAX_RETRIES", 3),
@@ -186,15 +179,8 @@ config: Config = {
         "include_host": os.getenv("PROXY_INCLUDE_HOST", "false").lower() == "true",
     },
     "performance": {
-        "thread_pool_size": _parse_int_env("THREAD_POOL_SIZE", 128),
-        "aiohttp_pool_size": _parse_int_env("AIOHTTP_POOL_SIZE", 200),
-        "aiohttp_limit_per_host": _parse_int_env("AIOHTTP_LIMIT_PER_HOST", 50),
-        "max_concurrent_images": _parse_int_env("MAX_CONCURRENT_IMAGES", 20),
-        "curl_pool_size": _parse_int_env("CURL_POOL_SIZE", 200),
-        "streaming_duration_threshold": _parse_int_env(
-            "STREAMING_DURATION_THRESHOLD", 300
-        ),
-        "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 1800),  # 30 minutes
+        "streaming_duration_threshold": _parse_int_env("STREAMING_DURATION_THRESHOLD", 300),
+        "max_video_duration": _parse_int_env("MAX_VIDEO_DURATION", 0),  # 0 = no limit
     },
     "logging": {
         "log_level": _parse_log_level("LOG_LEVEL", "INFO"),

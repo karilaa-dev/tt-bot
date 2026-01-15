@@ -284,9 +284,9 @@ async def send_video_result(
         if not isinstance(video_data, bytes):
             raise ValueError("Video data must be bytes for inline messages")
 
-        # Download thumbnail for videos > 1 minute
+        # Download thumbnail for videos > 30 seconds
         thumbnail = None
-        if video_duration and video_duration > 60:
+        if video_duration and video_duration > 30:
             thumbnail = await download_thumbnail(video_info.cover, video_id)
 
         # Upload to storage channel to get file_id
@@ -440,35 +440,23 @@ async def download_images_parallel(
     image_urls: list[str],
     client: TikTokClient,
     video_info: VideoInfo,
-    max_concurrent: int | None = None,
 ) -> list[bytes | BaseException]:
     """
-    Download multiple images in parallel with concurrency limit.
+    Download multiple images in parallel with no concurrency limit.
 
-    Uses semaphore to prevent overwhelming TikTok CDN while maximizing throughput.
+    Downloads all images simultaneously for maximum throughput.
     This is significantly faster than sequential downloads for slideshows.
 
     Args:
         image_urls: List of image URLs to download
         client: TikTokClient instance for authenticated downloads
         video_info: VideoInfo containing download context
-        max_concurrent: Maximum concurrent downloads. If None, uses config value.
 
     Returns:
         List of image bytes (or exceptions for failed downloads)
     """
-    if max_concurrent is None:
-        perf_config = config.get("performance")
-        max_concurrent = perf_config["max_concurrent_images"] if perf_config else 20
-
-    semaphore = asyncio.Semaphore(max_concurrent)
-
-    async def download_with_limit(url: str) -> bytes:
-        async with semaphore:
-            return await client.download_image(url, video_info)
-
     return await asyncio.gather(
-        *[download_with_limit(url) for url in image_urls],
+        *[client.download_image(url, video_info) for url in image_urls],
         return_exceptions=True,  # Don't fail all if one fails
     )
 

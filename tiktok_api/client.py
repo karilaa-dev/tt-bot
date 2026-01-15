@@ -159,25 +159,22 @@ class TikTokClient:
         cookies: Optional path to a Netscape-format cookies file (e.g., exported from browser).
             If not provided, uses YTDLP_COOKIES env var. If the file doesn't exist,
             a warning is logged and cookies are not used.
-        aiohttp_pool_size: Total connection pool size for async downloads. Default: 200.
-        aiohttp_limit_per_host: Per-host connection limit. Default: 50.
 
     Example:
         >>> from tiktok_api import TikTokClient, ProxyManager
         >>> proxy_manager = ProxyManager.initialize("proxies.txt", include_host=True)
         >>> client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
         >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
-        >>> print(video_info.author)
         >>> print(video_info.duration)
 
         # With cookies for authenticated requests:
         >>> client = TikTokClient(cookies="cookies.txt")
     """
 
-    # Configurable executor - call set_executor_size() before first use
+    # Thread pool for sync yt-dlp extraction calls
     _executor: Optional[ThreadPoolExecutor] = None
     _executor_lock = threading.Lock()
-    _executor_size: int = 128  # Default, configurable via set_executor_size()
+    _executor_size: int = 500  # High value for maximum throughput
 
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
@@ -263,16 +260,12 @@ class TikTokClient:
 
         The session uses yt-dlp's BROWSER_TARGETS to select the best impersonation
         target, ensuring TLS fingerprint matches a real browser.
-
-        Pool size is configurable via CURL_POOL_SIZE environment variable.
         """
         with cls._curl_session_lock:
             # Check if session needs to be created
             # Note: CurlAsyncSession doesn't have is_closed, we track via _curl_session being None
             if cls._curl_session is None:
-                perf_config = config.get("performance", {})
-                pool_size = perf_config.get("curl_pool_size", 200)
-
+                pool_size = 10000  # High value for maximum throughput
                 cls._impersonate_target = cls._get_impersonate_target()
                 cls._curl_session = CurlAsyncSession(
                     impersonate=cls._impersonate_target,
@@ -298,24 +291,6 @@ class TikTokClient:
                 logger.debug(f"Error closing curl_cffi session: {e}")
 
     @classmethod
-    def set_executor_size(cls, size: int) -> None:
-        """Set executor size before first use. Call at app startup.
-
-        Args:
-            size: Number of worker threads for sync yt-dlp extraction calls.
-                  Higher values allow more concurrent extractions.
-        """
-        with cls._executor_lock:
-            if cls._executor is not None:
-                logger.warning(
-                    f"Executor already created with {cls._executor._max_workers} workers. "
-                    f"set_executor_size({size}) has no effect. Call before first TikTokClient use."
-                )
-                return
-            cls._executor_size = size
-            logger.info(f"TikTokClient executor size set to {size}")
-
-    @classmethod
     def _get_executor(cls) -> ThreadPoolExecutor:
         """Get or create the shared ThreadPoolExecutor."""
         with cls._executor_lock:
@@ -330,21 +305,17 @@ class TikTokClient:
             return cls._executor
 
     @classmethod
-    def _get_connector(cls, pool_size: int, limit_per_host: int = 50) -> TCPConnector:
+    def _get_connector(cls) -> TCPConnector:
         """Get or create shared aiohttp connector for URL resolution.
 
         Note: This is only used for resolving short URLs (vm.tiktok.com, vt.tiktok.com).
         Media downloads use curl_cffi for browser impersonation.
-
-        Args:
-            pool_size: Total connection pool size
-            limit_per_host: Maximum connections per host
         """
         with cls._connector_lock:
             if cls._aiohttp_connector is None or cls._aiohttp_connector.closed:
                 cls._aiohttp_connector = TCPConnector(
-                    limit=pool_size,
-                    limit_per_host=limit_per_host,
+                    limit=0,  # Unlimited connections
+                    limit_per_host=0,  # Unlimited per-host connections
                     ttl_dns_cache=300,
                     enable_cleanup_closed=True,
                     force_close=False,  # Keep connections alive for reuse
@@ -375,13 +346,9 @@ class TikTokClient:
         proxy_manager: Optional["ProxyManager"] = None,
         data_only_proxy: bool = False,
         cookies: Optional[str] = None,
-        aiohttp_pool_size: int = 200,
-        aiohttp_limit_per_host: int = 50,
     ):
         self.proxy_manager = proxy_manager
         self.data_only_proxy = data_only_proxy
-        self.aiohttp_pool_size = aiohttp_pool_size
-        self.aiohttp_limit_per_host = aiohttp_limit_per_host
 
         # Handle cookies with validation
         cookies_path = cookies or os.getenv("YTDLP_COOKIES")
@@ -729,9 +696,7 @@ class TikTokClient:
         if not is_short_url:
             return url
 
-        connector = self._get_connector(
-            self.aiohttp_pool_size, self.aiohttp_limit_per_host
-        )
+        connector = self._get_connector()
         timeout = ClientTimeout(total=15, connect=5, sock_read=10)
         last_error: Optional[Exception] = None
 
@@ -1349,21 +1314,20 @@ class TikTokClient:
         video_info: VideoInfo,
         proxy_session: ProxySession,
         max_retries: Optional[int] = None,
-        max_concurrent: Optional[int] = None,
     ) -> list[bytes]:
         """Download all slideshow images with individual retry per image.
 
         Part 3 of the 3-part retry strategy for slideshows.
 
-        Downloads all images in parallel. If an individual image fails,
-        retries only that image with a new proxy (up to max_retries per image).
-        Successfully downloaded images are kept.
+        Downloads all images in parallel with no concurrency limit.
+        If an individual image fails, retries only that image with a
+        new proxy (up to max_retries per image). Successfully downloaded
+        images are kept.
 
         Args:
             video_info: VideoInfo object containing image URLs in data field
             proxy_session: ProxySession for proxy management
             max_retries: Maximum retry attempts per image (default from config)
-            max_concurrent: Maximum concurrent downloads (default from config)
 
         Returns:
             List of image bytes in the same order as input URLs
@@ -1382,10 +1346,6 @@ class TikTokClient:
             retry_config = config.get("retry", {})
             max_retries = retry_config.get("download_max_retries", 3)
 
-        if max_concurrent is None:
-            perf_config = config.get("performance", {})
-            max_concurrent = perf_config.get("max_concurrent_images", 20)
-
         image_urls: list[str] = video_info.data  # type: ignore
         num_images = len(image_urls)
 
@@ -1394,21 +1354,18 @@ class TikTokClient:
         retry_counts: list[int] = [0] * num_images
         failed_indices: set[int] = set(range(num_images))  # All start as "to download"
 
-        semaphore = asyncio.Semaphore(max_concurrent)
-
         async def download_single_image(
             index: int, url: str, proxy: Optional[str]
         ) -> Tuple[int, Optional[bytes], Optional[Exception]]:
-            """Download a single image with semaphore limiting."""
-            async with semaphore:
-                context_with_proxy = {**video_info._download_context, "proxy": proxy}
-                try:
-                    result = await self._download_media_async(
-                        url, context_with_proxy, max_retries=1
-                    )
-                    return index, result, None
-                except Exception as e:
-                    return index, None, e
+            """Download a single image."""
+            context_with_proxy = {**video_info._download_context, "proxy": proxy}
+            try:
+                result = await self._download_media_async(
+                    url, context_with_proxy, max_retries=1
+                )
+                return index, result, None
+            except Exception as e:
+                return index, None, e
 
         # First pass: download all images in parallel
         proxy = proxy_session.get_proxy()
@@ -1661,7 +1618,6 @@ class TikTokClient:
                         width=None,
                         height=None,
                         duration=None,
-                        author=author,
                         link=video_link,
                         url=None,
                         _download_context=download_context,
@@ -1714,7 +1670,6 @@ class TikTokClient:
             # Extract remaining metadata from raw data
             width = video_info_data.get("width")
             height = video_info_data.get("height")
-            author = video_data.get("author", {}).get("uniqueId", "")
             cover = video_info_data.get("cover") or video_info_data.get("originCover")
 
             return VideoInfo(
@@ -1725,7 +1680,6 @@ class TikTokClient:
                 width=int(width) if width else None,
                 height=int(height) if height else None,
                 duration=duration,
-                author=author,
                 link=video_link,
                 url=video_url,
             )

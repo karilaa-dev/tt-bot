@@ -12,7 +12,6 @@ Example:
     >>> client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
     >>> try:
     ...     video_info = await client.video("https://www.tiktok.com/@user/video/123")
-    ...     print(video_info.author)
     ...     print(video_info.id)
     ...     if video_info.is_video:
     ...         print(f"Duration: {video_info.duration}s")

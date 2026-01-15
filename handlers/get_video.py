@@ -41,12 +41,10 @@ def try_again_button(lang: str):
 
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
-    # Api init with proxy support and performance settings
+    # Api init with proxy support
     api = TikTokClient(
         proxy_manager=ProxyManager.get_instance(),
         data_only_proxy=config["proxy"]["data_only"],
-        aiohttp_pool_size=config["performance"]["aiohttp_pool_size"],
-        aiohttp_limit_per_host=config["performance"]["aiohttp_limit_per_host"],
     )
     # Status message var
     status_message = False
@@ -77,15 +75,17 @@ async def send_tiktok_video(message: Message):
                 await message.reply(locale[lang]["link_error"])
             return
 
-        # Check per-user queue limit before proceeding
-        user_queue_count = queue.get_user_queue_count(message.chat.id)
-        if user_queue_count >= queue_config["max_user_queue_size"]:
-            if not group_chat:
-                await message.reply(
-                    locale[lang]["error_queue_full"].format(user_queue_count),
-                    reply_markup=try_again_button(lang),
-                )
-            return
+        # Check per-user queue limit before proceeding (0 = no limit)
+        max_queue = queue_config["max_user_queue_size"]
+        if max_queue > 0:
+            user_queue_count = queue.get_user_queue_count(message.chat.id)
+            if user_queue_count >= max_queue:
+                if not group_chat:
+                    await message.reply(
+                        locale[lang]["error_queue_full"].format(user_queue_count),
+                        reply_markup=try_again_button(lang),
+                    )
+                return
 
         # Try to send initial reaction to show processing started
         try:

@@ -24,7 +24,6 @@ class VideoInfo:
         width: Video width in pixels (None for slideshows)
         height: Video height in pixels (None for slideshows)
         duration: Video duration in seconds (None for slideshows)
-        author: Author's username
         link: Original TikTok link
         url: Direct video URL (only present for videos, None for slideshows)
     """
@@ -36,7 +35,6 @@ class VideoInfo:
     width: Optional[int]
     height: Optional[int]
     duration: Optional[int]
-    author: str
     link: str
     url: Optional[str] = None  # Only present for videos
 

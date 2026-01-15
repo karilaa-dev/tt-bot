@@ -83,7 +83,7 @@ class QueueManager:
             True if acquired successfully, False if user limit exceeded
         """
         async with self._lock:
-            if not bypass_user_limit:
+            if not bypass_user_limit and self.max_user_queue > 0:
                 current_count = self._user_info_counts.get(user_id, 0)
                 if current_count >= self.max_user_queue:
                     logger.debug(
