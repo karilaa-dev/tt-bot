@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 from aiogram import Router
@@ -17,7 +16,7 @@ from data.config import locale, config
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
-from tiktok_api import TikTokClient, TikTokError
+from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.queue_manager import QueueManager
 from misc.video_types import send_video_result, get_error_message
 
@@ -40,7 +39,7 @@ def please_wait_button(lang):
 @inline_router.inline_query()
 async def handle_inline_query(inline_query: InlineQuery):
     """Handle inline queries and return example results"""
-    api = TikTokClient()
+    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     query_text = inline_query.query.strip()
     user_id = inline_query.from_user.id
     lang = await lang_func(user_id, inline_query.from_user.language_code)
@@ -92,7 +91,7 @@ async def handle_inline_query(inline_query: InlineQuery):
 @inline_router.chosen_inline_result()
 async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     """Handle when user selects an inline result"""
-    api = TikTokClient()
+    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     user_id = chosen_result.from_user.id
     username = chosen_result.from_user.username
     full_name = chosen_result.from_user.full_name
@@ -104,29 +103,8 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         return
     lang, file_mode = settings
 
-    # Get queue manager and retry config
+    # Get queue manager
     queue = QueueManager.get_instance()
-    retry_config = config["queue"]
-    max_attempts = retry_config["retry_max_attempts"]
-
-    # Define callback to update inline message on retry
-    async def update_inline_status(attempt: int):
-        """Update inline message text on each retry attempt."""
-        # Don't show attempt count on first attempt
-        if attempt == 1:
-            return
-        try:
-            retry_text = locale[lang]["inline_retry_attempt"].format(
-                attempt, max_attempts
-            )
-            await bot.edit_message_text(
-                inline_message_id=message_id,
-                text=f"{retry_text}\n\n{locale[lang]['inline_download_video_text']}",
-            )
-        except Exception as e:
-            logging.debug(f"Failed to update inline retry status: {e}")
-        # Brief delay to allow message update to register before retry
-        await asyncio.sleep(0.5)
 
     try:
         # Use queue with bypass_user_limit=True for inline downloads
@@ -139,13 +117,8 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
                 )
                 return
 
-            # Use video_with_retry for inline downloads too
-            video_info = await api.video_with_retry(
-                video_link,
-                max_attempts=max_attempts,
-                request_timeout=retry_config["retry_request_timeout"],
-                on_retry=update_inline_status,
-            )
+            # Use video() with 3-part retry strategy (same as regular downloads)
+            video_info = await api.video(video_link)
 
         if video_info.is_slideshow:  # Process image
             # Clean up resources before returning (close YDL context)

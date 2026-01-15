@@ -7,6 +7,7 @@ import random
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Tuple
 
 # Type alias for download progress callback: (bytes_downloaded, total_bytes or None)
@@ -37,6 +38,7 @@ from .exceptions import (
     TikTokDeletedError,
     TikTokError,
     TikTokExtractionError,
+    TikTokInvalidLinkError,
     TikTokNetworkError,
     TikTokPrivateError,
     TikTokRateLimitError,
@@ -44,6 +46,7 @@ from .exceptions import (
     TikTokVideoTooLongError,
 )
 from .models import MusicInfo, VideoInfo
+from data.config import config
 
 if TYPE_CHECKING:
     from .proxy_manager import ProxyManager
@@ -52,6 +55,89 @@ logger = logging.getLogger(__name__)
 
 # Regex for extracting video ID from redirected URLs (used by legacy get_id functions)
 _redirect_regex = re.compile(r"https?://[^\s]+tiktok\.com/[^\s]+?/([0-9]+)")
+
+
+def _strip_proxy_auth(proxy_url: Optional[str]) -> str:
+    """Strip authentication info from proxy URL for safe logging.
+
+    Args:
+        proxy_url: Proxy URL that may contain credentials (e.g., http://user:pass@host:port)
+
+    Returns:
+        Proxy URL without credentials (e.g., http://host:port) or "direct connection" if None
+    """
+    if proxy_url is None:
+        return "direct connection"
+
+    # Match proxy URL pattern: protocol://[user:pass@]host:port
+    match = re.match(r"^(https?://)(?:[^@]+@)?(.+)$", proxy_url)
+    if match:
+        protocol, host_port = match.groups()
+        return f"{protocol}{host_port}"
+
+    # If pattern doesn't match, return as-is (shouldn't happen with valid proxy URLs)
+    return proxy_url
+
+
+@dataclass
+class ProxySession:
+    """Manages proxy state for a single video request flow.
+
+    This class ensures that the same proxy is used across all parts of the
+    video extraction flow (URL resolution -> video info -> download) unless
+    a retry is triggered, in which case the proxy is rotated.
+
+    The proxy is lazily initialized on first use (get_proxy) and can be
+    explicitly rotated via rotate_proxy() when retrying a failed operation.
+
+    Usage:
+        proxy_manager = ProxyManager.get_instance()
+        session = ProxySession(proxy_manager)
+
+        # Part 1, 2, 3 use the same proxy
+        proxy = session.get_proxy()
+
+        # On retry, rotate to a new proxy
+        proxy = session.rotate_proxy()
+    """
+
+    proxy_manager: Optional["ProxyManager"]
+    _current_proxy: Optional[str] = field(default=None, init=False)
+    _initialized: bool = field(default=False, init=False)
+
+    def get_proxy(self) -> Optional[str]:
+        """Get the current proxy (lazily initialized on first call).
+
+        Returns:
+            Proxy URL string, or None for direct connection.
+        """
+        if not self._initialized:
+            self._initialized = True
+            if self.proxy_manager:
+                self._current_proxy = self.proxy_manager.get_next_proxy()
+                logger.debug(
+                    f"ProxySession initialized with proxy: "
+                    f"{_strip_proxy_auth(self._current_proxy)}"
+                )
+            else:
+                logger.debug("ProxySession initialized with direct connection")
+        return self._current_proxy
+
+    def rotate_proxy(self) -> Optional[str]:
+        """Rotate to the next proxy in the rotation (for retries).
+
+        Returns:
+            New proxy URL string, or None for direct connection.
+        """
+        if self.proxy_manager:
+            old_proxy = self._current_proxy
+            self._current_proxy = self.proxy_manager.get_next_proxy()
+            logger.debug(
+                f"ProxySession rotated: {_strip_proxy_auth(old_proxy)} -> "
+                f"{_strip_proxy_auth(self._current_proxy)}"
+            )
+        self._initialized = True
+        return self._current_proxy
 
 
 class TikTokClient:
@@ -184,8 +270,6 @@ class TikTokClient:
             # Check if session needs to be created
             # Note: CurlAsyncSession doesn't have is_closed, we track via _curl_session being None
             if cls._curl_session is None:
-                from data.config import config
-
                 perf_config = config.get("performance", {})
                 pool_size = perf_config.get("curl_pool_size", 200)
 
@@ -419,8 +503,6 @@ class TikTokClient:
         Returns:
             Media bytes if successful, None otherwise
         """
-        from data.config import config
-
         perf_config = config.get("performance", {})
         streaming_threshold = perf_config.get("streaming_duration_threshold", 300)
 
@@ -441,6 +523,7 @@ class TikTokClient:
         session = self._get_curl_session()
 
         for attempt in range(1, max_retries + 1):
+            logger.debug(f"CDN download attempt {attempt}/{max_retries} for media URL")
             response = None
             try:
                 response = await session.get(
@@ -603,28 +686,96 @@ class TikTokClient:
                 pass
         return video_id
 
-    async def _resolve_url(self, url: str) -> str:
-        """Resolve short URLs (vm.tiktok.com, vt.tiktok.com) to full URLs.
+    async def _resolve_url(
+        self,
+        url: str,
+        proxy_session: ProxySession,
+        max_retries: Optional[int] = None,
+    ) -> str:
+        """Resolve short URLs to full URLs with retry and proxy rotation.
 
-        Uses shared connector for connection pooling efficiency.
+        Part 1 of the 3-part retry strategy.
+
+        Handles:
+        - vm.tiktok.com short links
+        - vt.tiktok.com short links
+        - www.tiktok.com/t/ short links
+
+        Uses aiohttp without cookies (just follows redirects).
+        Retries with proxy rotation on failure.
+
+        Args:
+            url: URL to resolve (may be short or full URL)
+            proxy_session: ProxySession for proxy management
+            max_retries: Maximum retry attempts (default from config)
+
+        Returns:
+            Resolved full URL
+
+        Raises:
+            TikTokInvalidLinkError: If URL resolution fails after all retries
         """
-        if "vm.tiktok.com" in url or "vt.tiktok.com" in url:
-            connector = self._get_connector(
-                self.aiohttp_pool_size, self.aiohttp_limit_per_host
+        if max_retries is None:
+            retry_config = config.get("retry", {})
+            max_retries = retry_config.get("url_resolve_max_retries", 3)
+
+        # Check for various short URL formats
+        is_short_url = (
+            "vm.tiktok.com" in url
+            or "vt.tiktok.com" in url
+            or "/t/" in url  # Handles www.tiktok.com/t/XXX format
+        )
+
+        if not is_short_url:
+            return url
+
+        connector = self._get_connector(
+            self.aiohttp_pool_size, self.aiohttp_limit_per_host
+        )
+        timeout = ClientTimeout(total=15, connect=5, sock_read=10)
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_retries + 1):
+            proxy = proxy_session.get_proxy()
+            logger.debug(
+                f"URL resolve attempt {attempt}/{max_retries} for {url} "
+                f"via {_strip_proxy_auth(proxy)}"
             )
-            timeout = ClientTimeout(total=15, connect=5, sock_read=10)
+
             try:
                 async with aiohttp.ClientSession(
                     connector=connector,
                     timeout=timeout,
                     connector_owner=False,  # Don't close shared connector
                 ) as session:
-                    async with session.get(url, allow_redirects=True) as response:
-                        return str(response.url)
+                    async with session.get(
+                        url, allow_redirects=True, proxy=proxy
+                    ) as response:
+                        resolved_url = str(response.url)
+                        # Validate that we got a proper TikTok URL
+                        if "tiktok.com" in resolved_url:
+                            logger.debug(f"URL resolved: {url} -> {resolved_url}")
+                            return resolved_url
+                        else:
+                            logger.warning(
+                                f"URL resolution returned unexpected URL: {resolved_url}"
+                            )
+                            last_error = ValueError(f"Unexpected redirect: {resolved_url}")
             except Exception as e:
-                logger.error(f"Failed to resolve URL {url}: {e}")
-                return url
-        return url
+                logger.warning(
+                    f"URL resolve attempt {attempt}/{max_retries} failed for {url}: {e}"
+                )
+                last_error = e
+
+            # Rotate proxy for next attempt (instant retry since different IP)
+            if attempt < max_retries:
+                proxy_session.rotate_proxy()
+
+        # All attempts failed
+        logger.error(
+            f"URL resolution failed after {max_retries} attempts for {url}: {last_error}"
+        )
+        raise TikTokInvalidLinkError("Invalid or expired TikTok link")
 
     def _extract_video_id(self, url: str) -> Optional[str]:
         """Extract video ID from TikTok URL."""
@@ -658,14 +809,16 @@ class TikTokClient:
         if explicit_proxy is not ...:
             if explicit_proxy is not None:
                 opts["proxy"] = explicit_proxy
-                logger.debug(f"Using explicit proxy: {explicit_proxy}")
+                logger.debug(
+                    f"Using explicit proxy: {_strip_proxy_auth(explicit_proxy)}"
+                )
             else:
                 logger.debug("Using explicit direct connection (no proxy)")
         elif use_proxy and self.proxy_manager:
             proxy = self.proxy_manager.get_next_proxy()
             if proxy is not None:  # None means direct connection
                 opts["proxy"] = proxy
-                logger.debug(f"Using proxy: {proxy}")
+                logger.debug(f"Using proxy: {_strip_proxy_auth(proxy)}")
             else:
                 logger.debug("Using direct connection (no proxy)")
 
@@ -673,123 +826,6 @@ class TikTokClient:
             opts["cookiefile"] = self.cookies
             logger.debug(f"yt-dlp using cookie file: {self.cookies}")
         return opts
-
-    def _extract_raw_data_sync(
-        self, url: str, video_id: str, explicit_proxy: Any = ...
-    ) -> Tuple[Optional[dict[str, Any]], Optional[str]]:
-        """
-        Extract raw TikTok data using yt-dlp's internal API.
-        This method supports both videos AND slideshows.
-
-        Args:
-            url: The TikTok URL to extract
-            video_id: The video ID extracted from the URL
-            explicit_proxy: Explicit proxy decision for this request. If provided
-                           (including None), uses this instead of rotation. Pass None
-                           to force direct connection.
-
-        NOTE: This code relies on yt-dlp's private API (_extract_web_data_and_status),
-        which may change or be removed in future yt-dlp releases. Keep yt-dlp up-to-date
-        and be prepared to update this code if the private API changes.
-        """
-        ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=explicit_proxy)
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get the TikTok extractor
-                ie = ydl.get_info_extractor("TikTok")
-                ie.set_downloader(ydl)
-
-                # Convert /photo/ to /video/ URL (yt-dlp requirement)
-                normalized_url = url.replace("/photo/", "/video/")
-
-                # Guard: Check if the private method exists before calling it.
-                # This method is part of yt-dlp's internal API and may be absent
-                # in future releases.
-                if not hasattr(ie, "_extract_web_data_and_status"):
-                    logger.error(
-                        "yt-dlp's TikTok extractor is missing '_extract_web_data_and_status' method. "
-                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                        "Please update yt-dlp to a compatible version: pip install -U yt-dlp"
-                    )
-                    raise TikTokExtractionError(
-                        "Incompatible yt-dlp version: missing required internal method. "
-                        "Please update yt-dlp: pip install -U yt-dlp"
-                    )
-
-                try:
-                    # Use yt-dlp's internal method to get raw webpage data
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
-                except AttributeError as e:
-                    logger.error(
-                        f"Failed to call yt-dlp internal method: {e}. "
-                        f"Current yt-dlp version: {yt_dlp.version.__version__}. "
-                        "Please update yt-dlp: pip install -U yt-dlp"
-                    )
-                    raise TikTokExtractionError(
-                        "Incompatible yt-dlp version. Please update yt-dlp: pip install -U yt-dlp"
-                    ) from e
-
-                return video_data, status
-        except yt_dlp.utils.DownloadError as e:
-            error_msg = str(e).lower()
-            if (
-                "unavailable" in error_msg
-                or "removed" in error_msg
-                or "deleted" in error_msg
-            ):
-                logger.warning(f"Video appears deleted: {e}")
-                return None, "deleted"
-            elif "private" in error_msg:
-                logger.warning(f"Video is private: {e}")
-                return None, "private"
-            elif "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
-                logger.warning(f"Rate limited: {e}")
-                return None, "rate_limit"
-            elif (
-                "region" in error_msg
-                or "geo" in error_msg
-                or "country" in error_msg
-                or "not available in your" in error_msg
-            ):
-                logger.warning(f"Region blocked: {e}")
-                return None, "region"
-            # IP blocked and other errors -> generic extraction error
-            logger.error(
-                f"yt-dlp download error for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            return None, "extraction"
-        except yt_dlp.utils.ExtractorError as e:
-            error_msg = str(e)
-            logger.error(
-                f"yt-dlp extractor error for video {video_id} ({url}): {error_msg}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Proxy: {self._get_proxy_info()}\n"
-                f"  Cookies: {self.cookies or 'None'}"
-            )
-            # Log additional guidance for common issues
-            if "unable to extract" in error_msg.lower():
-                logger.error(
-                    "This may indicate TikTok changed their page structure. "
-                    "Try updating yt-dlp: pip install -U yt-dlp\n"
-                    "If the issue persists, check https://github.com/yt-dlp/yt-dlp/issues"
-                )
-            return None, "extraction"
-        except TikTokError:
-            raise
-        except Exception as e:
-            logger.error(
-                f"yt-dlp extraction failed for video {video_id} ({url}): {e}\n"
-                f"  yt-dlp version: {yt_dlp.version.__version__}\n"
-                f"  Error type: {type(e).__name__}",
-                exc_info=True,
-            )
-            return None, "extraction"
 
     def _extract_with_context_sync(
         self, url: str, video_id: str, request_proxy: Any = ...
@@ -847,9 +883,105 @@ class TikTokClient:
             try:
                 # Use yt-dlp's internal method to get raw webpage data
                 # This also sets up all necessary cookies
-                video_data, status = ie._extract_web_data_and_status(
-                    normalized_url, video_id
-                )
+                # NOTE: When using a proxy, yt-dlp's impersonate=True feature
+                # doesn't work correctly. We need to download without impersonate.
+                if self.proxy_manager and self.proxy_manager.has_proxies():
+                    # Download webpage without impersonate to avoid proxy issues
+                    res = ie._download_webpage_handle(
+                        normalized_url, video_id, fatal=False, impersonate=False
+                    )
+                    if res is False:
+                        raise TikTokExtractionError(
+                            f"Failed to download webpage for video {video_id}"
+                        )
+
+                    webpage, urlh = res
+
+                    # Check for login redirect
+                    import urllib.parse
+
+                    if urllib.parse.urlparse(urlh.url).path == "/login":
+                        raise TikTokExtractionError(
+                            "TikTok is requiring login for access to this content"
+                        )
+
+                    # Extract data manually using yt-dlp's helper methods
+                    video_data = None
+                    status = -1
+
+                    # Try universal data first
+                    if universal_data := ie._get_universal_data(webpage, video_id):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(
+                                universal_data,
+                                ("webapp.video-detail", "statusCode", {int}),
+                            )
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            universal_data,
+                            ("webapp.video-detail", "itemInfo", "itemStruct", {dict}),
+                        )
+
+                    # Try sigi state data
+                    elif sigi_data := ie._get_sigi_state(webpage, video_id):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(sigi_data, ("VideoPage", "statusCode", {int}))
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            sigi_data, ("ItemModule", video_id, {dict})
+                        )
+
+                    # Try next.js data
+                    elif next_data := ie._search_nextjs_data(
+                        webpage, video_id, default={}
+                    ):
+                        from yt_dlp.utils import traverse_obj
+
+                        status = (
+                            traverse_obj(
+                                next_data, ("props", "pageProps", "statusCode", {int})
+                            )
+                            or 0
+                        )
+                        video_data = traverse_obj(
+                            next_data,
+                            ("props", "pageProps", "itemInfo", "itemStruct", {dict}),
+                        )
+
+                    # Check TikTok status codes for errors
+                    # 10204 = Video not found / deleted
+                    # 10216 = Video under review
+                    # 10222 = Private video
+                    if status == 10204:
+                        return None, "deleted", None
+                    elif status == 10222:
+                        return None, "private", None
+                    elif status == 10216:
+                        return None, "deleted", None  # Treat under review as deleted
+
+                    if not video_data:
+                        raise TikTokExtractionError(
+                            f"Unable to extract webpage video data (status: {status})"
+                        )
+                else:
+                    # No proxy, use the standard method with impersonate
+                    video_data, status = ie._extract_web_data_and_status(
+                        normalized_url, video_id
+                    )
+
+                    # Check TikTok status codes for errors (same as proxy path)
+                    if status == 10204:
+                        return None, "deleted", None
+                    elif status == 10222:
+                        return None, "private", None
+                    elif status == 10216:
+                        return None, "deleted", None  # Treat under review as deleted
             except AttributeError as e:
                 logger.error(
                     f"Failed to call yt-dlp internal method: {e}. "
@@ -975,6 +1107,372 @@ class TikTokClient:
             # Handle "extraction" and any unknown status values
             raise TikTokExtractionError(f"Failed to extract video {video_link}")
 
+    async def _extract_video_info_with_retry(
+        self,
+        url: str,
+        video_id: str,
+        proxy_session: ProxySession,
+        max_retries: Optional[int] = None,
+    ) -> Tuple[dict[str, Any], dict[str, Any]]:
+        """Extract video info with retry and proxy rotation.
+
+        Part 2 of the 3-part retry strategy.
+
+        Args:
+            url: Full TikTok URL
+            video_id: Extracted video ID
+            proxy_session: ProxySession for proxy management
+            max_retries: Maximum retry attempts (default from config)
+
+        Returns:
+            Tuple of (video_data, download_context)
+
+        Raises:
+            TikTokDeletedError: Video was deleted (not retried)
+            TikTokPrivateError: Video is private (not retried)
+            TikTokRegionError: Video geo-blocked (not retried)
+            TikTokExtractionError: Extraction failed after all retries
+        """
+        if max_retries is None:
+            retry_config = config.get("retry", {})
+            max_retries = retry_config.get("video_info_max_retries", 3)
+
+        last_error: Optional[Exception] = None
+        download_context: Optional[dict[str, Any]] = None
+
+        for attempt in range(1, max_retries + 1):
+            proxy = proxy_session.get_proxy()
+            logger.debug(
+                f"Video info extraction attempt {attempt}/{max_retries} for {video_id} "
+                f"via {_strip_proxy_auth(proxy)}"
+            )
+
+            try:
+                video_data, status, download_context = await self._run_sync(
+                    self._extract_with_context_sync, url, video_id, proxy
+                )
+
+                # Check for permanent errors - don't retry these
+                if status in ("deleted", "private", "region"):
+                    self._raise_for_status(status, url)
+
+                # Check for transient errors - retry these
+                if status and status not in ("ok", None):
+                    raise TikTokExtractionError(f"Extraction failed with status: {status}")
+
+                if video_data is None:
+                    raise TikTokExtractionError("No video data returned")
+
+                if download_context is None:
+                    raise TikTokExtractionError("No download context returned")
+
+                # Success
+                return video_data, download_context
+
+            except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
+                # Permanent errors - don't retry
+                self._close_download_context(download_context)
+                raise
+
+            except TikTokError as e:
+                # Transient TikTok errors - retry
+                last_error = e
+                self._close_download_context(download_context)
+                download_context = None
+
+            except Exception as e:
+                # Other errors - retry
+                last_error = e
+                self._close_download_context(download_context)
+                download_context = None
+
+            # Rotate proxy for next attempt (instant retry since different IP)
+            if attempt < max_retries:
+                proxy_session.rotate_proxy()
+                logger.warning(
+                    f"Video info extraction attempt {attempt}/{max_retries} failed, "
+                    f"rotating proxy: {last_error}"
+                )
+
+        # All attempts exhausted
+        logger.error(
+            f"Video info extraction failed after {max_retries} attempts "
+            f"for {video_id}: {last_error}"
+        )
+        raise TikTokExtractionError(
+            f"Failed to extract video info after {max_retries} attempts"
+        )
+
+    async def _download_video_with_retry(
+        self,
+        video_url: str,
+        download_context: dict[str, Any],
+        proxy_session: ProxySession,
+        duration: Optional[int] = None,
+        max_retries: Optional[int] = None,
+    ) -> bytes:
+        """Download video with retry and proxy rotation.
+
+        Part 3 of the 3-part retry strategy for videos.
+
+        Args:
+            video_url: Direct video URL from TikTok CDN
+            download_context: Context containing ydl, ie, referer_url
+            proxy_session: ProxySession for proxy management
+            duration: Video duration in seconds (for streaming decision)
+            max_retries: Maximum retry attempts (default from config)
+
+        Returns:
+            Video bytes
+
+        Raises:
+            TikTokNetworkError: Download failed after all retries
+        """
+        if max_retries is None:
+            retry_config = config.get("retry", {})
+            max_retries = retry_config.get("download_max_retries", 3)
+
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_retries + 1):
+            proxy = proxy_session.get_proxy()
+            logger.debug(
+                f"Video download attempt {attempt}/{max_retries} "
+                f"via {_strip_proxy_auth(proxy)}"
+            )
+
+            # Update download context with current proxy
+            context_with_proxy = {**download_context, "proxy": proxy}
+
+            try:
+                # Use single CDN attempt per proxy (cdn_max_retries=1)
+                result = await self._download_media_async(
+                    video_url,
+                    context_with_proxy,
+                    duration=duration,
+                    max_retries=1,  # Single attempt per proxy
+                )
+
+                if result is not None:
+                    return result
+
+                # Download returned None - treat as failure
+                last_error = TikTokNetworkError("Download returned empty result")
+
+            except Exception as e:
+                last_error = e
+
+            # Rotate proxy for next attempt (instant retry since different IP)
+            if attempt < max_retries:
+                proxy_session.rotate_proxy()
+                logger.warning(
+                    f"Video download attempt {attempt}/{max_retries} failed, "
+                    f"rotating proxy: {last_error}"
+                )
+
+        # All attempts exhausted
+        logger.error(
+            f"Video download failed after {max_retries} attempts: {last_error}"
+        )
+        raise TikTokNetworkError(f"Failed to download video after {max_retries} attempts")
+
+    async def _download_music_with_retry(
+        self,
+        music_url: str,
+        download_context: dict[str, Any],
+        proxy_session: ProxySession,
+        max_retries: Optional[int] = None,
+    ) -> bytes:
+        """Download music/audio with retry and proxy rotation.
+
+        Part 3 of the 3-part retry strategy for music.
+
+        Args:
+            music_url: Direct music URL from TikTok CDN
+            download_context: Context containing ydl, ie, referer_url
+            proxy_session: ProxySession for proxy management
+            max_retries: Maximum retry attempts (default from config)
+
+        Returns:
+            Audio bytes
+
+        Raises:
+            TikTokNetworkError: Download failed after all retries
+        """
+        if max_retries is None:
+            retry_config = config.get("retry", {})
+            max_retries = retry_config.get("download_max_retries", 3)
+
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_retries + 1):
+            proxy = proxy_session.get_proxy()
+            logger.debug(
+                f"Music download attempt {attempt}/{max_retries} "
+                f"via {_strip_proxy_auth(proxy)}"
+            )
+
+            # Update download context with current proxy
+            context_with_proxy = {**download_context, "proxy": proxy}
+
+            try:
+                # Use single CDN attempt per proxy
+                result = await self._download_media_async(
+                    music_url,
+                    context_with_proxy,
+                    max_retries=1,  # Single attempt per proxy
+                )
+
+                if result is not None:
+                    return result
+
+                last_error = TikTokNetworkError("Download returned empty result")
+
+            except Exception as e:
+                last_error = e
+
+            # Rotate proxy for next attempt
+            if attempt < max_retries:
+                proxy_session.rotate_proxy()
+                logger.warning(
+                    f"Music download attempt {attempt}/{max_retries} failed, "
+                    f"rotating proxy: {last_error}"
+                )
+
+        logger.error(
+            f"Music download failed after {max_retries} attempts: {last_error}"
+        )
+        raise TikTokNetworkError(f"Failed to download music after {max_retries} attempts")
+
+    async def download_slideshow_images(
+        self,
+        video_info: VideoInfo,
+        proxy_session: ProxySession,
+        max_retries: Optional[int] = None,
+        max_concurrent: Optional[int] = None,
+    ) -> list[bytes]:
+        """Download all slideshow images with individual retry per image.
+
+        Part 3 of the 3-part retry strategy for slideshows.
+
+        Downloads all images in parallel. If an individual image fails,
+        retries only that image with a new proxy (up to max_retries per image).
+        Successfully downloaded images are kept.
+
+        Args:
+            video_info: VideoInfo object containing image URLs in data field
+            proxy_session: ProxySession for proxy management
+            max_retries: Maximum retry attempts per image (default from config)
+            max_concurrent: Maximum concurrent downloads (default from config)
+
+        Returns:
+            List of image bytes in the same order as input URLs
+
+        Raises:
+            TikTokNetworkError: If any image fails to download after all retries
+            ValueError: If video_info is not a slideshow or has no download context
+        """
+        if video_info.type != "images":
+            raise ValueError("video_info is not a slideshow")
+
+        if not video_info._download_context:
+            raise ValueError("video_info has no download context")
+
+        if max_retries is None:
+            retry_config = config.get("retry", {})
+            max_retries = retry_config.get("download_max_retries", 3)
+
+        if max_concurrent is None:
+            perf_config = config.get("performance", {})
+            max_concurrent = perf_config.get("max_concurrent_images", 20)
+
+        image_urls: list[str] = video_info.data  # type: ignore
+        num_images = len(image_urls)
+
+        # Track results and retry counts per image
+        results: list[Optional[bytes]] = [None] * num_images
+        retry_counts: list[int] = [0] * num_images
+        failed_indices: set[int] = set(range(num_images))  # All start as "to download"
+
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def download_single_image(
+            index: int, url: str, proxy: Optional[str]
+        ) -> Tuple[int, Optional[bytes], Optional[Exception]]:
+            """Download a single image with semaphore limiting."""
+            async with semaphore:
+                context_with_proxy = {**video_info._download_context, "proxy": proxy}
+                try:
+                    result = await self._download_media_async(
+                        url, context_with_proxy, max_retries=1
+                    )
+                    return index, result, None
+                except Exception as e:
+                    return index, None, e
+
+        # First pass: download all images in parallel
+        proxy = proxy_session.get_proxy()
+        logger.debug(
+            f"Downloading {num_images} slideshow images via {_strip_proxy_auth(proxy)}"
+        )
+
+        tasks = [
+            download_single_image(i, url, proxy) for i, url in enumerate(image_urls)
+        ]
+        first_pass_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process first pass results
+        for result in first_pass_results:
+            if isinstance(result, Exception):
+                # Task itself raised exception (shouldn't happen with our wrapper)
+                continue
+            index, data, error = result
+            if data is not None:
+                results[index] = data
+                failed_indices.discard(index)
+            else:
+                retry_counts[index] = 1
+
+        # Retry failed images individually
+        while failed_indices:
+            # Check if any images have exhausted retries
+            exhausted = [i for i in failed_indices if retry_counts[i] >= max_retries]
+            if exhausted:
+                logger.error(
+                    f"Failed to download {len(exhausted)} images after {max_retries} "
+                    f"attempts each: indices {exhausted}"
+                )
+                raise TikTokNetworkError(
+                    f"Failed to download {len(exhausted)} slideshow images"
+                )
+
+            # Rotate proxy for retries
+            proxy = proxy_session.rotate_proxy()
+            logger.debug(
+                f"Retrying {len(failed_indices)} failed images "
+                f"via {_strip_proxy_auth(proxy)}"
+            )
+
+            # Retry all currently failed images
+            retry_tasks = [
+                download_single_image(i, image_urls[i], proxy) for i in failed_indices
+            ]
+            retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
+
+            # Process retry results
+            for result in retry_results:
+                if isinstance(result, Exception):
+                    continue
+                index, data, error = result
+                retry_counts[index] += 1
+                if data is not None:
+                    results[index] = data
+                    failed_indices.discard(index)
+
+        # All images downloaded successfully
+        logger.info(f"Successfully downloaded {num_images} slideshow images")
+        return results  # type: ignore
+
     async def download_image(self, image_url: str, video_info: VideoInfo) -> bytes:
         """
         Download an image using async aiohttp with yt-dlp bypass headers/cookies.
@@ -1081,7 +1579,15 @@ class TikTokClient:
 
     async def video(self, video_link: str) -> VideoInfo:
         """
-        Extract video/slideshow data from TikTok URL.
+        Extract video/slideshow data from TikTok URL using 3-part retry strategy.
+
+        The extraction process has 3 parts, each with its own retry logic:
+        - Part 1: URL resolution (short URLs to full URLs)
+        - Part 2: Video info extraction (metadata and video data)
+        - Part 3: Download (video bytes or slideshow image URLs)
+
+        Each part retries with proxy rotation on failure. The same proxy is used
+        across all parts unless a retry is triggered.
 
         Args:
             video_link: TikTok video or slideshow URL
@@ -1089,9 +1595,11 @@ class TikTokClient:
         Returns:
             VideoInfo: Object containing video/slideshow information.
                 - For videos: data contains bytes, url contains direct video URL
-                - For slideshows: data contains list of image URLs
+                - For slideshows: data contains list of image URLs, _proxy_session
+                  is set for Part 3 retry during image download
 
         Raises:
+            TikTokInvalidLinkError: URL resolution failed (Part 1)
             TikTokDeletedError: Video was deleted by creator
             TikTokPrivateError: Video is private
             TikTokNetworkError: Network/connection error
@@ -1099,97 +1607,78 @@ class TikTokClient:
             TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
-        download_context = None
+        download_context: Optional[dict[str, Any]] = None
         context_transferred = False  # Track if context ownership was transferred
 
-        try:
-            # Get proxy once for the entire request (per-request proxy assignment)
-            request_proxy: Optional[str] = None
-            if self.proxy_manager:
-                request_proxy = self.proxy_manager.get_next_proxy()
-                if request_proxy:
-                    logger.info(f"Video attempt using proxy: {request_proxy}")
-                else:
-                    logger.info("Video attempt using direct connection (no proxy)")
+        # Create proxy session for this request flow
+        proxy_session = ProxySession(self.proxy_manager)
 
-            # Resolve short URLs
-            full_url = await self._resolve_url(video_link)
+        try:
+            # ===== Part 1: URL Resolution =====
+            # Resolve short URLs with retry and proxy rotation
+            full_url = await self._resolve_url(video_link, proxy_session)
             video_id = self._extract_video_id(full_url)
+            logger.debug(f"Extracted video ID: {video_id} from URL: {full_url}")
 
             if not video_id:
                 logger.error(f"Could not extract video ID from {video_link}")
-                raise TikTokExtractionError(
-                    f"Could not extract video ID from {video_link}"
-                )
+                raise TikTokInvalidLinkError("Invalid or expired TikTok link")
 
-            # Extract raw data with download context for authenticated downloads
-            # Pass request_proxy for per-request proxy assignment
-            video_data, status, download_context = await self._run_sync(
-                self._extract_with_context_sync, full_url, video_id, request_proxy
+            # ===== Part 2: Video Info Extraction =====
+            # Construct clean URL for extraction (yt-dlp works better with clean URLs)
+            # The resolved URL often has tracking params and empty username that cause issues
+            extraction_url = f"https://www.tiktok.com/@_/video/{video_id}"
+            logger.debug(f"Using clean extraction URL: {extraction_url}")
+
+            # Extract video data with retry and proxy rotation
+            video_data, download_context = await self._extract_video_info_with_retry(
+                extraction_url, video_id, proxy_session
             )
 
-            # Check for error status and raise appropriate exception
-            if status and status not in ("ok", None):
-                self._raise_for_status(status, video_link)
-
             # Check if it's a slideshow (imagePost present in raw data)
-            if video_data:
-                image_post = video_data.get("imagePost")
-                if image_post:
-                    images = image_post.get("images", [])
-                    image_urls = []
+            image_post = video_data.get("imagePost")
+            if image_post:
+                images = image_post.get("images", [])
+                image_urls = []
 
-                    for img in images:
-                        url_list = img.get("imageURL", {}).get("urlList", [])
-                        if url_list:
-                            # Use first URL (primary CDN)
-                            image_urls.append(url_list[0])
+                for img in images:
+                    url_list = img.get("imageURL", {}).get("urlList", [])
+                    if url_list:
+                        # Use first URL (primary CDN)
+                        image_urls.append(url_list[0])
 
-                    if image_urls:
-                        author = video_data.get("author", {}).get("uniqueId", "")
+                if image_urls:
+                    author = video_data.get("author", {}).get("uniqueId", "")
 
-                        # Transfer context ownership to VideoInfo
-                        context_transferred = True
-                        return VideoInfo(
-                            type="images",
-                            data=image_urls,
-                            id=int(video_id),
-                            cover=None,
-                            width=None,
-                            height=None,
-                            duration=None,
-                            author=author,
-                            link=video_link,
-                            url=None,
-                            _download_context=download_context,
-                        )
+                    # Transfer context ownership to VideoInfo
+                    # Part 3 (image download) happens later via download_slideshow_images()
+                    context_transferred = True
+                    return VideoInfo(
+                        type="images",
+                        data=image_urls,
+                        id=int(video_id),
+                        cover=None,
+                        width=None,
+                        height=None,
+                        duration=None,
+                        author=author,
+                        link=video_link,
+                        url=None,
+                        _download_context=download_context,
+                        _proxy_session=proxy_session,  # For Part 3 retry
+                    )
 
-            # It's a video - extract video URL from raw data and download to memory
-            # No need to call _extract_video_info_sync again - we already have the data
-
-            if not video_data:
-                raise TikTokExtractionError(
-                    f"Failed to extract video info for {video_link}"
-                )
-
-            if not download_context:
-                raise TikTokExtractionError(
-                    f"No download context available for {video_link}"
-                )
+            # It's a video - extract video URL from raw data and download
 
             # Get video info and extract metadata early (needed for download decisions)
-            video_info = video_data.get("video", {})
+            video_info_data = video_data.get("video", {})
 
             # Extract duration BEFORE download - needed for streaming decision
-            duration = video_info.get("duration")
+            duration = video_info_data.get("duration")
             if duration:
                 duration = int(duration)
 
-            # Check if video exceeds maximum duration (configurable via MAX_VIDEO_DURATION env)
-            # This prevents downloading very large files that would strain resources
-            # Default: 1800 seconds (30 minutes). Set to 0 to disable limit.
-            from data.config import config
-
+            # Check if video exceeds maximum duration
             perf_config = config.get("performance", {})
             max_video_duration = perf_config.get("max_video_duration", 1800)
             if max_video_duration > 0 and duration and duration > max_video_duration:
@@ -1201,31 +1690,7 @@ class TikTokClient:
                 )
 
             # Get video URL from raw TikTok data
-            # Try multiple paths as TikTok API structure can vary
-            video_url = None
-
-            # Try playAddr first (primary playback URL)
-            play_addr = video_info.get("playAddr")
-            if play_addr:
-                video_url = play_addr
-
-            # Try downloadAddr (sometimes has better quality)
-            if not video_url:
-                download_addr = video_info.get("downloadAddr")
-                if download_addr:
-                    video_url = download_addr
-
-            # Try bitrateInfo for specific quality URLs
-            if not video_url:
-                bitrate_info = video_info.get("bitrateInfo", [])
-                if bitrate_info:
-                    # Get the best quality (usually first or last)
-                    for br in bitrate_info:
-                        play_addr_obj = br.get("PlayAddr", {})
-                        url_list = play_addr_obj.get("UrlList", [])
-                        if url_list:
-                            video_url = url_list[0]
-                            break
+            video_url = self._extract_video_url(video_info_data)
 
             if not video_url:
                 logger.error(f"Could not find video URL in raw data for {video_link}")
@@ -1233,31 +1698,24 @@ class TikTokClient:
                     f"Could not find video URL for {video_link}"
                 )
 
-            # Download video using curl_cffi with browser impersonation
-            # Pass duration for conditional streaming (streams if > 5 minutes)
-            video_bytes = await self._download_media_async(
-                video_url, download_context, duration=duration
+            # ===== Part 3: Video Download =====
+            # Download video with retry and proxy rotation
+            video_bytes = await self._download_video_with_retry(
+                video_url, download_context, proxy_session, duration=duration
             )
 
             # Close the download context - it's no longer needed for videos
-            # (unlike slideshows where we keep it for image downloads)
             self._close_download_context(download_context)
-            context_transferred = True  # Mark as handled
+            context_transferred = True
 
-            if video_bytes is None:
-                raise TikTokExtractionError(f"Failed to download video {video_link}")
-
-            # Log successful download with proxy info
-            proxy_info = request_proxy or "direct connection"
-            logger.info(
-                f"Successfully downloaded video {video_id} using proxy: {proxy_info}"
-            )
+            # Log successful download
+            logger.info(f"Successfully downloaded video {video_id}")
 
             # Extract remaining metadata from raw data
-            width = video_info.get("width")
-            height = video_info.get("height")
+            width = video_info_data.get("width")
+            height = video_info_data.get("height")
             author = video_data.get("author", {}).get("uniqueId", "")
-            cover = video_info.get("cover") or video_info.get("originCover")
+            cover = video_info_data.get("cover") or video_info_data.get("originCover")
 
             return VideoInfo(
                 type="video",
@@ -1289,6 +1747,39 @@ class TikTokClient:
             # Clean up download context if ownership wasn't transferred
             if not context_transferred:
                 self._close_download_context(download_context)
+
+    def _extract_video_url(self, video_info: dict[str, Any]) -> Optional[str]:
+        """Extract video URL from raw TikTok video data.
+
+        Tries multiple paths as TikTok API structure can vary.
+
+        Args:
+            video_info: The 'video' dict from TikTok response
+
+        Returns:
+            Video URL string or None if not found
+        """
+        # Try playAddr first (primary playback URL)
+        play_addr = video_info.get("playAddr")
+        if play_addr:
+            return play_addr
+
+        # Try downloadAddr (sometimes has better quality)
+        download_addr = video_info.get("downloadAddr")
+        if download_addr:
+            return download_addr
+
+        # Try bitrateInfo for specific quality URLs
+        bitrate_info = video_info.get("bitrateInfo", [])
+        if bitrate_info:
+            # Get the best quality (usually first or last)
+            for br in bitrate_info:
+                play_addr_obj = br.get("PlayAddr", {})
+                url_list = play_addr_obj.get("UrlList", [])
+                if url_list:
+                    return url_list[0]
+
+        return None
 
     async def video_with_retry(
         self,
@@ -1339,6 +1830,7 @@ class TikTokClient:
         last_error: Exception | None = None
 
         for attempt in range(1, max_attempts + 1):
+            logger.debug(f"Attempt {attempt}/{max_attempts} for video: {video_link}")
             try:
                 # Call status callback before each attempt
                 if on_retry:
@@ -1401,10 +1893,14 @@ class TikTokClient:
 
     async def music(self, video_id: int) -> MusicInfo:
         """
-        Extract music info from a TikTok video.
+        Extract music info from a TikTok video using 2-part retry strategy.
 
-        All network operations are fully async - uses yt-dlp only for metadata
-        extraction, then downloads audio via async aiohttp.
+        Music extraction uses Parts 2 and 3 of the retry strategy:
+        - Part 2: Video/music info extraction (metadata)
+        - Part 3: Music download (audio bytes)
+
+        Note: Part 1 (URL resolution) is not needed since we construct the URL
+        directly from the video ID.
 
         Args:
             video_id: TikTok video ID
@@ -1420,36 +1916,20 @@ class TikTokClient:
             TikTokRegionError: Video not available in region
             TikTokExtractionError: Generic extraction failure
         """
-        download_context = None
+        download_context: Optional[dict[str, Any]] = None
+
+        # Create proxy session for this request flow
+        proxy_session = ProxySession(self.proxy_manager)
+
         try:
-            # Get proxy once for the entire request (per-request proxy assignment)
-            request_proxy: Optional[str] = None
-            if self.proxy_manager:
-                request_proxy = self.proxy_manager.get_next_proxy()
-                if request_proxy:
-                    logger.info(f"Music attempt using proxy: {request_proxy}")
-                else:
-                    logger.info("Music attempt using direct connection (no proxy)")
-
-            # Construct a URL with the video ID
+            # Construct a URL with the video ID (no Part 1 needed)
             url = f"https://www.tiktok.com/@_/video/{video_id}"
+            logger.debug(f"Using video ID: {video_id} for music extraction")
 
-            # Extract with context (keeps YDL alive for authenticated downloads)
-            video_data, status, download_context = await self._run_sync(
-                self._extract_with_context_sync, url, str(video_id), request_proxy
+            # ===== Part 2: Music Info Extraction =====
+            video_data, download_context = await self._extract_video_info_with_retry(
+                url, str(video_id), proxy_session
             )
-
-            # Check for error status and raise appropriate exception
-            if status and status not in ("ok", None):
-                self._raise_for_status(status, str(video_id))
-
-            if video_data is None:
-                raise TikTokExtractionError(f"No data returned for video {video_id}")
-
-            if not download_context:
-                raise TikTokExtractionError(
-                    f"No download context available for video {video_id}"
-                )
 
             # Get music info
             music_info = video_data.get("music")
@@ -1460,18 +1940,13 @@ class TikTokClient:
             if not music_url:
                 raise TikTokExtractionError(f"No music URL found for video {video_id}")
 
-            # Download audio using async aiohttp with yt-dlp context (headers, cookies)
-            audio_bytes = await self._download_media_async(music_url, download_context)
-            if audio_bytes is None:
-                raise TikTokExtractionError(
-                    f"Failed to download audio for video {video_id}"
-                )
-
-            # Log successful download with proxy info
-            proxy_info = request_proxy or "direct connection"
-            logger.info(
-                f"Successfully downloaded music from video {video_id} using proxy: {proxy_info}"
+            # ===== Part 3: Music Download =====
+            audio_bytes = await self._download_music_with_retry(
+                music_url, download_context, proxy_session
             )
+
+            # Log successful download
+            logger.info(f"Successfully downloaded music from video {video_id}")
 
             # Get the music cover URL from music object
             cover_url = (

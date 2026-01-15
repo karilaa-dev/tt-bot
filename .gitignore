@@ -9,6 +9,7 @@ config.ini
 sqlite*.db
 LICENSE.md
 cookies.txt
+proxies.txt
 
 #extensions
 *.log

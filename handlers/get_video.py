@@ -63,12 +63,12 @@ async def send_tiktok_video(message: Message):
     else:  # Set lang and file mode if in DB
         lang, file_mode = settings
 
-    # Get queue manager and retry config
+    # Get queue manager and queue config
     queue = QueueManager.get_instance()
-    retry_config = config["queue"]
+    queue_config = config["queue"]
 
     try:
-        # Check if link is valid
+        # Check if link is valid (quick regex check before any network calls)
         video_link, is_mobile = await api.regex_check(message.text)
         # If not valid
         if video_link is None:
@@ -79,7 +79,7 @@ async def send_tiktok_video(message: Message):
 
         # Check per-user queue limit before proceeding
         user_queue_count = queue.get_user_queue_count(message.chat.id)
-        if user_queue_count >= retry_config["max_user_queue_size"]:
+        if user_queue_count >= queue_config["max_user_queue_size"]:
             if not group_chat:
                 await message.reply(
                     locale[lang]["error_queue_full"].format(user_queue_count),
@@ -87,7 +87,7 @@ async def send_tiktok_video(message: Message):
                 )
             return
 
-        # Try to send initial reaction
+        # Try to send initial reaction to show processing started
         try:
             await message.react(
                 [ReactionTypeEmoji(emoji=RETRY_EMOJIS[0])], disable_notification=True
@@ -96,23 +96,6 @@ async def send_tiktok_video(message: Message):
             logging.debug("Reactions not allowed, falling back to status message")
             # Send status message if reaction is not allowed
             status_message = await message.reply("⏳", disable_notification=True)
-
-        # Define callback to update emoji on each retry attempt
-        async def update_retry_status(attempt: int):
-            """Update reaction emoji based on retry attempt number."""
-            if status_message:
-                # Can't update text status message easily, skip
-                return
-            emoji_index = min(attempt - 1, len(RETRY_EMOJIS) - 1)
-            emoji = RETRY_EMOJIS[emoji_index]
-            logging.debug(f"Updating retry emoji to {emoji} for attempt {attempt}")
-            try:
-                await message.react(
-                    [ReactionTypeEmoji(emoji=emoji)], disable_notification=True
-                )
-                logging.debug(f"Successfully updated emoji to {emoji}")
-            except Exception as e:
-                logging.warning(f"Failed to update retry emoji to {emoji}: {e}")
 
         # Acquire info queue slot with per-user limit
         async with queue.info_queue(message.chat.id) as acquired:
@@ -130,13 +113,12 @@ async def send_tiktok_video(message: Message):
                 return
 
             try:
-                # Fetch video info with retry logic and emoji updates
-                video_info = await api.video_with_retry(
-                    video_link,
-                    max_attempts=retry_config["retry_max_attempts"],
-                    request_timeout=retry_config["retry_request_timeout"],
-                    on_retry=update_retry_status,
-                )
+                # Fetch video info using 3-part retry strategy
+                # Part 1: URL resolution (retry with proxy rotation)
+                # Part 2: Video info extraction (retry with proxy rotation)
+                # Part 3: Video download (retry with proxy rotation)
+                # For slideshows, Part 3 happens later during image sending
+                video_info = await api.video(video_link)
             except TikTokError as e:
                 # Handle specific TikTok errors with appropriate messages
                 if status_message:

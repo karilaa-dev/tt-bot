@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
+
+if TYPE_CHECKING:
+    from .client import ProxySession
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,11 @@ class VideoInfo:
     # to use the same authentication context as the video info extraction.
     # Structure: {'ydl': YoutubeDL, 'ie': TikTokIE, 'referer_url': str}
     _download_context: Optional[dict[str, Any]] = field(default=None, repr=False)
+
+    # Proxy session for Part 3 retry during slideshow image downloads.
+    # This allows image downloads to use the same proxy session as the extraction,
+    # and rotate proxy on retry for individual failed images.
+    _proxy_session: Optional["ProxySession"] = field(default=None, repr=False)
 
     # Track whether close() was called to avoid double-close and __del__ warnings
     _closed: bool = field(default=False, repr=False)

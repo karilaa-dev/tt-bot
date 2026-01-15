@@ -25,6 +25,7 @@ from .exceptions import (
     TikTokDeletedError,
     TikTokError,
     TikTokExtractionError,
+    TikTokInvalidLinkError,
     TikTokNetworkError,
     TikTokPrivateError,
     TikTokRateLimitError,
@@ -46,6 +47,7 @@ __all__ = [
     # Exceptions
     "TikTokError",
     "TikTokDeletedError",
+    "TikTokInvalidLinkError",
     "TikTokPrivateError",
     "TikTokNetworkError",
     "TikTokRateLimitError",

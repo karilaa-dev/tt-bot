@@ -47,3 +47,9 @@ class TikTokVideoTooLongError(TikTokError):
     """Video exceeds the maximum allowed duration."""
 
     pass
+
+
+class TikTokInvalidLinkError(TikTokError):
+    """TikTok link is invalid or expired (failed URL resolution)."""
+
+    pass
