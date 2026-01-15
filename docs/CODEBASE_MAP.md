@@ -1,7 +1,7 @@
 ---
-last_mapped: 2026-01-14T00:00:00Z
-total_files: 58
-total_tokens: 63095
+last_mapped: 2026-01-14T22:45:00Z
+total_files: 61
+total_tokens: 71358
 ---
 
 # Codebase Map
@@ -34,7 +34,7 @@ graph TB
     end
 
     subgraph TikTok["TikTok API"]
-        Client[client.py<br/>Main Client]
+        Client[client.py<br/>Main Client + 3-Part Retry]
         Proxy[proxy_manager.py<br/>Proxy Rotation]
         Models[models.py<br/>VideoInfo/MusicInfo]
         Exc[exceptions.py<br/>Error Types]
@@ -69,6 +69,48 @@ graph TB
     VTypes --> Client
 ```
 
+## 3-Part Retry Strategy
+
+The TikTok extraction uses a 3-part retry strategy with proxy rotation:
+
+```mermaid
+graph TB
+    subgraph PS["ProxySession"]
+        Init[Initialize proxy]
+        Rotate[Rotate on retry]
+    end
+
+    subgraph P1["Part 1: URL Resolution"]
+        Resolve[_resolve_url]
+        Short[Short URLs → Full URLs]
+    end
+
+    subgraph P2["Part 2: Video Info"]
+        Extract[_extract_video_info_with_retry]
+        YtDlp[yt-dlp extraction]
+    end
+
+    subgraph P3["Part 3: Download"]
+        Video[_download_video_with_retry]
+        Slideshow[download_slideshow_images]
+        Music[_download_music_with_retry]
+    end
+
+    PS --> P1
+    P1 --> P2
+    P2 --> P3
+
+    P1 -.->|On failure| Rotate
+    P2 -.->|On failure| Rotate
+    P3 -.->|On failure| Rotate
+```
+
+**Key Design:**
+- Same proxy used across all parts unless retry triggered
+- Instant retry with proxy rotation (no delay)
+- Individual image retry for slideshows (not whole batch)
+- Permanent errors (deleted, private) not retried
+
 ## Directory Structure
 
 ```
@@ -78,8 +120,8 @@ tt-bot/
 ├── maintenance_bot.py      # Maintenance mode bot
 ├── tiktok_api/             # TikTok extraction module
 │   ├── __init__.py         # Public exports
-│   ├── client.py           # Main TikTokClient (yt-dlp + curl_cffi)
-│   ├── exceptions.py       # Exception hierarchy
+│   ├── client.py           # Main TikTokClient + ProxySession + 3-part retry
+│   ├── exceptions.py       # Exception hierarchy (9 error types)
 │   ├── models.py           # VideoInfo, MusicInfo dataclasses
 │   └── proxy_manager.py    # Round-robin proxy rotation
 ├── handlers/               # Telegram message handlers
@@ -91,7 +133,7 @@ tt-bot/
 │   ├── advert.py           # Broadcast system
 │   └── lang.py             # Language selection
 ├── data/                   # Data layer
-│   ├── config.py           # Configuration loading
+│   ├── config.py           # Configuration + RetryConfig
 │   ├── loader.py           # Bot/dispatcher initialization
 │   ├── database.py         # SQLAlchemy engine/session
 │   ├── db_service.py       # Database operations
@@ -103,7 +145,7 @@ tt-bot/
 │       └── music.py        # Music table
 ├── misc/                   # Utilities
 │   ├── queue_manager.py    # Per-user concurrency control
-│   ├── video_types.py      # Media sending/processing
+│   ├── video_types.py      # Media sending/processing + slideshow retry
 │   └── utils.py            # Helper functions
 ├── stats/                  # Statistics module
 │   ├── loader.py           # Stats bot initialization
@@ -122,25 +164,41 @@ tt-bot/
 
 ### TikTok API (`tiktok_api/`)
 
-**Purpose:** TikTok video/audio extraction using yt-dlp with browser impersonation
+**Purpose:** TikTok video/audio extraction using yt-dlp with browser impersonation and 3-part retry strategy
 
 | File | Purpose | Tokens |
 |------|---------|--------|
-| client.py | Main TikTokClient with retry logic, proxy support | 14,918 |
+| client.py | Main TikTokClient + ProxySession + 3-part retry | 18,676 |
 | proxy_manager.py | Thread-safe round-robin proxy rotation | 1,303 |
-| models.py | VideoInfo, MusicInfo dataclasses | 1,014 |
-| exceptions.py | Exception hierarchy (8 error types) | 203 |
+| models.py | VideoInfo, MusicInfo dataclasses | 1,091 |
+| exceptions.py | Exception hierarchy (9 error types) | 233 |
 
-**Key Exports:**
-- `TikTokClient`: Main extraction client
+**Key Classes:**
+- `TikTokClient`: Main extraction client with integrated retry
+- `ProxySession`: Manages proxy state per request flow (sticky until retry)
 - `ProxyManager`: Proxy rotation manager
 - `VideoInfo`, `MusicInfo`: Response dataclasses
-- Exception classes: `TikTokError`, `TikTokDeletedError`, `TikTokPrivateError`, etc.
+
+**Key Methods (3-Part Retry):**
+- `_resolve_url()`: Part 1 - Resolve short URLs with retry
+- `_extract_video_info_with_retry()`: Part 2 - Extract metadata with retry
+- `_download_video_with_retry()`: Part 3 - Download video with retry
+- `_download_music_with_retry()`: Part 3 - Download music with retry
+- `download_slideshow_images()`: Part 3 - Download images with individual retry
+- `video()`: Orchestrates all 3 parts (retries built-in)
+- `music()`: Orchestrates Parts 2 & 3 (retries built-in)
+
+**Exceptions:**
+- `TikTokError`: Base class
+- `TikTokInvalidLinkError`: Part 1 failure (URL resolution)
+- `TikTokDeletedError`, `TikTokPrivateError`: Permanent errors (not retried)
+- `TikTokNetworkError`, `TikTokExtractionError`: Transient errors (retried)
+- `TikTokRateLimitError`, `TikTokRegionError`, `TikTokVideoTooLongError`
 
 **Patterns:**
 - Singleton resources (ThreadPoolExecutor, curl session, aiohttp connector)
 - Context manager for VideoInfo cleanup (RAII)
-- Strategy pattern for proxy management
+- ProxySession for sticky proxy with rotation on retry
 
 ---
 
@@ -150,9 +208,9 @@ tt-bot/
 
 | File | Purpose | Tokens |
 |------|---------|--------|
-| get_video.py | Video/slideshow download with queue management | 2,305 |
-| get_inline.py | Inline query handling | 1,555 |
-| get_music.py | Audio extraction from callback | 1,177 |
+| get_video.py | Video/slideshow download (calls `video()` directly) | 2,174 |
+| get_inline.py | Inline query handling (calls `video()` directly) | 1,347 |
+| get_music.py | Audio extraction (calls `music()` directly) | 1,007 |
 | advert.py | Admin broadcast system | 852 |
 | lang.py | Language selection | 469 |
 | user.py | /start, /mode commands | 384 |
@@ -167,6 +225,8 @@ tt-bot/
 - `admin_router`: Admin-only commands
 - `advert_router`: Broadcast management
 
+**Note:** Handlers now call `video()` and `music()` directly - retry logic is built-in.
+
 ---
 
 ### Data Layer (`data/`)
@@ -175,7 +235,7 @@ tt-bot/
 
 | File | Purpose | Tokens |
 |------|---------|--------|
-| config.py | Load config from env vars, load locales | 1,615 |
+| config.py | Load config + RetryConfig from env vars | 1,765 |
 | db_service.py | Repository pattern database operations | 1,609 |
 | database.py | SQLAlchemy async engine/session | 517 |
 | loader.py | Bot/dispatcher/scheduler initialization | 293 |
@@ -190,7 +250,8 @@ tt-bot/
 - `bot`: Tokens, DB URL, Telegram server
 - `api`: BotSafe, Monetag
 - `logs`: Join logs, stats chat
-- `queue`: Limits, retry settings
+- `queue`: Max queue size
+- `retry`: URL/info/download retry counts (NEW)
 - `proxy`: Proxy file, rotation settings
 - `performance`: Pool sizes, timeouts
 
@@ -202,13 +263,13 @@ tt-bot/
 
 | File | Purpose | Tokens |
 |------|---------|--------|
-| video_types.py | Video/image sending, HEIC conversion | 5,990 |
+| video_types.py | Video/image sending, slideshow retry, HEIC conversion | 6,374 |
 | queue_manager.py | Per-user concurrency limits | 1,021 |
 | utils.py | Helpers (lang resolution, user registration) | 692 |
 
 **Key Functions:**
 - `send_video_result()`: Send video with thumbnail and music button
-- `send_image_result()`: Send slideshow images with HEIC conversion
+- `send_image_result()`: Send slideshow with Part 3 retry via `download_slideshow_images()`
 - `send_music_result()`: Send audio with cover
 - `QueueManager.info_queue()`: Acquire/release queue slot
 
@@ -237,7 +298,7 @@ tt-bot/
 
 ## Data Flow
 
-### Video Download Flow
+### Video Download Flow (with 3-Part Retry)
 
 ```mermaid
 sequenceDiagram
@@ -245,6 +306,7 @@ sequenceDiagram
     participant Handler as get_video.py
     participant Queue as QueueManager
     participant Client as TikTokClient
+    participant PS as ProxySession
     participant yt-dlp
     participant TikTok
     participant DB
@@ -255,22 +317,48 @@ sequenceDiagram
     Queue-->>Handler: Under limit?
     Handler->>Queue: Acquire slot
     Handler->>User: Set reaction (👀)
-    Handler->>Client: video_with_retry()
-    Client->>yt-dlp: Extract video info
-    yt-dlp->>TikTok: Fetch page/API
-    TikTok-->>yt-dlp: Video metadata
-    yt-dlp-->>Client: VideoInfo
+    Handler->>Client: video(url)
 
-    alt Video
-        Client->>TikTok: Download video bytes
-        TikTok-->>Client: Video data
-        Client-->>Handler: VideoInfo (bytes)
-        Handler->>User: Send video + music button
-    else Slideshow
-        Client-->>Handler: VideoInfo (image URLs)
-        Handler->>TikTok: Download images (parallel)
-        Handler->>Handler: Convert HEIC if needed
-        Handler->>User: Send image batches
+    Client->>PS: Create ProxySession
+    PS-->>Client: Initial proxy
+
+    rect rgb(200, 220, 255)
+        Note over Client,TikTok: Part 1: URL Resolution
+        Client->>TikTok: Resolve short URL
+        alt Success
+            TikTok-->>Client: Full URL
+        else Failure
+            Client->>PS: Rotate proxy
+            Client->>TikTok: Retry resolve
+        end
+    end
+
+    rect rgb(200, 255, 220)
+        Note over Client,TikTok: Part 2: Video Info
+        Client->>yt-dlp: Extract video info
+        yt-dlp->>TikTok: Fetch page/API
+        alt Success
+            TikTok-->>yt-dlp: Video metadata
+            yt-dlp-->>Client: VideoInfo
+        else Transient Error
+            Client->>PS: Rotate proxy
+            Client->>yt-dlp: Retry extraction
+        end
+    end
+
+    rect rgb(255, 220, 200)
+        Note over Client,TikTok: Part 3: Download
+        alt Video
+            Client->>TikTok: Download video bytes
+            TikTok-->>Client: Video data
+            Client-->>Handler: VideoInfo (bytes)
+            Handler->>User: Send video + music button
+        else Slideshow
+            Client-->>Handler: VideoInfo (image URLs + ProxySession)
+            Handler->>TikTok: Download images (parallel with individual retry)
+            Handler->>Handler: Convert HEIC if needed
+            Handler->>User: Send image batches
+        end
     end
 
     Handler->>DB: Log download
@@ -278,23 +366,43 @@ sequenceDiagram
     Handler->>User: Clear reaction
 ```
 
-### Music Extraction Flow
+### Music Extraction Flow (with 2-Part Retry)
 
 ```mermaid
 sequenceDiagram
     participant User
     participant Handler as get_music.py
     participant Client as TikTokClient
+    participant PS as ProxySession
     participant TikTok
     participant DB
 
     User->>Handler: Click music button
     Handler->>Handler: Remove button (prevent double-click)
     Handler->>User: Set reaction (👀)
-    Handler->>Client: music_with_retry(video_id)
-    Client->>TikTok: Extract audio URL
-    Client->>TikTok: Download audio + cover
-    TikTok-->>Client: MusicInfo
+    Handler->>Client: music(video_id)
+
+    Client->>PS: Create ProxySession
+
+    rect rgb(200, 255, 220)
+        Note over Client,TikTok: Part 2: Music Info
+        Client->>TikTok: Extract audio URL
+        alt Failure
+            Client->>PS: Rotate proxy
+            Client->>TikTok: Retry extraction
+        end
+    end
+
+    rect rgb(255, 220, 200)
+        Note over Client,TikTok: Part 3: Download
+        Client->>TikTok: Download audio + cover
+        alt Failure
+            Client->>PS: Rotate proxy
+            Client->>TikTok: Retry download
+        end
+        TikTok-->>Client: MusicInfo
+    end
+
     Client-->>Handler: MusicInfo
     Handler->>User: Send audio file
     Handler->>DB: Log music download
@@ -313,7 +421,7 @@ sequenceDiagram
     Inline->>Inline: Validate user exists
     Inline-->>User: Return article result
     User->>Inline: Select result
-    Inline->>Client: video_with_retry (bypass queue)
+    Inline->>Client: video(url) with bypass queue
 
     alt Video
         Client-->>Inline: VideoInfo
@@ -331,18 +439,20 @@ sequenceDiagram
 - **Python 3.13** with strict version pinning
 - **Async/await** throughout (aiogram, asyncpg, aiohttp)
 - **Type hints** on function signatures
-- **Dataclasses** for structured data (VideoInfo, MusicInfo)
+- **Dataclasses** for structured data (VideoInfo, MusicInfo, ProxySession)
 
 ### Error Handling
 - Custom exception hierarchy (`TikTokError` base)
-- Retry logic with exponential backoff
-- Emoji reactions for status updates (👀 → 🤔 → 🙏 → 😢)
+- 3-part retry with proxy rotation (instant retry)
+- Permanent errors (deleted, private) not retried
+- Emoji reactions for status updates (👀 → 👨‍💻 → result)
 - Localized error messages
 
 ### Resource Management
 - RAII pattern with context managers
 - Singleton shared resources (executor, sessions)
 - Explicit cleanup on shutdown
+- ProxySession per request flow
 
 ### Configuration
 - Environment variables via python-dotenv
@@ -356,6 +466,14 @@ sequenceDiagram
 - **VideoInfo cleanup**: Slideshows MUST call `.close()` to release yt-dlp resources
 - **Browser impersonation**: Auto-updates from yt-dlp BROWSER_TARGETS
 - **Executor initialization**: Must call `TikTokClient.set_executor_size()` before first use
+- **TikTok status codes**: 10204=deleted, 10222=private, 10216=under review
+
+### 3-Part Retry Strategy
+- **ProxySession sticky**: Same proxy across all parts unless retry
+- **Instant retry**: No delay on retry (proxy rotation = different IP)
+- **Part 1 only for short URLs**: Full URLs skip Part 1
+- **Permanent errors not retried**: Deleted, private, region errors fail immediately
+- **Slideshow individual retry**: Failed images retry independently (not whole batch)
 
 ### Queue Management
 - **Pre-check required**: Check queue size BEFORE acquiring slot
@@ -380,13 +498,15 @@ sequenceDiagram
 |------|----------------|
 | Add new command | `handlers/*.py` → Register in `main.py` |
 | Modify TikTok extraction | `tiktok_api/client.py` |
+| Change retry logic | `tiktok_api/client.py` (ProxySession, _*_with_retry methods) |
 | Change database schema | `data/models/*.py` (auto-creates tables) |
 | Add language | Create `data/locale/XX.json` (auto-detected) |
 | Tune performance | Set env vars or edit `data/config.py` defaults |
-| Add error type | `tiktok_api/exceptions.py` → Handle in `handlers/get_video.py` |
+| Add error type | `tiktok_api/exceptions.py` → Handle in `misc/video_types.py:get_error_message()` |
 | Change queue limits | `MAX_USER_QUEUE_SIZE` env var |
 | Add stats graph | `stats/router.py` + `stats/graphs.py` |
 | Modify video sending | `misc/video_types.py:send_video_result()` |
+| Modify slideshow sending | `misc/video_types.py:send_image_result()` |
 
 ## Environment Variables
 
@@ -397,13 +517,19 @@ sequenceDiagram
 | `DB_URL` | PostgreSQL connection string |
 | `TG_SERVER` | Telegram API server URL |
 
-### Optional (with defaults)
+### Retry Configuration (NEW)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `URL_RESOLVE_MAX_RETRIES` | 3 | Part 1: URL resolution retries |
+| `VIDEO_INFO_MAX_RETRIES` | 3 | Part 2: Video info extraction retries |
+| `DOWNLOAD_MAX_RETRIES` | 3 | Part 3: Download retries |
+
+### Performance
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `THREAD_POOL_SIZE` | 128 | ThreadPoolExecutor workers |
 | `MAX_USER_QUEUE_SIZE` | 3 | Max concurrent per user |
-| `RETRY_MAX_ATTEMPTS` | 3 | Retry attempts |
-| `RETRY_REQUEST_TIMEOUT` | 10 | Timeout per request (seconds) |
+| `MAX_CONCURRENT_IMAGES` | 20 | Max parallel image downloads |
 | `MAX_VIDEO_DURATION` | 1800 | Max video duration (seconds, 0=unlimited) |
 | `LOG_LEVEL` | INFO | Logging level |
 
