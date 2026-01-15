@@ -608,6 +608,13 @@ async def send_image_result(
             if isinstance(img, bytes)
         ]
 
+        # Check if all images failed in fallback mode
+        if not all_image_bytes:
+            logger.error(
+                f"All {len(image_urls)} slideshow images failed in fallback mode"
+            )
+            raise TikTokNetworkError("Failed to download slideshow images")
+
     # Split into batches of 10 for Telegram media groups
     if image_limit:
         images_bytes = [all_image_bytes]
