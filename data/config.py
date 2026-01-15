@@ -88,11 +88,23 @@ class LogsConfig(TypedDict):
 
 
 class QueueConfig(TypedDict):
-    """Type definition for queue and retry configuration."""
+    """Type definition for queue configuration."""
 
     max_user_queue_size: int
-    retry_max_attempts: int
-    retry_request_timeout: float
+
+
+class RetryConfig(TypedDict):
+    """Type definition for retry configuration.
+
+    Each part of the video extraction flow has its own retry count:
+    - Part 1: URL resolution (short URLs to full URLs)
+    - Part 2: Video info extraction (metadata and video data)
+    - Part 3: Download (video/images/music download)
+    """
+
+    url_resolve_max_retries: int  # Part 1: URL resolution retries
+    video_info_max_retries: int  # Part 2: Video info extraction retries
+    download_max_retries: int  # Part 3: Download retries
 
 
 class ProxyConfig(TypedDict):
@@ -130,6 +142,7 @@ class Config(TypedDict):
     api: ApiConfig
     logs: LogsConfig
     queue: QueueConfig
+    retry: RetryConfig
     proxy: ProxyConfig
     performance: PerformanceConfig
     logging: LoggingConfig
@@ -161,8 +174,11 @@ config: Config = {
     },
     "queue": {
         "max_user_queue_size": _parse_int_env("MAX_USER_QUEUE_SIZE", 3),
-        "retry_max_attempts": _parse_int_env("RETRY_MAX_ATTEMPTS", 3),
-        "retry_request_timeout": float(os.getenv("RETRY_REQUEST_TIMEOUT", "10")),
+    },
+    "retry": {
+        "url_resolve_max_retries": _parse_int_env("URL_RESOLVE_MAX_RETRIES", 3),
+        "video_info_max_retries": _parse_int_env("VIDEO_INFO_MAX_RETRIES", 3),
+        "download_max_retries": _parse_int_env("DOWNLOAD_MAX_RETRIES", 3),
     },
     "proxy": {
         "proxy_file": os.getenv("PROXY_FILE", ""),

@@ -22,6 +22,7 @@ from tiktok_api import (
     TikTokClient,
     TikTokError,
     TikTokDeletedError,
+    TikTokInvalidLinkError,
     TikTokPrivateError,
     TikTokNetworkError,
     TikTokRateLimitError,
@@ -212,6 +213,8 @@ def get_error_message(error: TikTokError, lang: str) -> str:
         return lang_dict.get("error_deleted", "This video has been deleted.")
     elif isinstance(error, TikTokPrivateError):
         return lang_dict.get("error_private", "This video is private.")
+    elif isinstance(error, TikTokInvalidLinkError):
+        return lang_dict.get("link_error", "Invalid or expired TikTok link.")
     elif isinstance(error, TikTokNetworkError):
         return lang_dict.get("error_network", "Network error occurred.")
     elif isinstance(error, TikTokRateLimitError):
@@ -547,15 +550,74 @@ async def send_image_result(
     image_limit: int | None,
     client: TikTokClient,
 ) -> bool:
+    """Send slideshow images to the user.
+
+    Downloads all images first using Part 3 retry strategy (retry individual
+    failed images with proxy rotation), then processes and sends them.
+
+    Args:
+        user_msg: User message to reply to
+        video_info: VideoInfo object containing image URLs and proxy session
+        lang: Language code for localization
+        file_mode: If True, send as documents; if False, send as photos
+        image_limit: Max images to send (for groups), None for all
+        client: TikTokClient instance for downloads
+
+    Returns:
+        True if image processing (conversion) was performed
+    """
     video_id = video_info.id
     # Use image_urls property for slideshows
-    image_data = video_info.image_urls
+    image_urls = video_info.image_urls
+
+    # Apply image limit if set
     if image_limit:
-        images = [image_data[:image_limit]]
+        image_urls = image_urls[:image_limit]
+
+    total_images = len(image_urls)
+    processing_needed = False
+    processing_message = None
+    was_processed = False
+
+    is_private_chat = user_msg.chat.type == "private"
+
+    # ===== Part 3: Download all images with retry =====
+    # Use proxy session from video_info for retry with proxy rotation
+    proxy_session = video_info._proxy_session
+    if proxy_session:
+        # Download all images using Part 3 retry strategy
+        try:
+            all_image_bytes = await client.download_slideshow_images(
+                video_info, proxy_session
+            )
+            # Limit to requested images
+            if image_limit:
+                all_image_bytes = all_image_bytes[:image_limit]
+        except TikTokNetworkError as e:
+            logger.error(f"Failed to download slideshow images: {e}")
+            raise
+    else:
+        # Fallback: download using legacy method (no retry)
+        logger.warning("No proxy session available, using legacy download")
+        all_image_bytes = await download_images_parallel(
+            image_urls, client, video_info
+        )
+        # Filter out exceptions from legacy method
+        all_image_bytes = [
+            img for img in all_image_bytes
+            if isinstance(img, bytes)
+        ]
+
+    # Split into batches of 10 for Telegram media groups
+    if image_limit:
+        images_bytes = [all_image_bytes]
         sleep_time = 0
     else:
-        images = [image_data[x : x + 10] for x in range(0, len(image_data), 10)]
-        image_pages = len(images)
+        images_bytes = [
+            all_image_bytes[x : x + 10]
+            for x in range(0, len(all_image_bytes), 10)
+        ]
+        image_pages = len(images_bytes)
         match image_pages:
             case 1:
                 sleep_time = 0
@@ -566,25 +628,15 @@ async def send_image_result(
             case _:
                 sleep_time = 3
 
-    # Calculate total number of images and check if processing is needed
-    total_images = sum(len(part) for part in images)
-    processing_needed = False
-    processing_message = None
-    was_processed = False  # Track if any processing actually occurred
+    # Check if processing is needed (only for photo mode)
+    if not file_mode and all_image_bytes:
+        # Check first image format
+        first_image = all_image_bytes[0]
+        extension = detect_image_format(first_image)
+        processing_needed = extension not in [".jpg", ".webp"]
 
-    # Only check and send message if we're in photo mode (conversion mode) and not in groups
-    is_private_chat = user_msg.chat.type == "private"
-
-    if not file_mode:
-        # Quick check if processing is needed by checking only the first image
-        first_image_link = images[0][0] if images and images[0] else None
-        if first_image_link:
-            processing_needed = await detect_image_processing_needed(
-                first_image_link, client, video_info
-            )
-
-    # Function to process images with optional forced processing
-    async def process_images_batch():
+    # Function to process and send images
+    async def process_and_send_images():
         nonlocal processing_needed, processing_message, was_processed
 
         # Send processing message only in private chats if processing is needed
@@ -593,59 +645,63 @@ async def send_image_result(
 
         if processing_needed:
             logger.info(
-                f"Starting parallel processing of {total_images} images in {len(images)} batches for video {video_id}"
+                f"Starting processing of {total_images} images in "
+                f"{len(images_bytes)} batches for video {video_id}"
             )
-            was_processed = True  # Mark that processing occurred
+            was_processed = True
 
-        # Use persistent executor to avoid "cannot schedule new futures after shutdown" errors
         loop = asyncio.get_running_loop()
         executor = get_image_executor()
-        last_part = len(images) - 1
+        last_part = len(images_bytes) - 1
         final = None
 
-        for num, part in enumerate(images):
+        image_index = 0
+        for num, part_bytes in enumerate(images_bytes):
             media_group = []
 
-            # Create tasks for parallel processing of images in this part
-            tasks = []
-            for i, image_link in enumerate(part):
-                current_image_number = (
-                    (num * 10) + i + 1
-                )  # Calculate correct image number
-                if file_mode:
-                    task = get_image_data_raw(
-                        image_link,
-                        file_name=f"{video_id}_{current_image_number}",
-                        client=client,
-                        video_info=video_info,
-                    )
-                else:
-                    task = convert_single_image(
-                        image_link,
-                        f"{video_id}_{current_image_number}",
-                        executor,
-                        loop,
-                        client=client,
-                        video_info=video_info,
-                    )
-                tasks.append(task)
+            # Process images in this batch
+            for img_bytes in part_bytes:
+                current_image_number = image_index + 1
+                image_index += 1
 
-            # Process all images in this part concurrently
-            image_data_list = await asyncio.gather(*tasks)
+                # Detect format
+                extension = detect_image_format(img_bytes)
 
-            # Create media group from processed images
-            for data in image_data_list:
                 if file_mode:
+                    # Send as document - no conversion needed
+                    filename = f"{video_id}_{current_image_number}{extension}"
+                    buffered = BufferedInputFile(img_bytes, filename)
                     media_group.append(
                         InputMediaDocument(
-                            media=data, disable_content_type_detection=True
+                            media=buffered, disable_content_type_detection=True
                         )
                     )
                 else:
+                    # Convert if needed
+                    if (
+                        IMAGE_CONVERSION_AVAILABLE
+                        and extension not in [".jpg", ".webp"]
+                    ):
+                        try:
+                            converted = await loop.run_in_executor(
+                                executor, convert_image_to_jpeg_optimized, img_bytes
+                            )
+                            img_bytes = converted
+                            extension = ".jpg"
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to convert image {current_image_number}: {e}"
+                            )
+
+                    filename = f"{video_id}_{current_image_number}{extension}"
+                    buffered = BufferedInputFile(img_bytes, filename)
                     media_group.append(
-                        InputMediaPhoto(media=data, disable_content_type_detection=True)
+                        InputMediaPhoto(
+                            media=buffered, disable_content_type_detection=True
+                        )
                     )
 
+            # Send this batch
             if num < last_part:
                 await sleep(sleep_time)
                 await user_msg.reply_media_group(media_group, disable_notification=True)
@@ -656,12 +712,12 @@ async def send_image_result(
 
         if processing_needed:
             logger.info(
-                f"Completed processing {total_images} images in {len(images)} batches for video {video_id}"
+                f"Completed processing {total_images} images for video {video_id}"
             )
 
         return final
 
-    final = await process_images_batch()
+    final = await process_and_send_images()
 
     # Delete processing message after all images are sent
     if processing_message:
