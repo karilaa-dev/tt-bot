@@ -165,7 +165,6 @@ class TikTokClient:
         >>> proxy_manager = ProxyManager.initialize("proxies.txt", include_host=True)
         >>> client = TikTokClient(proxy_manager=proxy_manager, data_only_proxy=True)
         >>> video_info = await client.video("https://www.tiktok.com/@user/video/123")
-        >>> print(video_info.author)
         >>> print(video_info.duration)
 
         # With cookies for authenticated requests:
@@ -1619,7 +1618,6 @@ class TikTokClient:
                         width=None,
                         height=None,
                         duration=None,
-                        author=author,
                         link=video_link,
                         url=None,
                         _download_context=download_context,
@@ -1672,7 +1670,6 @@ class TikTokClient:
             # Extract remaining metadata from raw data
             width = video_info_data.get("width")
             height = video_info_data.get("height")
-            author = video_data.get("author", {}).get("uniqueId", "")
             cover = video_info_data.get("cover") or video_info_data.get("originCover")
 
             return VideoInfo(
@@ -1683,7 +1680,6 @@ class TikTokClient:
                 width=int(width) if width else None,
                 height=int(height) if height else None,
                 duration=duration,
-                author=author,
                 link=video_link,
                 url=video_url,
             )
