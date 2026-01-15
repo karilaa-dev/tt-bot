@@ -284,9 +284,9 @@ async def send_video_result(
         if not isinstance(video_data, bytes):
             raise ValueError("Video data must be bytes for inline messages")
 
-        # Download thumbnail for videos > 1 minute
+        # Download thumbnail for videos > 30 seconds
         thumbnail = None
-        if video_duration and video_duration > 60:
+        if video_duration and video_duration > 30:
             thumbnail = await download_thumbnail(video_info.cover, video_id)
 
         # Upload to storage channel to get file_id
