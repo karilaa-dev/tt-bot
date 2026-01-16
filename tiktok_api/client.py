@@ -881,6 +881,11 @@ class TikTokClient:
                         return None, "private", None
                     elif status == 10216:
                         return None, "deleted", None  # Treat under review as deleted
+
+                    # Validate that we got video data
+                    if not video_data:
+                        logger.error(f"No video data returned for {video_id} (status={status})")
+                        return None, "extraction", None
                 else:
                     # No proxy, use the standard method with impersonate
                     video_data, status = ie._extract_web_data_and_status(
@@ -894,6 +899,11 @@ class TikTokClient:
                         return None, "private", None
                     elif status == 10216:
                         return None, "deleted", None  # Treat under review as deleted
+
+                    # Validate that we got video data
+                    if not video_data:
+                        logger.error(f"No video data returned for {video_id} (status={status})")
+                        return None, "extraction", None
             except AttributeError as e:
                 logger.error(
                     f"Failed to call yt-dlp internal method: {e}. "
