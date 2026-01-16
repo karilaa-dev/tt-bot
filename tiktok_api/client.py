@@ -858,8 +858,11 @@ class TikTokClient:
                     if "proxy" in ydl_opts:
                         del ydl_opts["proxy"]
                     # Recreate YDL without proxy for extraction
-                    ydl.close()
+                    # Create new instance first to ensure we have a valid ydl
+                    # even if something goes wrong during recreation
+                    old_ydl = ydl
                     ydl = yt_dlp.YoutubeDL(ydl_opts)
+                    old_ydl.close()  # Close old instance after new one is ready
                     ie = ydl.get_info_extractor("TikTok")
                     ie.set_downloader(ydl)
 
