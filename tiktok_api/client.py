@@ -29,10 +29,22 @@ from curl_cffi import CurlError
 # This ensures impersonation targets update automatically with yt-dlp
 try:
     from yt_dlp.networking._curlcffi import BROWSER_TARGETS, _TARGETS_COMPAT_LOOKUP
+    from yt_dlp.networking.impersonate import ImpersonateTarget
 except ImportError:
     # Fallback if yt-dlp structure changes or curl_cffi not available during import
     BROWSER_TARGETS = {}
     _TARGETS_COMPAT_LOOKUP = {}
+    ImpersonateTarget = None
+
+# Note: yt-dlp's CurlCFFIRH already handles proxies correctly per-request via
+# session.curl.setopt(CurlOpt.PROXY, proxy) in _send(). No monkey-patching needed.
+# The session caching by cookiejar is fine because proxy is set on each request.
+
+# TikTok WAF blocks newer Chrome versions (136+) when used with proxies due to
+# TLS fingerprint / User-Agent mismatches. Use Chrome 120 which is known to work.
+# The User-Agent must match the impersonation target to avoid WAF detection.
+TIKTOK_IMPERSONATE_TARGET = "chrome120"
+TIKTOK_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 from .exceptions import (
     TikTokDeletedError,
@@ -179,112 +191,76 @@ class TikTokClient:
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
 
-    # curl_cffi session for browser-impersonated media downloads
-    _curl_session: Optional[CurlAsyncSession] = None
+    # curl_cffi session pool for browser-impersonated media downloads
+    # Keyed by proxy URL (None for direct connection) to avoid proxy contamination
+    _curl_session_pool: dict[Optional[str], CurlAsyncSession] = {}
     _curl_session_lock = threading.Lock()
     _impersonate_target: Optional[str] = None
 
     @classmethod
     def _get_impersonate_target(cls) -> str:
-        """Get the best impersonation target from yt-dlp's BROWSER_TARGETS.
+        """Get the impersonation target for TikTok requests.
 
-        Uses the same priority as yt-dlp:
-        1. Prioritize desktop over mobile (non-ios, non-android)
-        2. Prioritize Chrome > Safari > Firefox > Edge > Tor
-        3. Prioritize newest version
-
-        This ensures the impersonation target updates automatically when you
-        update yt-dlp, without any hardcoded values.
+        TikTok's WAF blocks newer Chrome versions (136+) when used with proxies
+        due to TLS fingerprint / User-Agent mismatches. Chrome 120 is known to
+        work reliably with proxies.
 
         Returns:
-            curl_cffi-compatible impersonate string (e.g., "chrome136")
+            curl_cffi-compatible impersonate string (e.g., "chrome120")
         """
-        import itertools
-
-        # Get curl_cffi version as tuple for comparison
-        try:
-            curl_cffi_version = tuple(
-                int(x) for x in curl_cffi.__version__.split(".")[:2]
-            )
-        except (ValueError, AttributeError):
-            curl_cffi_version = (0, 9)  # Minimum supported version
-
-        # Collect all available targets for our curl_cffi version
-        available_targets: dict[str, Any] = {}
-        for version, targets in BROWSER_TARGETS.items():
-            if curl_cffi_version >= version:
-                available_targets.update(targets)
-
-        if not available_targets:
-            # Fallback to a common target if BROWSER_TARGETS is empty
-            logger.warning(
-                "No BROWSER_TARGETS available from yt-dlp, using 'chrome' fallback"
-            )
-            return "chrome"
-
-        # Sort by yt-dlp's priority (same logic as _curlcffi.py)
-        # This ensures we pick the same target yt-dlp would use
-        sorted_targets = sorted(
-            available_targets.items(),
-            key=lambda x: (
-                # deprioritize mobile targets since they give very different behavior
-                x[1].os not in ("ios", "android"),
-                # prioritize tor < edge < firefox < safari < chrome
-                ("tor", "edge", "firefox", "safari", "chrome").index(x[1].client)
-                if x[1].client in ("tor", "edge", "firefox", "safari", "chrome")
-                else -1,
-                # prioritize newest version
-                float(x[1].version) if x[1].version else 0,
-                # group by os name
-                x[1].os or "",
-            ),
-            reverse=True,
-        )
-
-        # Get the best target name
-        best_name = sorted_targets[0][0]
-
-        # Apply compatibility lookup for older curl_cffi versions
-        if curl_cffi_version < (0, 11):
-            best_name = _TARGETS_COMPAT_LOOKUP.get(best_name, best_name)
-
+        # Use fixed Chrome 120 target that works with TikTok's WAF
+        # This must match TIKTOK_IMPERSONATE_TARGET and TIKTOK_USER_AGENT
         logger.debug(
-            f"Selected impersonation target: {best_name} "
+            f"Using impersonation target: {TIKTOK_IMPERSONATE_TARGET} "
             f"(curl_cffi {curl_cffi.__version__})"
         )
-        return best_name
+        return TIKTOK_IMPERSONATE_TARGET
 
     @classmethod
-    def _get_curl_session(cls) -> CurlAsyncSession:
-        """Get or create shared curl_cffi AsyncSession with browser impersonation.
+    def _get_curl_session(cls, proxy: Optional[str] = None) -> CurlAsyncSession:
+        """Get or create curl_cffi AsyncSession for a specific proxy.
+
+        Sessions are pooled by proxy URL to avoid proxy contamination.
+        curl_cffi bakes the proxy into the session at creation time, so we need
+        separate sessions for different proxies.
 
         The session uses yt-dlp's BROWSER_TARGETS to select the best impersonation
         target, ensuring TLS fingerprint matches a real browser.
+
+        Args:
+            proxy: Proxy URL string, or None for direct connection.
+
+        Returns:
+            CurlAsyncSession configured with the specified proxy.
         """
         with cls._curl_session_lock:
-            # Check if session needs to be created
-            # Note: CurlAsyncSession doesn't have is_closed, we track via _curl_session being None
-            if cls._curl_session is None:
-                pool_size = 10000  # High value for maximum throughput
-                cls._impersonate_target = cls._get_impersonate_target()
-                cls._curl_session = CurlAsyncSession(
+            # Check if session exists for this proxy
+            if proxy not in cls._curl_session_pool:
+                pool_size = 1000  # Per-proxy pool size
+                if cls._impersonate_target is None:
+                    cls._impersonate_target = cls._get_impersonate_target()
+
+                # Create session with proxy baked in at construction time
+                cls._curl_session_pool[proxy] = CurlAsyncSession(
                     impersonate=cls._impersonate_target,
+                    proxy=proxy,  # curl_cffi converts this to {"all": proxy}
                     max_clients=pool_size,
                 )
                 logger.info(
-                    f"Created curl_cffi session with impersonate={cls._impersonate_target}, "
-                    f"max_clients={pool_size}"
+                    f"Created curl_cffi session for proxy={_strip_proxy_auth(proxy)}, "
+                    f"impersonate={cls._impersonate_target}, max_clients={pool_size}"
                 )
-            return cls._curl_session
+            return cls._curl_session_pool[proxy]
 
     @classmethod
     async def close_curl_session(cls) -> None:
-        """Close shared curl_cffi session. Call on application shutdown."""
+        """Close all curl_cffi sessions in the pool. Call on application shutdown."""
         with cls._curl_session_lock:
-            session = cls._curl_session
-            cls._curl_session = None
+            sessions = list(cls._curl_session_pool.values())
+            cls._curl_session_pool.clear()
             cls._impersonate_target = None
-        if session is not None:
+
+        for session in sessions:
             try:
                 await session.close()
             except Exception as e:
@@ -382,10 +358,11 @@ class TikTokClient:
         return "None"
 
     def _get_bypass_headers(self, referer_url: str) -> dict[str, str]:
-        """Get bypass headers dynamically from yt-dlp.
+        """Get bypass headers for TikTok media downloads.
 
-        Uses yt-dlp's standard headers which are updated with each yt-dlp release.
-        We add Origin and Referer for CORS compliance with TikTok CDN.
+        Uses headers matching our impersonation target (Chrome 120) to avoid
+        TikTok WAF detection. The User-Agent must match the curl_cffi
+        impersonation target.
 
         Args:
             referer_url: The referer URL to set in headers
@@ -394,6 +371,8 @@ class TikTokClient:
             Dict of headers for media download
         """
         headers = dict(YTDLP_STD_HEADERS)  # Copy to avoid mutation
+        # Override User-Agent to match our impersonation target
+        headers["User-Agent"] = TIKTOK_USER_AGENT
         headers["Referer"] = referer_url
         headers["Origin"] = "https://www.tiktok.com"
         headers["Accept"] = "*/*"
@@ -487,17 +466,21 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = download_context.get("proxy")
 
-        session = self._get_curl_session()
+        # Get session with proxy baked in (avoids proxy contamination between requests)
+        session = self._get_curl_session(proxy=proxy)
 
         for attempt in range(1, max_retries + 1):
-            logger.debug(f"CDN download attempt {attempt}/{max_retries} for media URL")
+            logger.debug(
+                f"CDN download attempt {attempt}/{max_retries} for media URL "
+                f"via {_strip_proxy_auth(proxy)}"
+            )
             response = None
             try:
+                # Note: proxy is already configured in the session (baked in at creation)
                 response = await session.get(
                     media_url,
                     headers=headers,
                     cookies=cookies,
-                    proxy=proxy,
                     timeout=60,
                     allow_redirects=True,
                     stream=use_streaming,
@@ -770,6 +753,13 @@ class TikTokClient:
             "no_warnings": True,
         }
 
+        # Set impersonation target and matching User-Agent to avoid TikTok WAF detection.
+        # TikTok blocks newer Chrome versions (136+) when used with proxies due to
+        # TLS fingerprint mismatches. Chrome 120 is known to work reliably.
+        if ImpersonateTarget is not None:
+            opts["impersonate"] = ImpersonateTarget("chrome", "120", "macos", None)
+        opts["http_headers"] = {"User-Agent": TIKTOK_USER_AGENT}
+
         # Use explicit proxy decision if it was provided (even if None = direct connection)
         if explicit_proxy is not ...:
             if explicit_proxy is not None:
@@ -848,62 +838,27 @@ class TikTokClient:
             try:
                 # Use yt-dlp's internal method to get raw webpage data
                 # This also sets up all necessary cookies
-                # NOTE: TikTok's impersonate feature doesn't work through HTTP proxies.
-                # Always use direct connection for extraction, proxy is used for downloads.
-                saved_proxy = None  # Will store proxy for download context
-                if self.proxy_manager and self.proxy_manager.has_proxies():
-                    # Download webpage without proxy but with impersonate
-                    # Save current proxy setting and temporarily disable it
-                    saved_proxy = ydl_opts.get("proxy")
-                    if "proxy" in ydl_opts:
-                        del ydl_opts["proxy"]
-                    # Recreate YDL without proxy for extraction
-                    # Create new instance first to ensure we have a valid ydl
-                    # even if something goes wrong during recreation
-                    old_ydl = ydl
-                    ydl = yt_dlp.YoutubeDL(ydl_opts)
-                    old_ydl.close()  # Close old instance after new one is ready
-                    ie = ydl.get_info_extractor("TikTok")
-                    ie.set_downloader(ydl)
+                # NOTE: Always use proxy for extraction if configured, as datacenter
+                # IPs are typically blocked by TikTok.
+                video_data, status = ie._extract_web_data_and_status(
+                    normalized_url, video_id
+                )
 
-                    # Use standard extraction with impersonate (no proxy)
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
+                # Check TikTok status codes for errors
+                # 10204 = Video not found / deleted
+                # 10216 = Video under review
+                # 10222 = Private video
+                if status == 10204:
+                    return None, "deleted", None
+                elif status == 10222:
+                    return None, "private", None
+                elif status == 10216:
+                    return None, "deleted", None  # Treat under review as deleted
 
-                    # Check TikTok status codes for errors
-                    # 10204 = Video not found / deleted
-                    # 10216 = Video under review
-                    # 10222 = Private video
-                    if status == 10204:
-                        return None, "deleted", None
-                    elif status == 10222:
-                        return None, "private", None
-                    elif status == 10216:
-                        return None, "deleted", None  # Treat under review as deleted
-
-                    # Validate that we got video data
-                    if not video_data:
-                        logger.error(f"No video data returned for {video_id} (status={status})")
-                        return None, "extraction", None
-                else:
-                    # No proxy, use the standard method with impersonate
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
-
-                    # Check TikTok status codes for errors (same as proxy path)
-                    if status == 10204:
-                        return None, "deleted", None
-                    elif status == 10222:
-                        return None, "private", None
-                    elif status == 10216:
-                        return None, "deleted", None  # Treat under review as deleted
-
-                    # Validate that we got video data
-                    if not video_data:
-                        logger.error(f"No video data returned for {video_id} (status={status})")
-                        return None, "extraction", None
+                # Validate that we got video data
+                if not video_data:
+                    logger.error(f"No video data returned for {video_id} (status={status})")
+                    return None, "extraction", None
             except AttributeError as e:
                 logger.error(
                     f"Failed to call yt-dlp internal method: {e}. "
@@ -915,18 +870,12 @@ class TikTokClient:
                 ) from e
 
             # Create download context with the live instances
-            # For proxy path, use the saved_proxy (extraction was without proxy, downloads use proxy)
-            # For non-proxy path, use request_proxy as before
-            context_proxy = (
-                saved_proxy
-                if self.proxy_manager and self.proxy_manager.has_proxies()
-                else request_proxy
-            )
+            # Use the same proxy for downloads that was used for extraction
             download_context = {
                 "ydl": ydl,
                 "ie": ie,
                 "referer_url": url,
-                "proxy": context_proxy,  # Store proxy for per-request assignment
+                "proxy": request_proxy if request_proxy is not ... else None,
             }
 
             # Success - transfer ownership of ydl to caller via download_context
@@ -1458,15 +1407,16 @@ class TikTokClient:
         if not self.data_only_proxy:
             proxy = video_info._download_context.get("proxy")
 
-        session = self._get_curl_session()
+        # Get session with proxy baked in (avoids proxy contamination between requests)
+        session = self._get_curl_session(proxy=proxy)
 
         response = None
         try:
+            # Note: proxy is already configured in the session (baked in at creation)
             response = await session.get(
                 image_url,
                 headers=headers,
                 cookies=cookies,
-                proxy=proxy,
                 timeout=10,
                 allow_redirects=True,
             )
