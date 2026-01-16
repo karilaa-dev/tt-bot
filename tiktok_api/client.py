@@ -848,62 +848,27 @@ class TikTokClient:
             try:
                 # Use yt-dlp's internal method to get raw webpage data
                 # This also sets up all necessary cookies
-                # NOTE: TikTok's impersonate feature doesn't work through HTTP proxies.
-                # Always use direct connection for extraction, proxy is used for downloads.
-                saved_proxy = None  # Will store proxy for download context
-                if self.proxy_manager and self.proxy_manager.has_proxies():
-                    # Download webpage without proxy but with impersonate
-                    # Save current proxy setting and temporarily disable it
-                    saved_proxy = ydl_opts.get("proxy")
-                    if "proxy" in ydl_opts:
-                        del ydl_opts["proxy"]
-                    # Recreate YDL without proxy for extraction
-                    # Create new instance first to ensure we have a valid ydl
-                    # even if something goes wrong during recreation
-                    old_ydl = ydl
-                    ydl = yt_dlp.YoutubeDL(ydl_opts)
-                    old_ydl.close()  # Close old instance after new one is ready
-                    ie = ydl.get_info_extractor("TikTok")
-                    ie.set_downloader(ydl)
+                # NOTE: Always use proxy for extraction if configured, as datacenter
+                # IPs are typically blocked by TikTok.
+                video_data, status = ie._extract_web_data_and_status(
+                    normalized_url, video_id
+                )
 
-                    # Use standard extraction with impersonate (no proxy)
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
+                # Check TikTok status codes for errors
+                # 10204 = Video not found / deleted
+                # 10216 = Video under review
+                # 10222 = Private video
+                if status == 10204:
+                    return None, "deleted", None
+                elif status == 10222:
+                    return None, "private", None
+                elif status == 10216:
+                    return None, "deleted", None  # Treat under review as deleted
 
-                    # Check TikTok status codes for errors
-                    # 10204 = Video not found / deleted
-                    # 10216 = Video under review
-                    # 10222 = Private video
-                    if status == 10204:
-                        return None, "deleted", None
-                    elif status == 10222:
-                        return None, "private", None
-                    elif status == 10216:
-                        return None, "deleted", None  # Treat under review as deleted
-
-                    # Validate that we got video data
-                    if not video_data:
-                        logger.error(f"No video data returned for {video_id} (status={status})")
-                        return None, "extraction", None
-                else:
-                    # No proxy, use the standard method with impersonate
-                    video_data, status = ie._extract_web_data_and_status(
-                        normalized_url, video_id
-                    )
-
-                    # Check TikTok status codes for errors (same as proxy path)
-                    if status == 10204:
-                        return None, "deleted", None
-                    elif status == 10222:
-                        return None, "private", None
-                    elif status == 10216:
-                        return None, "deleted", None  # Treat under review as deleted
-
-                    # Validate that we got video data
-                    if not video_data:
-                        logger.error(f"No video data returned for {video_id} (status={status})")
-                        return None, "extraction", None
+                # Validate that we got video data
+                if not video_data:
+                    logger.error(f"No video data returned for {video_id} (status={status})")
+                    return None, "extraction", None
             except AttributeError as e:
                 logger.error(
                     f"Failed to call yt-dlp internal method: {e}. "
