@@ -1,7 +1,10 @@
 {
   "lang_name": "Tiếng Việt🇻🇳",
-  "error": "<b>Có lỗi xảy ra🥲</b>\nBạn có thể thử lại không?…",
-  "link_error": "Có lẽ liên kết của bạn có vấn đề🥲",
+  "error": "<b>Ôi! Có lỗi xảy ra 😅</b>\nVui lòng thử lại sau một chút.",
+  "link_error": "Hmm, tôi không thể nhận diện liên kết này 🤔\nHãy chắc chắn đây là liên kết video TikTok hợp lệ!",
+  "video_upload_hint": "Tôi chỉ có thể xóa watermark từ liên kết TikTok, không phải từ video đã tải lên 🎬\n\nVui lòng gửi cho tôi liên kết video TikTok!",
+  "non_tiktok_link": "Bot này chỉ hoạt động với liên kết TikTok 🔗\n\nVui lòng gửi liên kết từ TikTok (tiktok.com hoặc vm.tiktok.com)",
+  "send_link_prompt": "Gửi cho tôi liên kết video TikTok để tải xuống không có watermark! 🎥",
   "lang_start": "Đã đặt ngôn ngữ là Tiếng Việt🇻🇳.\nBạn có thể đổi bằng lệnh /lang",
   "lang": "Ngôn ngữ hiện tại: Tiếng Việt🇻🇳",
   "start": "Bạn đã khởi chạy <b>No Watermark TikTok🤖</b>\n\nBot này hỗ trợ tải:\n📹Video, 🖼Hình ảnh và 🔈Âm thanh\ntừ TikTok <i><b>không có watermark</b></i>\n\nBạn cũng có thể theo dõi kênh của chúng tôi để nhận tin mới nhất về trạng thái bot, cập nhật và thông báo!\n@ttgrab\n\n<b>Gửi liên kết video để bắt đầu</b>",
@@ -38,10 +41,11 @@
   "error_deleted": "<b>Video này đã bị người tạo xóa.</b>",
   "error_private": "<b>Video này ở chế độ riêng tư và không thể truy cập.</b>",
   "error_region": "<b>Video này không khả dụng ở khu vực của bạn.</b>",
-  "error_network": "<b>Đã xảy ra lỗi mạng.</b>\nVui lòng thử lại.",
-  "error_rate_limit": "<b>Quá nhiều yêu cầu.</b>\nVui lòng đợi một chút và thử lại.",
+  "error_network": "<b>Vấn đề kết nối 📡</b>\nVui lòng thử lại sau một chút.",
+  "error_rate_limit": "<b>Từ từ thôi! 🐢</b>\nVui lòng đợi một chút và thử lại.",
   "error_too_long": "<b>Video này quá dài.</b>\nThời lượng tối đa cho phép là 30 phút.",
   "error_queue_full": "<b>Vui lòng đợi!</b>\nBạn đang có {0} video đang xử lý. Hãy thử lại sau một chút.",
   "try_again_button": "Thử lại",
-  "inline_retry_attempt": "🔄 Lần thử {0} trên {1}..."
+  "inline_retry_attempt": "🔄 Lần thử {0} trên {1}...",
+  "tiktok_links_only": "Bot này chỉ hỗ trợ liên kết TikTok 🔗\n\nVui lòng gửi liên kết video TikTok để tải xuống không có watermark!"
 }

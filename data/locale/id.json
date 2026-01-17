@@ -1,7 +1,10 @@
 {
   "lang_name": "Bahasa Indonesia🇮🇩",
-  "error": "<b>Terjadi kesalahan🥲</b>\nBisa coba lagi?…",
-  "link_error": "Mungkin ada yang salah dengan tautanmu🥲",
+  "error": "<b>Ups! Terjadi kesalahan 😅</b>\nSilakan coba lagi sebentar.",
+  "link_error": "Hmm, saya tidak bisa mengenali tautan ini 🤔\nPastikan ini adalah tautan video TikTok yang valid!",
+  "video_upload_hint": "Saya hanya bisa menghapus watermark dari tautan TikTok, bukan dari video yang diunggah 🎬\n\nSilakan kirim tautan video TikTok!",
+  "non_tiktok_link": "Bot ini hanya bekerja dengan tautan TikTok 🔗\n\nSilakan kirim tautan dari TikTok (tiktok.com atau vm.tiktok.com)",
+  "send_link_prompt": "Kirim tautan video TikTok untuk mengunduhnya tanpa watermark! 🎥",
   "lang_start": "Bahasa disetel ke Bahasa Indonesia🇮🇩.\nBisa diubah dengan perintah /lang",
   "lang": "Bahasa disetel ke Bahasa Indonesia🇮🇩",
   "start": "Kamu telah menjalankan <b>No Watermark TikTok🤖</b>\n\nBot ini mendukung unduhan:\n📹Video, 🖼Gambar, dan 🔈Audio\ndari TikTok <i><b>tanpa watermark</b></i>\n\nKamu juga bisa berlangganan channel kami untuk mendapatkan kabar terbaru tentang status bot, pembaruan, dan berita!\n@ttgrab\n\n<b>Kirim tautan video untuk memulai</b>",
@@ -38,10 +41,11 @@
   "error_deleted": "<b>Video ini sudah dihapus oleh pembuatnya.</b>",
   "error_private": "<b>Video ini privat dan tidak bisa diakses.</b>",
   "error_region": "<b>Video ini tidak tersedia di wilayahmu.</b>",
-  "error_network": "<b>Terjadi kesalahan jaringan.</b>\nSilakan coba lagi.",
-  "error_rate_limit": "<b>Terlalu banyak permintaan.</b>\nSilakan tunggu sebentar dan coba lagi.",
+  "error_network": "<b>Masalah koneksi 📡</b>\nSilakan coba lagi sebentar.",
+  "error_rate_limit": "<b>Pelan-pelan! 🐢</b>\nSilakan tunggu sebentar dan coba lagi.",
   "error_too_long": "<b>Video ini terlalu panjang.</b>\nDurasi maksimum yang diizinkan adalah 30 menit.",
   "error_queue_full": "<b>Mohon tunggu!</b>\nKamu sudah memiliki {0} video yang sedang diproses. Coba lagi sebentar.",
   "try_again_button": "Coba Lagi",
-  "inline_retry_attempt": "🔄 Percobaan {0} dari {1}..."
+  "inline_retry_attempt": "🔄 Percobaan {0} dari {1}...",
+  "tiktok_links_only": "Bot ini hanya mendukung tautan TikTok 🔗\n\nSilakan kirim tautan video TikTok untuk mengunduhnya tanpa watermark!"
 }

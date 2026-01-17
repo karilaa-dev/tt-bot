@@ -39,6 +39,51 @@ def try_again_button(lang: str):
     return keyb.as_markup()
 
 
+@video_router.message(F.video | F.video_note)
+async def handle_video_upload(message: Message):
+    """Inform users that we need links, not video uploads (private chats only)."""
+    if message.chat.type != "private":
+        return
+
+    settings = await get_user_settings(message.chat.id)
+    if settings:
+        lang = settings[0]
+    else:
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
+
+    await message.reply(locale[lang]["video_upload_hint"])
+
+
+@video_router.message(F.photo)
+async def handle_image_upload(message: Message):
+    """Inform users that we only support TikTok links, not images (private chats only)."""
+    if message.chat.type != "private":
+        return
+
+    settings = await get_user_settings(message.chat.id)
+    if settings:
+        lang = settings[0]
+    else:
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
+
+    await message.reply(locale[lang]["tiktok_links_only"])
+
+
+@video_router.message(F.voice | F.audio)
+async def handle_voice_upload(message: Message):
+    """Inform users that we only support TikTok links, not voice messages (private chats only)."""
+    if message.chat.type != "private":
+        return
+
+    settings = await get_user_settings(message.chat.id)
+    if settings:
+        lang = settings[0]
+    else:
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
+
+    await message.reply(locale[lang]["tiktok_links_only"])
+
+
 @video_router.message(F.text)
 async def send_tiktok_video(message: Message):
     # Api init with proxy support
@@ -70,9 +115,16 @@ async def send_tiktok_video(message: Message):
         video_link, is_mobile = await api.regex_check(message.text)
         # If not valid
         if video_link is None:
-            # Send error message, if not in group chat
+            # Send appropriate error message in private chats only
             if not group_chat:
-                await message.reply(locale[lang]["link_error"])
+                # Check if message contains URL entities (non-TikTok link)
+                has_url = message.entities and any(
+                    e.type in ("url", "text_link") for e in message.entities
+                )
+                if has_url:
+                    await message.reply(locale[lang]["non_tiktok_link"])
+                else:
+                    await message.reply(locale[lang]["send_link_prompt"])
             return
 
         # Check per-user queue limit before proceeding (0 = no limit)
@@ -183,7 +235,7 @@ async def send_tiktok_video(message: Message):
                     else:
                         if not status_message:
                             try:
-                                await message.react([])
+                                await message.react([ReactionTypeEmoji(emoji="😢")])
                             except TelegramBadRequest:
                                 pass
                 except Exception as e:
@@ -198,7 +250,7 @@ async def send_tiktok_video(message: Message):
                     else:
                         if not status_message:
                             try:
-                                await message.react([])
+                                await message.react([ReactionTypeEmoji(emoji="😢")])
                             except TelegramBadRequest:
                                 pass
                 was_processed = False  # Videos are not processed
@@ -260,7 +312,7 @@ async def send_tiktok_video(message: Message):
                     await message.react([ReactionTypeEmoji(emoji="😢")])
             else:
                 if not status_message:
-                    await message.react([])
+                    await message.react([ReactionTypeEmoji(emoji="😢")])
         except TelegramBadRequest:
             logging.debug("Failed to update UI during error cleanup")
         except Exception as cleanup_err:
@@ -294,3 +346,18 @@ async def handle_retry_callback(callback: CallbackQuery):
 
     # Re-process the original message
     await send_tiktok_video(original_message)
+
+
+@video_router.message()
+async def handle_unsupported_content(message: Message):
+    """Catch-all for any unsupported content types (private chats only)."""
+    if message.chat.type != "private":
+        return
+
+    settings = await get_user_settings(message.chat.id)
+    if settings:
+        lang = settings[0]
+    else:
+        lang = await lang_func(message.chat.id, message.from_user.language_code, True)
+
+    await message.reply(locale[lang]["tiktok_links_only"])
