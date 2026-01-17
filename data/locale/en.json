@@ -1,7 +1,10 @@
 {
   "lang_name": "English🇺🇸",
-  "error": "<b>Something went wrong🥲</b>\nCould you please try again?…",
-  "link_error": "Probably something wrong with your link🥲",
+  "error": "<b>Oops! Something went wrong 😅</b>\nPlease try again in a moment.",
+  "link_error": "Hmm, I couldn't recognize this link 🤔\nMake sure it's a valid TikTok video link!",
+  "video_upload_hint": "I can only remove watermarks from TikTok links, not from uploaded videos 🎬\n\nPlease send me a TikTok video link instead!",
+  "non_tiktok_link": "This bot only works with TikTok links 🔗\n\nPlease send a link from TikTok (tiktok.com or vm.tiktok.com)",
+  "send_link_prompt": "Send me a TikTok video link to download it without watermark! 🎥",
   "lang_start": "The language is set to English🇺🇸.\nIt can be changed with the /lang command",
   "lang": "The language is set to English🇺🇸",
   "start": "You have launched <b>No Watermark TikTok🤖</b>\n\nThis bot supports download of:\n📹Video, 🖼Images and 🔈Audio\nfrom TikTok <i><b>without watermark</b></i>\n\nYou can also subscribe to our channel to get the latest news about bot status, updates and news!\n@ttgrab\n\n<b>Send video link to get started</b>",
@@ -38,10 +41,11 @@
   "error_deleted": "<b>This video has been deleted by the creator.</b>",
   "error_private": "<b>This video is private and cannot be accessed.</b>",
   "error_region": "<b>This video is not available in your region.</b>",
-  "error_network": "<b>Network error occurred.</b>\nPlease try again.",
-  "error_rate_limit": "<b>Too many requests.</b>\nPlease wait a moment and try again.",
+  "error_network": "<b>Connection issue 📡</b>\nPlease try again in a moment.",
+  "error_rate_limit": "<b>Whoa, slow down! 🐢</b>\nPlease wait a moment and try again.",
   "error_too_long": "<b>This video is too long.</b>\nMaximum allowed duration is 30 minutes.",
   "error_queue_full": "<b>Please wait!</b>\nYou already have {0} videos processing. Try again in a moment.",
   "try_again_button": "Try Again",
-  "inline_retry_attempt": "🔄 Attempt {0} of {1}..."
+  "inline_retry_attempt": "🔄 Attempt {0} of {1}...",
+  "tiktok_links_only": "This bot only supports TikTok links 🔗\n\nPlease send a TikTok video link to download it without watermark!"
 }

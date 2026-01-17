@@ -1,7 +1,10 @@
 {
   "lang_name": "Soomaali🇸🇴",
-  "error": "<b>Waxbaa qaldamay🥲</b>\nFadlan mar kale isku day?…",
-  "link_error": "Malaha waxbaa ka qaldan link-gaaga🥲",
+  "error": "<b>Waxyaabaa qaldamay 😅</b>\nFadlan isku day mar kale.",
+  "link_error": "Hmm, ma garan karo link-kan 🤔\nHubi in ay tahay link fiidiyow TikTok oo sax ah!",
+  "video_upload_hint": "Waxaan kaliya ka saari karaa watermark-a link-yada TikTok, ma aha fiidiyowyada la soo dhigay 🎬\n\nFadlan ii soo dir link fiidiyow TikTok!",
+  "non_tiktok_link": "Bot-kan waxa uu la shaqeeyaa oo keliya link-yada TikTok 🔗\n\nFadlan soo dir link ka TikTok (tiktok.com ama vm.tiktok.com)",
+  "send_link_prompt": "Ii soo dir link fiidiyow TikTok si aad u soo dejiso isagoon watermark lahayn! 🎥",
   "lang_start": "Luqadda waxaa loo dejiyey Soomaali🇸🇴.\nWaxaad ku beddeli kartaa amarka /lang",
   "lang": "Luqadda waxaa loo dejiyey Soomaali🇸🇴",
   "start": "Waxaad bilowday <b>No Watermark TikTok🤖</b>\n\nBot-kan wuxuu taageeraa soo dejinta:\n📹Fiidiyow, 🖼Sawirro iyo 🔈Cod\nTikTok <i><b>aan watermark lahayn</b></i>\n\nWaxaad sidoo kale raaci kartaa kanaalkeenna si aad u hesho wararkii ugu dambeeyay ee xaaladda bot-ka, cusboonaysiinta iyo wararka!\n@ttgrab\n\n<b>Dir link-ga fiidiyowga si aad u bilowdo</b>",
@@ -38,10 +41,11 @@
   "error_deleted": "<b>Fiidiyowgan waxaa tirtiray abuurahiisa.</b>",
   "error_private": "<b>Fiidiyowgan waa qarsoon yahay mana la heli karo.</b>",
   "error_region": "<b>Fiidiyowgan laguma heli karo aagaaga.</b>",
-  "error_network": "<b>Khalad shabakad ayaa dhacay.</b>\nFadlan isku day mar kale.",
-  "error_rate_limit": "<b>Codsiyo badan ayaa la sameeyay.</b>\nFadlan sug wakhti yar oo isku day mar kale.",
+  "error_network": "<b>Dhibaato isku xirka 📡</b>\nFadlan isku day mar kale.",
+  "error_rate_limit": "<b>Hoos u dhig! 🐢</b>\nFadlan sug wakhti yar oo isku day mar kale.",
   "error_too_long": "<b>Fiidiyowgan waa dheer yahay.</b>\nMudda ugu badan ee la ogol yahay waa 30 daqiiqo.",
   "error_queue_full": "<b>Fadlan sug!</b>\nWaxaad horeba u leedahay {0} fiidiyow oo la hawlgalayo. Isku day mar kale.",
   "try_again_button": "Isku day mar kale",
-  "inline_retry_attempt": "🔄 Isku day {0} ee {1}..."
+  "inline_retry_attempt": "🔄 Isku day {0} ee {1}...",
+  "tiktok_links_only": "Bot-kan waxa uu taageeraa oo keliya link-yada TikTok 🔗\n\nFadlan soo dir link fiidiyow TikTok si aad u soo dejiso isagoon watermark lahayn!"
 }
