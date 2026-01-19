@@ -22,18 +22,10 @@ from misc.video_types import send_video_result, get_error_message
 
 inline_router = Router(name=__name__)
 
-
-def please_wait_button(lang):
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=locale[lang]["inline_download_video_wait"],
-                    callback_data=f"wait",
-                )
-            ]
-        ]
-    )
+# Minimal button required to enable inline_message_id for editing
+_loading_button = InlineKeyboardMarkup(
+    inline_keyboard=[[InlineKeyboardButton(text="⏳", callback_data="loading")]]
+)
 
 
 @inline_router.inline_query()
@@ -81,7 +73,7 @@ async def handle_inline_query(inline_query: InlineQuery):
                     message_text=locale[lang]["inline_download_video_text"]
                 ),
                 thumbnail_url="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tiktok-light.png",
-                reply_markup=please_wait_button(lang),
+                reply_markup=_loading_button,
             )
         )
 
