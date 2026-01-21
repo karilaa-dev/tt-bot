@@ -23,6 +23,7 @@ from data.db_service import (
 from data.models import Users, Video, Music
 from stats.misc import bot_stats, get_overall_stats, get_daily_stats
 from stats.graphs import plot_async
+from stats.botstat import Botstat
 from misc.utils import tCurrent, IsStatsAdmin
 
 stats_router = Router(name=__name__)
@@ -357,3 +358,15 @@ async def stats_menu(call: CallbackQuery, state: FSMContext):
     await call.message.edit_text(
         "<b>📊Stats Menu</b>", reply_markup=stats_menu_keyboard
     )
+
+
+@stats_router.message(Command("botstat"), F.chat.type == "private", IsStatsAdmin())
+async def botstat(message: Message):
+    try:
+        botstat_instance = Botstat()
+        await botstat_instance.start_task()
+        await message.answer("BotSafe stats verification started")
+    except Exception as e:
+        await message.answer(
+            f"BotSafe stats verification unsuccessful: <code>{str(e)}</code>"
+        )
