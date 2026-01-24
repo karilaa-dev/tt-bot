@@ -12,9 +12,10 @@ services:
       - db
 
   stats-bot:
-    build: .
-    image: ghcr.io/karilaa-dev/tt-bot:latest
-    command: python stats.py
+    build:
+      context: .
+      dockerfile: Dockerfile.stats
+    image: ghcr.io/karilaa-dev/tt-bot-stats:latest
     env_file:
       - .env
     restart: unless-stopped

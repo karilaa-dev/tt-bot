@@ -5,10 +5,9 @@ from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.types import Message
-from stats.botstat import Botstat
 
 from data.loader import bot
-from misc.utils import IsSecondAdmin, IsAdmin, get_users_file
+from misc.utils import IsSecondAdmin, get_users_file
 
 admin_router = Router(name=__name__)
 
@@ -34,15 +33,3 @@ async def send_hi(message: Message):
 async def export_users(message: Message):
     users_file = await get_users_file()
     await message.answer_document(users_file, caption="User list")
-
-
-@admin_router.message(Command("botstat"), F.chat.type == "private", IsAdmin())
-async def botstat(message: Message):
-    try:
-        botstat = Botstat()
-        await botstat.start_task()
-        await message.answer("BotSafe stats verification started")
-    except Exception as e:
-        await message.answer(
-            f"BotSafe stats verification unsuccessful: <code>{str(e)}</code>"
-        )

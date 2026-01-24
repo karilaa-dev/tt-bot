@@ -7,17 +7,20 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install only dependencies into a project-managed virtualenv (.venv)
-RUN uv sync --locked --no-install-project --extra main
+RUN uv sync --locked --no-install-project --extra stats
 
-# Copy the rest of the application source
-COPY . .
+# Copy only the files needed for the stats bot
+COPY stats.py ./
+COPY stats/ ./stats/
+COPY data/ ./data/
+COPY misc/ ./misc/
 
 # Install the project itself
-RUN uv sync --locked --extra main
+RUN uv sync --locked --extra stats
 
 # Ensure the project venv executables are on PATH and unbuffer Python output
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
-# Run the bot
-CMD ["uv", "run", "main.py"]
+# Run the stats bot
+CMD ["uv", "run", "stats.py"]
