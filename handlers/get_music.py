@@ -9,7 +9,7 @@ from data.db_service import add_music
 from data.loader import bot
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.utils import lang_func, error_catch
-from misc.video_types import send_music_result, music_button, get_error_message
+from media_types import send_music_result, music_button, get_error_message
 
 music_router = Router(name=__name__)
 

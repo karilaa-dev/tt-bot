@@ -17,7 +17,7 @@ from data.loader import bot
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.queue_manager import QueueManager
 from misc.utils import start_manager, error_catch, lang_func
-from misc.video_types import send_video_result, send_image_result, get_error_message
+from media_types import send_video_result, send_image_result, get_error_message
 
 video_router = Router(name=__name__)
 

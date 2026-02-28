@@ -2,12 +2,12 @@
   "lang_name": "العربية🇸🇦",
   "error": "<b>عفوًا! حدث خطأ ما 😅</b>\nيرجى المحاولة مرة أخرى بعد قليل.",
   "link_error": "هممم، لم أتمكن من التعرف على هذا الرابط 🤔\nتأكد من أنه رابط فيديو TikTok صالح!",
-  "video_upload_hint": "يمكنني فقط إزالة العلامات المائية من روابط TikTok، وليس من الفيديوهات المرفوعة 🎬\n\nيرجى إرسال رابط فيديو TikTok بدلاً من ذلك!",
-  "non_tiktok_link": "هذا البوت يعمل فقط مع روابط TikTok 🔗\n\nيرجى إرسال رابط من TikTok (tiktok.com أو vm.tiktok.com)",
-  "send_link_prompt": "أرسل لي رابط فيديو TikTok لتنزيله بدون علامة مائية! 🎥",
+  "video_upload_hint": "يمكنني فقط التنزيل من روابط TikTok وInstagram، وليس من الفيديوهات المرفوعة 🎬\n\nيرجى إرسال رابط بدلاً من ذلك!",
+  "non_tiktok_link": "هذا البوت يعمل فقط مع روابط TikTok وInstagram 🔗\n\nيرجى إرسال رابط من TikTok أو Instagram",
+  "send_link_prompt": "أرسل لي رابط TikTok أو Instagram لتنزيله! 🎥",
   "lang_start": "تم تعيين اللغة إلى العربية🇸🇦.\nيمكن تغييرها باستخدام الأمر /lang",
   "lang": "تم تعيين اللغة إلى العربية🇸🇦",
-  "start": "لقد قمت بتشغيل <b>No Watermark TikTok🤖</b>\n\nيدعم هذا البوت تنزيل:\n📹الفيديو، 🖼الصور و 🔈الصوت\nمن TikTok <i><b>بدون علامة مائية</b></i>\n\nيمكنك أيضًا الاشتراك في قناتنا للحصول على آخر الأخبار حول حالة البوت والتحديثات والإعلانات!\n@ttgrab\n\n<b>أرسل رابط الفيديو للبدء</b>",
+  "start": "لقد قمت بتشغيل <b>No Watermark TikTok🤖</b>\n\nيدعم هذا البوت تنزيل:\n📹الفيديو، 🖼الصور و 🔈الصوت\nمن TikTok وInstagram <i><b>بدون علامة مائية</b></i>\n\nيمكنك أيضًا الاشتراك في قناتنا للحصول على آخر الأخبار حول حالة البوت والتحديثات والإعلانات!\n@ttgrab\n\n<b>أرسل رابط الفيديو للبدء</b>",
   "maintenance": "⚠️ <b>صيانة البوت</b> ⚠️\n\nالبوت حاليًا تحت الصيانة وسيعود قريبًا.\nشكرًا لصبرك!\n\nتابع @ttgrab للحصول على التحديثات.",
   "get_sound": "تحميل الصوت",
   "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
@@ -47,5 +47,8 @@
   "error_queue_full": "<b>يرجى الانتظار!</b>\nلديك بالفعل {0} فيديوهات قيد المعالجة. حاول مرة أخرى بعد قليل.",
   "try_again_button": "حاول مرة أخرى",
   "inline_retry_attempt": "🔄 المحاولة {0} من {1}...",
-  "tiktok_links_only": "هذا البوت يدعم فقط روابط TikTok 🔗\n\nيرجى إرسال رابط فيديو TikTok لتنزيله بدون علامة مائية!"
+  "tiktok_links_only": "هذا البوت يدعم فقط روابط TikTok وInstagram 🔗\n\nيرجى إرسال رابط TikTok أو Instagram للتنزيل!",
+  "error_instagram_not_found": "<b>لم يتم العثور على منشور Instagram هذا أو أنه خاص.</b>",
+  "inline_download_instagram": "تنزيل فيديو Instagram",
+  "inline_download_instagram_description": "تنزيل فيديوهات Instagram."
 }

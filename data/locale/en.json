@@ -2,12 +2,12 @@
   "lang_name": "English🇺🇸",
   "error": "<b>Oops! Something went wrong 😅</b>\nPlease try again in a moment.",
   "link_error": "Hmm, I couldn't recognize this link 🤔\nMake sure it's a valid TikTok video link!",
-  "video_upload_hint": "I can only remove watermarks from TikTok links, not from uploaded videos 🎬\n\nPlease send me a TikTok video link instead!",
-  "non_tiktok_link": "This bot only works with TikTok links 🔗\n\nPlease send a link from TikTok (tiktok.com or vm.tiktok.com)",
-  "send_link_prompt": "Send me a TikTok video link to download it without watermark! 🎥",
+  "video_upload_hint": "I can only download from TikTok and Instagram links, not from uploaded videos 🎬\n\nPlease send me a link instead!",
+  "non_tiktok_link": "This bot only works with TikTok and Instagram links 🔗\n\nPlease send a link from TikTok or Instagram",
+  "send_link_prompt": "Send me a TikTok or Instagram link to download it! 🎥",
   "lang_start": "The language is set to English🇺🇸.\nIt can be changed with the /lang command",
   "lang": "The language is set to English🇺🇸",
-  "start": "You have launched <b>No Watermark TikTok🤖</b>\n\nThis bot supports download of:\n📹Video, 🖼Images and 🔈Audio\nfrom TikTok <i><b>without watermark</b></i>\n\nYou can also subscribe to our channel to get the latest news about bot status, updates and news!\n@ttgrab\n\n<b>Send video link to get started</b>",
+  "start": "You have launched <b>No Watermark TikTok🤖</b>\n\nThis bot supports download of:\n📹Video, 🖼Images and 🔈Audio\nfrom TikTok and Instagram <i><b>without watermark</b></i>\n\nYou can also subscribe to our channel to get the latest news about bot status, updates and news!\n@ttgrab\n\n<b>Send video link to get started</b>",
   "maintenance": "⚠️ <b>Bot Maintenance</b> ⚠️\n\nThe bot is currently undergoing maintenance and will be back soon.\nThank you for your patience!\n\nFollow @ttgrab for updates.",
   "get_sound": "Get Sound",
   "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
@@ -47,5 +47,8 @@
   "error_queue_full": "<b>Please wait!</b>\nYou already have {0} videos processing. Try again in a moment.",
   "try_again_button": "Try Again",
   "inline_retry_attempt": "🔄 Attempt {0} of {1}...",
-  "tiktok_links_only": "This bot only supports TikTok links 🔗\n\nPlease send a TikTok video link to download it without watermark!"
+  "tiktok_links_only": "This bot only supports TikTok and Instagram links 🔗\n\nPlease send a TikTok or Instagram link to download!",
+  "error_instagram_not_found": "<b>This Instagram post was not found or is private.</b>",
+  "inline_download_instagram": "Download Instagram Video",
+  "inline_download_instagram_description": "Download Instagram videos."
 }

@@ -128,6 +128,12 @@ class LoggingConfig(TypedDict):
     log_level: int  # Logging level (e.g., logging.INFO, logging.DEBUG)
 
 
+class InstagramConfig(TypedDict):
+    """Type definition for Instagram configuration."""
+
+    rapidapi_key: str
+
+
 class Config(TypedDict):
     """Type definition for the main configuration."""
 
@@ -139,6 +145,7 @@ class Config(TypedDict):
     proxy: ProxyConfig
     performance: PerformanceConfig
     logging: LoggingConfig
+    instagram: InstagramConfig
 
 
 config: Config = {
@@ -184,6 +191,9 @@ config: Config = {
     },
     "logging": {
         "log_level": _parse_log_level("LOG_LEVEL", "INFO"),
+    },
+    "instagram": {
+        "rapidapi_key": os.getenv("RAPIDAPI_KEY", ""),
     },
 }
 

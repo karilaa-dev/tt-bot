@@ -2,12 +2,12 @@
   "lang_name": "Soomaali🇸🇴",
   "error": "<b>Waxyaabaa qaldamay 😅</b>\nFadlan isku day mar kale.",
   "link_error": "Hmm, ma garan karo link-kan 🤔\nHubi in ay tahay link fiidiyow TikTok oo sax ah!",
-  "video_upload_hint": "Waxaan kaliya ka saari karaa watermark-a link-yada TikTok, ma aha fiidiyowyada la soo dhigay 🎬\n\nFadlan ii soo dir link fiidiyow TikTok!",
-  "non_tiktok_link": "Bot-kan waxa uu la shaqeeyaa oo keliya link-yada TikTok 🔗\n\nFadlan soo dir link ka TikTok (tiktok.com ama vm.tiktok.com)",
-  "send_link_prompt": "Ii soo dir link fiidiyow TikTok si aad u soo dejiso isagoon watermark lahayn! 🎥",
+  "video_upload_hint": "Waxaan kaliya ka soo dejin karaa link-yada TikTok iyo Instagram, ma aha fiidiyowyada la soo dhigay 🎬\n\nFadlan ii soo dir link!",
+  "non_tiktok_link": "Bot-kan waxa uu la shaqeeyaa oo keliya link-yada TikTok iyo Instagram 🔗\n\nFadlan soo dir link ka TikTok ama Instagram",
+  "send_link_prompt": "Ii soo dir link TikTok ama Instagram si aad u soo dejiso! 🎥",
   "lang_start": "Luqadda waxaa loo dejiyey Soomaali🇸🇴.\nWaxaad ku beddeli kartaa amarka /lang",
   "lang": "Luqadda waxaa loo dejiyey Soomaali🇸🇴",
-  "start": "Waxaad bilowday <b>No Watermark TikTok🤖</b>\n\nBot-kan wuxuu taageeraa soo dejinta:\n📹Fiidiyow, 🖼Sawirro iyo 🔈Cod\nTikTok <i><b>aan watermark lahayn</b></i>\n\nWaxaad sidoo kale raaci kartaa kanaalkeenna si aad u hesho wararkii ugu dambeeyay ee xaaladda bot-ka, cusboonaysiinta iyo wararka!\n@ttgrab\n\n<b>Dir link-ga fiidiyowga si aad u bilowdo</b>",
+  "start": "Waxaad bilowday <b>No Watermark TikTok🤖</b>\n\nBot-kan wuxuu taageeraa soo dejinta:\n📹Fiidiyow, 🖼Sawirro iyo 🔈Cod\nTikTok iyo Instagram <i><b>aan watermark lahayn</b></i>\n\nWaxaad sidoo kale raaci kartaa kanaalkeenna si aad u hesho wararkii ugu dambeeyay ee xaaladda bot-ka, cusboonaysiinta iyo wararka!\n@ttgrab\n\n<b>Dir link-ga fiidiyowga si aad u bilowdo</b>",
   "maintenance": "⚠️ <b>Dayactirka Bot-ka</b> ⚠️\n\nBot-ku hadda wuxuu ku jiraa dayactir wuxuuna soo laaban doonaa dhawaan.\nWaad ku mahadsan tahay dulqaadkaaga!\n\nRaac @ttgrab si aad u hesho warar cusub.",
   "get_sound": "Hel Cod",
   "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
@@ -47,5 +47,8 @@
   "error_queue_full": "<b>Fadlan sug!</b>\nWaxaad horeba u leedahay {0} fiidiyow oo la hawlgalayo. Isku day mar kale.",
   "try_again_button": "Isku day mar kale",
   "inline_retry_attempt": "🔄 Isku day {0} ee {1}...",
-  "tiktok_links_only": "Bot-kan waxa uu taageeraa oo keliya link-yada TikTok 🔗\n\nFadlan soo dir link fiidiyow TikTok si aad u soo dejiso isagoon watermark lahayn!"
+  "tiktok_links_only": "Bot-kan waxa uu taageeraa oo keliya link-yada TikTok iyo Instagram 🔗\n\nFadlan soo dir link TikTok ama Instagram si aad u soo dejiso!",
+  "error_instagram_not_found": "<b>Post-kan Instagram lama helin ama waa qarsoon yahay.</b>",
+  "inline_download_instagram": "Soo deji Fiidiyowga Instagram",
+  "inline_download_instagram_description": "Soo deji fiidiyowyada Instagram."
 }
