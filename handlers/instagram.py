@@ -307,35 +307,44 @@ async def _send_instagram_inline_image(
     username: str | None,
     full_name: str | None,
 ) -> None:
-    if not media_info.media:
-        raise ValueError("No media items in media info")
+    from handlers.inline_slideshow import register_slideshow
+
+    image_urls = media_info.image_urls
+    if not image_urls:
+        raise ValueError("No image items in media info")
 
     _, image_data = await asyncio.gather(
         bot.edit_message_text(
             inline_message_id=inline_message_id,
             text=locale[lang]["sending_inline_image"],
         ),
-        _download_url(media_info.media[0].url),
+        _download_url(image_urls[0]),
     )
     if not image_data:
         raise ConnectionError("Failed to download image")
 
     image_data = await ensure_native_format(image_data)
 
-    file_id = await upload_photo_to_storage(
-        image_data, media_info.link, user_id, username, full_name
-    )
-    if not file_id:
-        raise ValueError(
-            "Failed to upload photo to storage. "
-            "Make sure STORAGE_CHANNEL_ID is configured in .env"
-        )
-
     caption = result_caption(lang, media_info.link)
-    if len(media_info.media) > 1:
-        caption += locale[lang]["inline_image_limit"]
+    if len(image_urls) > 1:
+        file_id, keyboard = await register_slideshow(
+            inline_message_id, image_urls, image_data, lang, media_info.link,
+            user_id, username, full_name,
+        )
+    else:
+        file_id = await upload_photo_to_storage(
+            image_data, media_info.link, user_id, username, full_name
+        )
+        keyboard = None
+        if not file_id:
+            raise ValueError(
+                "Failed to upload photo to storage. "
+                "Make sure STORAGE_CHANNEL_ID is configured in .env"
+            )
 
     photo_media = InputMediaPhoto(media=file_id, caption=caption)
     await bot.edit_message_media(
-        inline_message_id=inline_message_id, media=photo_media
+        inline_message_id=inline_message_id,
+        media=photo_media,
+        reply_markup=keyboard,
     )

@@ -26,6 +26,7 @@ from media_types.http_session import _download_url
 from media_types.image_processing import ensure_native_format
 from media_types.storage import upload_photo_to_storage
 from media_types.ui import result_caption
+from handlers.inline_slideshow import register_slideshow
 
 inline_router = Router(name=__name__)
 
@@ -169,22 +170,28 @@ async def _handle_tiktok_inline(
 
             image_data = await ensure_native_format(image_data)
 
-            file_id = await upload_photo_to_storage(
-                image_data, video_link, user_id, username, full_name
-            )
-            if not file_id:
-                raise ValueError(
-                    "Failed to upload photo to storage. "
-                    "Make sure STORAGE_CHANNEL_ID is configured in .env"
-                )
-
             caption = result_caption(lang, video_link)
             if len(image_urls) > 1:
-                caption += locale[lang]["inline_image_limit"]
+                file_id, keyboard = await register_slideshow(
+                    message_id, image_urls, image_data, lang, video_link,
+                    user_id, username, full_name,
+                )
+            else:
+                file_id = await upload_photo_to_storage(
+                    image_data, video_link, user_id, username, full_name
+                )
+                keyboard = None
+                if not file_id:
+                    raise ValueError(
+                        "Failed to upload photo to storage. "
+                        "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                    )
 
             photo_media = InputMediaPhoto(media=file_id, caption=caption)
             await bot.edit_message_media(
-                inline_message_id=message_id, media=photo_media
+                inline_message_id=message_id,
+                media=photo_media,
+                reply_markup=keyboard,
             )
             is_images = True
         else:
