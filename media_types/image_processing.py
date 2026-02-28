@@ -1,3 +1,4 @@
+import asyncio
 import concurrent.futures
 import io
 import logging
@@ -48,6 +49,19 @@ def convert_image_to_png(image_data: bytes) -> bytes:
     except Exception as e:
         logger.error(f"Image to PNG conversion failed: {e}")
         return image_data
+
+
+async def ensure_native_format(image_data: bytes) -> bytes:
+    """Convert image to PNG if its format is not natively supported by Telegram."""
+    if not IMAGE_CONVERSION_AVAILABLE:
+        return image_data
+    ext = detect_image_format(image_data)
+    if ext in _NATIVE_EXTENSIONS:
+        return image_data
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        get_image_executor(), convert_image_to_png, image_data
+    )
 
 
 def convert_image_to_jpeg_optimized(image_data: bytes) -> bytes:

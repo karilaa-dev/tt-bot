@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import Router
@@ -7,6 +8,7 @@ from aiogram.types import (
     ChosenInlineResult,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    InputMediaPhoto,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     InlineQueryResultsButton,
@@ -20,6 +22,10 @@ from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from instagram_api import INSTAGRAM_URL_REGEX, InstagramError
 from misc.queue_manager import QueueManager
 from media_types import send_video_result, get_error_message
+from media_types.http_session import _download_url
+from media_types.image_processing import ensure_native_format
+from media_types.storage import upload_photo_to_storage
+from media_types.ui import result_caption
 
 inline_router = Router(name=__name__)
 
@@ -54,7 +60,7 @@ async def handle_inline_query(inline_query: InlineQuery):
     if video_link is not None:
         results.append(
             InlineQueryResultArticle(
-                id=f"download/{query_text}",
+                id="tt_download",
                 title=locale[lang]["inline_download_video"],
                 description=locale[lang]["inline_download_video_description"],
                 input_message_content=InputTextMessageContent(
@@ -67,7 +73,7 @@ async def handle_inline_query(inline_query: InlineQuery):
     elif INSTAGRAM_URL_REGEX.search(query_text):
         results.append(
             InlineQueryResultArticle(
-                id=f"ig_download/{query_text}",
+                id="ig_download",
                 title=locale[lang]["inline_download_instagram"],
                 description=locale[lang]["inline_download_instagram_description"],
                 input_message_content=InputTextMessageContent(
@@ -102,12 +108,11 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     message_id = chosen_result.inline_message_id
     video_link = chosen_result.query
     settings = await get_user_settings(user_id)
-    was_processed = False
     if not settings:
         return
     lang, file_mode = settings
 
-    is_instagram = chosen_result.result_id.startswith("ig_download/")
+    is_instagram = chosen_result.result_id == "ig_download"
 
     if is_instagram:
         await _handle_instagram_inline(
@@ -115,7 +120,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         )
     else:
         await _handle_tiktok_inline(
-            message_id, video_link, lang, file_mode, was_processed,
+            message_id, video_link, lang, file_mode,
             user_id, username, full_name,
         )
 
@@ -125,7 +130,6 @@ async def _handle_tiktok_inline(
     video_link: str,
     lang: str,
     file_mode: bool,
-    was_processed: bool,
     user_id: int,
     username: str | None,
     full_name: str | None,
@@ -144,10 +148,45 @@ async def _handle_tiktok_inline(
             video_info = await api.video(video_link)
 
         if video_info.is_slideshow:
+            image_urls = video_info.image_urls
             video_info.close()
-            return await bot.edit_message_text(
-                inline_message_id=message_id, text=locale[lang]["only_video_supported"]
+
+            if not image_urls:
+                await bot.edit_message_text(
+                    inline_message_id=message_id, text=locale[lang]["error"]
+                )
+                return
+
+            _, image_data = await asyncio.gather(
+                bot.edit_message_text(
+                    inline_message_id=message_id,
+                    text=locale[lang]["sending_inline_image"],
+                ),
+                _download_url(image_urls[0]),
             )
+            if not image_data:
+                raise ConnectionError("Failed to download image")
+
+            image_data = await ensure_native_format(image_data)
+
+            file_id = await upload_photo_to_storage(
+                image_data, video_link, user_id, username, full_name
+            )
+            if not file_id:
+                raise ValueError(
+                    "Failed to upload photo to storage. "
+                    "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                )
+
+            caption = result_caption(lang, video_link)
+            if len(image_urls) > 1:
+                caption += locale[lang]["inline_image_limit"]
+
+            photo_media = InputMediaPhoto(media=file_id, caption=caption)
+            await bot.edit_message_media(
+                inline_message_id=message_id, media=photo_media
+            )
+            is_images = True
         else:
             await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
@@ -163,14 +202,12 @@ async def _handle_tiktok_inline(
                 username=username,
                 full_name=full_name,
             )
-
-        video_info.close()
+            video_info.close()
+            is_images = False
 
         try:
-            await add_video(
-                user_id, video_link, video_info.is_slideshow, was_processed, True
-            )
-            logging.info(f"Video Download: INLINE {user_id} - VIDEO {video_link}")
+            await add_video(user_id, video_link, is_images, False, True)
+            logging.info(f"Video Download: INLINE {user_id} - {'IMAGES' if is_images else 'VIDEO'} {video_link}")
         except Exception as e:
             logging.error("Cant write into database")
             logging.error(e)
@@ -205,10 +242,10 @@ async def _handle_instagram_inline(
     username: str | None,
     full_name: str | None,
 ) -> None:
-    from handlers.instagram import send_instagram_inline_video
+    from handlers.instagram import send_instagram_inline
 
     try:
-        await send_instagram_inline_video(
+        await send_instagram_inline(
             message_id, video_link, lang, user_id, username, full_name
         )
 
