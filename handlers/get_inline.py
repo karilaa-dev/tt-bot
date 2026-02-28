@@ -18,7 +18,7 @@ from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.queue_manager import QueueManager
-from misc.video_types import send_video_result, get_error_message
+from media_types import send_video_result, get_error_message
 
 inline_router = Router(name=__name__)
 

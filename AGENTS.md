@@ -55,5 +55,5 @@ uv sync
 
 - **New command**: Add handler in `handlers/`, register router in `main.py`
 - **New language**: Create `data/locale/XX.json` (auto-detected)
-- **New TikTok error type**: Add to `tiktok_api/exceptions.py`, handle in `misc/video_types.py:get_error_message()`
+- **New TikTok error type**: Add to `tiktok_api/exceptions.py`, register in `media_types/errors.py` via `register_error_mapping()`
 - **New unsupported content handler**: Add to `handlers/get_video.py`

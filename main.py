@@ -10,7 +10,7 @@ from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
-from misc.video_types import close_http_session
+from media_types import close_http_session
 from stats.misc import update_overall_stats, update_daily_stats
 from tiktok_api import ProxyManager, TikTokClient
 
