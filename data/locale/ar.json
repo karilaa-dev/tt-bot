@@ -50,5 +50,7 @@
   "tiktok_links_only": "هذا البوت يدعم فقط روابط TikTok وInstagram 🔗\n\nيرجى إرسال رابط TikTok أو Instagram للتنزيل!",
   "error_instagram_not_found": "<b>لم يتم العثور على منشور Instagram هذا أو أنه خاص.</b>",
   "inline_download_instagram": "تنزيل فيديو Instagram",
-  "inline_download_instagram_description": "تنزيل فيديوهات Instagram."
+  "inline_download_instagram_description": "تنزيل فيديوهات Instagram.",
+  "sending_inline_image": "⬆️ <code>جارٍ إرسال الصورة...</code>\n\n",
+  "inline_image_limit": "\n\n⚠️ <i>بسبب قيود تيليجرام، يتم عرض صورة واحدة فقط في وضع inline.</i>"
 }

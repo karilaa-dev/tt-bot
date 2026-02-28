@@ -50,5 +50,7 @@
   "tiktok_links_only": "Цей бот підтримує лише посилання TikTok та Instagram 🔗\n\nБудь ласка, надішліть посилання TikTok або Instagram для завантаження!",
   "error_instagram_not_found": "<b>Цей пост Instagram не знайдено або він є приватним.</b>",
   "inline_download_instagram": "Завантажити відео Instagram",
-  "inline_download_instagram_description": "Завантажити відео з Instagram."
+  "inline_download_instagram_description": "Завантажити відео з Instagram.",
+  "sending_inline_image": "⬆️ <code>Відправка зображення...</code>\n\n",
+  "inline_image_limit": "\n\n⚠️ <i>Через обмеження Telegram в inline-режимі показується лише 1 зображення.</i>"
 }

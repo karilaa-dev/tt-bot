@@ -50,5 +50,7 @@
   "tiktok_links_only": "Bot ini hanya mendukung tautan TikTok dan Instagram 🔗\n\nSilakan kirim tautan TikTok atau Instagram untuk mengunduh!",
   "error_instagram_not_found": "<b>Postingan Instagram ini tidak ditemukan atau bersifat privat.</b>",
   "inline_download_instagram": "Unduh Video Instagram",
-  "inline_download_instagram_description": "Unduh video dari Instagram."
+  "inline_download_instagram_description": "Unduh video dari Instagram.",
+  "sending_inline_image": "⬆️ <code>Mengirim gambar...</code>\n\n",
+  "inline_image_limit": "\n\n⚠️ <i>Karena batasan Telegram, hanya 1 gambar yang ditampilkan dalam mode inline.</i>"
 }
