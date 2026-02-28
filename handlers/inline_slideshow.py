@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 
 from aiogram import Router
@@ -60,20 +61,69 @@ def _build_keyboard(index: int, total: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 
+def _compress_url(source_link: str) -> str:
+    """Compress a URL to fit within Telegram's 64-byte callback_data limit."""
+    from instagram_api import INSTAGRAM_URL_REGEX
+
+    # For Instagram: extract clean URL (strips query params)
+    ig_match = INSTAGRAM_URL_REGEX.search(source_link)
+    if ig_match:
+        url = ig_match.group(0)
+    else:
+        url = source_link
+        # For TikTok: strip username (resolved by video ID)
+        url = re.sub(r"@[\w.]+", "@", url)
+
+    # Strip protocol prefix
+    url = re.sub(r"^https?://", "", url)
+    return url
+
+
+def _expand_url(compressed: str) -> str:
+    """Expand a compressed URL back to a full URL."""
+    return f"https://{compressed}"
+
+
+def _build_expired_keyboard(
+    index: int, total: int, source_link: str
+) -> InlineKeyboardMarkup:
+    """Build a keyboard with counter + refresh button for expired sessions."""
+    compressed = _compress_url(source_link)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📸 {index + 1}/{total}",
+                    callback_data="slide:noop",
+                ),
+                InlineKeyboardButton(
+                    text="🔄",
+                    callback_data=f"sr:{index}:{compressed}",
+                ),
+            ]
+        ]
+    )
+
+
 async def _expire_session(inline_message_id: str) -> None:
-    """Wait for TTL then remove session and strip buttons."""
+    """Wait for TTL then remove session and show refresh button."""
     await asyncio.sleep(_SESSION_TTL)
     session = _slideshow_sessions.pop(inline_message_id, None)
     if session is None:
         return
     try:
+        keyboard = _build_expired_keyboard(
+            session.current_index,
+            len(session.image_urls),
+            session.source_link,
+        )
         await bot.edit_message_reply_markup(
-            inline_message_id=inline_message_id, reply_markup=None
+            inline_message_id=inline_message_id, reply_markup=keyboard
         )
     except TelegramBadRequest:
         pass
     except Exception as e:
-        logger.debug(f"Failed to remove slideshow buttons: {e}")
+        logger.debug(f"Failed to set slideshow refresh button: {e}")
 
 
 def _reset_ttl(inline_message_id: str, session: SlideshowSession) -> None:
@@ -262,3 +312,128 @@ async def handle_slideshow_callback(callback: CallbackQuery) -> None:
         await callback.answer("Something went wrong.", show_alert=True)
     finally:
         session._loading_indices.discard(new_index)
+
+
+@slideshow_router.callback_query(lambda cb: cb.data and cb.data.startswith("sr:"))
+async def handle_slideshow_refresh(callback: CallbackQuery) -> None:
+    inline_message_id = callback.inline_message_id
+    if not inline_message_id:
+        await callback.answer()
+        return
+
+    # Parse "sr:{index}:{compressed_url}"
+    parts = callback.data.split(":", 2)
+    if len(parts) != 3:
+        await callback.answer("Invalid refresh data.", show_alert=True)
+        return
+
+    try:
+        saved_index = int(parts[1])
+    except ValueError:
+        await callback.answer("Invalid refresh data.", show_alert=True)
+        return
+
+    source_link = _expand_url(parts[2])
+
+    user_id = callback.from_user.id
+    username = callback.from_user.username
+    full_name = callback.from_user.full_name
+
+    try:
+        from instagram_api import INSTAGRAM_URL_REGEX, InstagramClient
+        from misc.utils import lang_func
+
+        lang = await lang_func(user_id, callback.from_user.language_code)
+
+        # Determine source and fetch images
+        is_instagram = bool(INSTAGRAM_URL_REGEX.search(source_link))
+
+        if is_instagram:
+            client = InstagramClient()
+            media_info = await client.get_media(source_link)
+            image_urls = media_info.image_urls
+        else:
+            from tiktok_api import TikTokClient, ProxyManager
+
+            api = TikTokClient(proxy_manager=ProxyManager.get_instance())
+            video_info = await api.video(source_link)
+            image_urls = video_info.image_urls
+            video_info.close()
+
+        if not image_urls:
+            await callback.answer("No images found.", show_alert=True)
+            return
+
+        # Download all images
+        download_tasks = [_download_url(url) for url in image_urls]
+        results = await asyncio.gather(*download_tasks, return_exceptions=True)
+
+        all_pairs: list[tuple[int, bytes]] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception) or result is None:
+                logger.warning(f"Slideshow refresh: failed to download image {i}")
+                continue
+            data = await ensure_native_format(result)
+            all_pairs.append((i, data))
+
+        if not all_pairs:
+            await callback.answer("Failed to download images.", show_alert=True)
+            return
+
+        # Upload in batches of 10
+        file_ids: dict[int, str] = {}
+        for batch_start in range(0, len(all_pairs), 10):
+            batch = all_pairs[batch_start : batch_start + 10]
+            batch_ids = await _upload_batch(
+                batch, source_link, user_id, username, full_name
+            )
+            file_ids.update(batch_ids)
+
+        # Clamp index to new total
+        total = len(image_urls)
+        index = min(saved_index, total - 1)
+        index = max(index, 0)
+
+        file_id = file_ids.get(index)
+        if file_id is None:
+            # Fall back to first available
+            for idx in sorted(file_ids):
+                file_id = file_ids[idx]
+                index = idx
+                break
+        if file_id is None:
+            await callback.answer("Failed to upload images.", show_alert=True)
+            return
+
+        # Create new session
+        session = SlideshowSession(
+            image_urls=image_urls,
+            file_ids=file_ids,
+            current_index=index,
+            lang=lang,
+            source_link=source_link,
+            user_id=user_id,
+            username=username,
+            full_name=full_name,
+        )
+        _slideshow_sessions[inline_message_id] = session
+
+        # Edit message with refreshed image + nav keyboard
+        caption = result_caption(lang, source_link)
+        media = InputMediaPhoto(media=file_id, caption=caption)
+        keyboard = _build_keyboard(index, total)
+
+        await bot.edit_message_media(
+            inline_message_id=inline_message_id,
+            media=media,
+            reply_markup=keyboard,
+        )
+        _reset_ttl(inline_message_id, session)
+        await callback.answer()
+
+    except TelegramBadRequest as e:
+        logger.debug(f"Slideshow refresh edit failed: {e}")
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Slideshow refresh error: {e}", exc_info=True)
+        await callback.answer("Failed to refresh.", show_alert=True)
