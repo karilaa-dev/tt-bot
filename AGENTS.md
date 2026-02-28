@@ -4,16 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Codebase Overview
 
-**tt-bot** is a Telegram bot for downloading TikTok videos, slideshows, and audio without watermarks. Production-grade with proxy rotation, queue management, 3-part retry strategy, and multilingual support.
+**tt-bot** is a Telegram bot for downloading TikTok and Instagram videos, slideshows, and audio without watermarks. Production-grade with proxy rotation, queue management, 3-part retry strategy, and multilingual support.
 
-**Stack:** Python 3.13, aiogram 3.24, yt-dlp, curl_cffi, SQLAlchemy 2.0, asyncpg
+**Stack:** Python 3.13, aiogram 3.24, yt-dlp, curl_cffi, aiohttp, SQLAlchemy 2.0, asyncpg
 
 **Structure:**
 - `main.py` - Main bot entry point
 - `tiktok_api/` - TikTok extraction (client.py is the core with 3-part retry)
-- `handlers/` - Telegram message handlers
+- `instagram_api/` - Instagram extraction via RapidAPI
+- `handlers/` - Telegram message handlers (`link_dispatcher.py` routes Instagram vs TikTok)
+- `media_types/` - Media sending/processing package (shared across sources)
 - `data/` - Configuration, database, localization
-- `misc/` - Queue management, media processing utilities
+- `misc/` - Queue management, utilities
 - `stats/` - Statistics bot and graphs
 
 For detailed architecture, see [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).
@@ -55,5 +57,6 @@ uv sync
 
 - **New command**: Add handler in `handlers/`, register router in `main.py`
 - **New language**: Create `data/locale/XX.json` (auto-detected)
-- **New TikTok error type**: Add to `tiktok_api/exceptions.py`, register in `media_types/errors.py` via `register_error_mapping()`
+- **New error type**: Add to `*_api/exceptions.py`, register via `register_error_mapping()` in package `__init__.py`
+- **New video source**: Create `source_api/` module → add URL filter in `handlers/link_dispatcher.py` → create handler
 - **New unsupported content handler**: Add to `handlers/get_video.py`
