@@ -17,6 +17,7 @@ from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
+from instagram_api import INSTAGRAM_URL_REGEX, InstagramError
 from misc.queue_manager import QueueManager
 from media_types import send_video_result, get_error_message
 
@@ -50,20 +51,7 @@ async def handle_inline_query(inline_query: InlineQuery):
         return await inline_query.answer(results, cache_time=0)
 
     video_link, is_mobile = await api.regex_check(query_text)
-    if video_link is None:
-        results.append(
-            InlineQueryResultArticle(
-                id="wrong_link",
-                title=locale[lang]["inline_wrong_link_title"],
-                description=locale[lang]["inline_wrong_link_description"],
-                input_message_content=InputTextMessageContent(
-                    message_text=locale[lang]["inline_wrong_link"], parse_mode="HTML"
-                ),
-                thumbnail_url="https://em-content.zobj.net/source/apple/419/cross-mark_274c.png",
-            )
-        )
-        return await inline_query.answer(results, cache_time=0)
-    else:
+    if video_link is not None:
         results.append(
             InlineQueryResultArticle(
                 id=f"download/{query_text}",
@@ -76,6 +64,31 @@ async def handle_inline_query(inline_query: InlineQuery):
                 reply_markup=_loading_button,
             )
         )
+    elif INSTAGRAM_URL_REGEX.search(query_text):
+        results.append(
+            InlineQueryResultArticle(
+                id=f"ig_download/{query_text}",
+                title=locale[lang]["inline_download_instagram"],
+                description=locale[lang]["inline_download_instagram_description"],
+                input_message_content=InputTextMessageContent(
+                    message_text=locale[lang]["inline_download_video_text"]
+                ),
+                thumbnail_url="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/instagram.png",
+                reply_markup=_loading_button,
+            )
+        )
+    else:
+        results.append(
+            InlineQueryResultArticle(
+                id="wrong_link",
+                title=locale[lang]["inline_wrong_link_title"],
+                description=locale[lang]["inline_wrong_link_description"],
+                input_message_content=InputTextMessageContent(
+                    message_text=locale[lang]["inline_wrong_link"], parse_mode="HTML"
+                ),
+                thumbnail_url="https://em-content.zobj.net/source/apple/419/cross-mark_274c.png",
+            )
+        )
 
     await inline_query.answer(results, cache_time=0)
 
@@ -83,7 +96,6 @@ async def handle_inline_query(inline_query: InlineQuery):
 @inline_router.chosen_inline_result()
 async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
     """Handle when user selects an inline result"""
-    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     user_id = chosen_result.from_user.id
     username = chosen_result.from_user.username
     full_name = chosen_result.from_user.full_name
@@ -95,35 +107,52 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         return
     lang, file_mode = settings
 
-    # Get queue manager
+    is_instagram = chosen_result.result_id.startswith("ig_download/")
+
+    if is_instagram:
+        await _handle_instagram_inline(
+            message_id, video_link, lang, user_id, username, full_name
+        )
+    else:
+        await _handle_tiktok_inline(
+            message_id, video_link, lang, file_mode, was_processed,
+            user_id, username, full_name,
+        )
+
+
+async def _handle_tiktok_inline(
+    message_id: str,
+    video_link: str,
+    lang: str,
+    file_mode: bool,
+    was_processed: bool,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     queue = QueueManager.get_instance()
 
     try:
-        # Use queue with bypass_user_limit=True for inline downloads
-        # Inline downloads bypass the per-user queue limit
         async with queue.info_queue(user_id, bypass_user_limit=True) as acquired:
             if not acquired:
-                # This shouldn't happen with bypass, but handle anyway
                 await bot.edit_message_text(
                     inline_message_id=message_id, text=locale[lang]["error"]
                 )
                 return
 
-            # Use video() with 3-part retry strategy (same as regular downloads)
             video_info = await api.video(video_link)
 
-        if video_info.is_slideshow:  # Process image
-            # Clean up resources before returning (close YDL context)
+        if video_info.is_slideshow:
             video_info.close()
             return await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["only_video_supported"]
             )
-        else:  # Process video
+        else:
             await bot.edit_message_text(
                 inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
             )
 
-            # Send video (no global send queue - per-user limit only)
             await send_video_result(
                 message_id,
                 video_info,
@@ -135,24 +164,18 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
                 full_name=full_name,
             )
 
-        # Clean up video_info resources (videos already closed in video() method,
-        # but call close() for safety - it's idempotent)
         video_info.close()
 
-        try:  # Try to write log into database
-            # Write log into database
+        try:
             await add_video(
                 user_id, video_link, video_info.is_slideshow, was_processed, True
             )
-            # Log into console
             logging.info(f"Video Download: INLINE {user_id} - VIDEO {video_link}")
-        # If cant write log into database or log into console
         except Exception as e:
             logging.error("Cant write into database")
             logging.error(e)
 
     except TikTokError as e:
-        # Handle specific TikTok errors with appropriate messages
         logging.error(f"TikTok error for inline {video_link}: {e}")
         try:
             await bot.edit_message_text(
@@ -162,7 +185,53 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
             logging.debug("Failed to update inline error message")
         except Exception as err:
             logging.warning(f"Unexpected error updating inline message: {err}")
-    except Exception as e:  # If something went wrong
+    except Exception as e:
+        logging.error(e)
+        try:
+            await bot.edit_message_text(
+                inline_message_id=message_id, text=locale[lang]["error"]
+            )
+        except TelegramBadRequest:
+            logging.debug("Failed to update inline error message")
+        except Exception as err:
+            logging.warning(f"Unexpected error updating inline message: {err}")
+
+
+async def _handle_instagram_inline(
+    message_id: str,
+    video_link: str,
+    lang: str,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    from handlers.instagram import send_instagram_inline_video
+
+    try:
+        await send_instagram_inline_video(
+            message_id, video_link, lang, user_id, username, full_name
+        )
+
+        try:
+            await add_video(user_id, video_link, False, False, True)
+            logging.info(
+                f"Instagram Download: INLINE {user_id} - URL {video_link}"
+            )
+        except Exception as e:
+            logging.error("Cant write into database")
+            logging.error(e)
+
+    except InstagramError as e:
+        logging.error(f"Instagram error for inline {video_link}: {e}")
+        try:
+            await bot.edit_message_text(
+                inline_message_id=message_id, text=get_error_message(e, lang)
+            )
+        except TelegramBadRequest:
+            logging.debug("Failed to update inline error message")
+        except Exception as err:
+            logging.warning(f"Unexpected error updating inline message: {err}")
+    except Exception as e:
         logging.error(e)
         try:
             await bot.edit_message_text(

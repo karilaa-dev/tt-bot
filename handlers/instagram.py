@@ -6,6 +6,7 @@ from aiogram.types import (
     BufferedInputFile,
     InputMediaDocument,
     InputMediaPhoto,
+    InputMediaVideo,
     Message,
 )
 
@@ -20,6 +21,7 @@ from media_types.image_processing import (
     detect_image_format,
     get_image_executor,
 )
+from media_types.storage import STORAGE_CHANNEL_ID
 from media_types.ui import result_caption
 
 from instagram_api import InstagramClient, InstagramMediaInfo
@@ -204,3 +206,87 @@ async def _send_instagram_images(
             result_caption(lang, media_info.link, bool(image_limit)),
             disable_web_page_preview=True,
         )
+
+
+async def send_instagram_inline_video(
+    inline_message_id: str,
+    instagram_url: str,
+    lang: str,
+    user_id: int,
+    username: str | None,
+    full_name: str | None,
+) -> None:
+    """Download an Instagram video and send it as an inline message edit."""
+    client = InstagramClient()
+    media_info = await client.get_media(instagram_url)
+
+    if not media_info.is_video:
+        await bot.edit_message_text(
+            inline_message_id=inline_message_id,
+            text=locale[lang]["only_video_supported"],
+        )
+        return
+
+    video_url = media_info.video_url
+    if not video_url:
+        raise ValueError("No video URL in media info")
+
+    # Download video and thumbnail concurrently
+    thumb_coro = (
+        _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
+    )
+    if thumb_coro:
+        video_bytes, thumb_bytes = await asyncio.gather(
+            _download_url(video_url), thumb_coro
+        )
+    else:
+        video_bytes = await _download_url(video_url)
+        thumb_bytes = None
+
+    if not video_bytes:
+        raise ConnectionError("Failed to download video")
+
+    await bot.edit_message_text(
+        inline_message_id=inline_message_id,
+        text=locale[lang]["sending_inline_video"],
+    )
+
+    # Upload to storage channel to get file_id (required for inline edits)
+    thumb_file = BufferedInputFile(thumb_bytes, "thumb.jpg") if thumb_bytes else None
+
+    caption_parts = [f"<a href='{media_info.link}'>Source</a>"]
+    if user_id:
+        user_link = (
+            f'<b><a href="tg://user?id={user_id}">{full_name or "User"}</a></b>'
+        )
+        caption_parts.append("")
+        caption_parts.append(user_link)
+        if username:
+            caption_parts.append(f"@{username}")
+        caption_parts.append(f"<code>{user_id}</code>")
+
+    storage_msg = await bot.send_video(
+        chat_id=STORAGE_CHANNEL_ID,
+        video=BufferedInputFile(video_bytes, "instagram_video.mp4"),
+        caption="\n".join(caption_parts),
+        parse_mode="HTML",
+        disable_notification=True,
+        thumbnail=thumb_file,
+        supports_streaming=True,
+    )
+
+    file_id = storage_msg.video.file_id if storage_msg.video else None
+    if not file_id:
+        raise ValueError(
+            "Failed to upload video to storage. "
+            "Make sure STORAGE_CHANNEL_ID is configured in .env"
+        )
+
+    video_media = InputMediaVideo(
+        media=file_id,
+        caption=result_caption(lang, media_info.link),
+        supports_streaming=True,
+    )
+    await bot.edit_message_media(
+        inline_message_id=inline_message_id, media=video_media
+    )
