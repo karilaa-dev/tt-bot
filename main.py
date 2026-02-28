@@ -6,6 +6,7 @@ from data.loader import scheduler, bot, dp, setup_db
 from handlers.admin import admin_router
 from handlers.advert import advert_router
 from handlers.get_music import music_router
+from handlers.link_dispatcher import link_router
 from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.user import user_router
@@ -32,6 +33,7 @@ async def main() -> None:
         lang_router,
         admin_router,
         advert_router,
+        link_router,
         video_router,
         music_router,
         inline_router,

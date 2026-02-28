@@ -2,12 +2,12 @@
   "lang_name": "Bahasa Indonesia🇮🇩",
   "error": "<b>Ups! Terjadi kesalahan 😅</b>\nSilakan coba lagi sebentar.",
   "link_error": "Hmm, saya tidak bisa mengenali tautan ini 🤔\nPastikan ini adalah tautan video TikTok yang valid!",
-  "video_upload_hint": "Saya hanya bisa menghapus watermark dari tautan TikTok, bukan dari video yang diunggah 🎬\n\nSilakan kirim tautan video TikTok!",
-  "non_tiktok_link": "Bot ini hanya bekerja dengan tautan TikTok 🔗\n\nSilakan kirim tautan dari TikTok (tiktok.com atau vm.tiktok.com)",
-  "send_link_prompt": "Kirim tautan video TikTok untuk mengunduhnya tanpa watermark! 🎥",
+  "video_upload_hint": "Saya hanya bisa mengunduh dari tautan TikTok dan Instagram, bukan dari video yang diunggah 🎬\n\nSilakan kirim tautan!",
+  "non_tiktok_link": "Bot ini hanya bekerja dengan tautan TikTok dan Instagram 🔗\n\nSilakan kirim tautan dari TikTok atau Instagram",
+  "send_link_prompt": "Kirim tautan TikTok atau Instagram untuk mengunduh! 🎥",
   "lang_start": "Bahasa disetel ke Bahasa Indonesia🇮🇩.\nBisa diubah dengan perintah /lang",
   "lang": "Bahasa disetel ke Bahasa Indonesia🇮🇩",
-  "start": "Kamu telah menjalankan <b>No Watermark TikTok🤖</b>\n\nBot ini mendukung unduhan:\n📹Video, 🖼Gambar, dan 🔈Audio\ndari TikTok <i><b>tanpa watermark</b></i>\n\nKamu juga bisa berlangganan channel kami untuk mendapatkan kabar terbaru tentang status bot, pembaruan, dan berita!\n@ttgrab\n\n<b>Kirim tautan video untuk memulai</b>",
+  "start": "Kamu telah menjalankan <b>No Watermark TikTok🤖</b>\n\nBot ini mendukung unduhan:\n📹Video, 🖼Gambar, dan 🔈Audio\ndari TikTok dan Instagram <i><b>tanpa watermark</b></i>\n\nKamu juga bisa berlangganan channel kami untuk mendapatkan kabar terbaru tentang status bot, pembaruan, dan berita!\n@ttgrab\n\n<b>Kirim tautan video untuk memulai</b>",
   "maintenance": "⚠️ <b>Pemeliharaan Bot</b> ⚠️\n\nBot sedang dalam pemeliharaan dan akan segera kembali.\nTerima kasih atas kesabaranmu!\n\nIkuti @ttgrab untuk pembaruan.",
   "get_sound": "Unduh Audio",
   "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
@@ -47,5 +47,6 @@
   "error_queue_full": "<b>Mohon tunggu!</b>\nKamu sudah memiliki {0} video yang sedang diproses. Coba lagi sebentar.",
   "try_again_button": "Coba Lagi",
   "inline_retry_attempt": "🔄 Percobaan {0} dari {1}...",
-  "tiktok_links_only": "Bot ini hanya mendukung tautan TikTok 🔗\n\nSilakan kirim tautan video TikTok untuk mengunduhnya tanpa watermark!"
+  "tiktok_links_only": "Bot ini hanya mendukung tautan TikTok dan Instagram 🔗\n\nSilakan kirim tautan TikTok atau Instagram untuk mengunduh!",
+  "error_instagram_not_found": "<b>Postingan Instagram ini tidak ditemukan atau bersifat privat.</b>"
 }

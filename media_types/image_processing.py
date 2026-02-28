@@ -24,17 +24,30 @@ try:
 except ImportError:
     IMAGE_CONVERSION_AVAILABLE = False
 
-_NATIVE_EXTENSIONS = {".jpg", ".webp"}
+_NATIVE_EXTENSIONS = {".jpg", ".webp", ".png"}
 
 
 def detect_image_format(image_data: bytes) -> str:
     if image_data.startswith(b"\xff\xd8\xff"):
         return ".jpg"
+    if image_data.startswith(b"\x89PNG"):
+        return ".png"
     if image_data.startswith(b"RIFF") and image_data[8:12] == b"WEBP":
         return ".webp"
     if image_data[4:12] in (b"ftypheic", b"ftypmif1"):
         return ".heic"
     return ".jpg"
+
+
+def convert_image_to_png(image_data: bytes) -> bytes:
+    try:
+        with Image.open(io.BytesIO(image_data)) as img:
+            output = io.BytesIO()
+            img.save(output, format="PNG")
+            return output.getvalue()
+    except Exception as e:
+        logger.error(f"Image to PNG conversion failed: {e}")
+        return image_data
 
 
 def convert_image_to_jpeg_optimized(image_data: bytes) -> bytes:
