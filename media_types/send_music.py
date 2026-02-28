@@ -13,7 +13,6 @@ async def send_music_result(
     audio_data = music_info.data
     cover_url = music_info.cover
 
-    # Handle audio data - could be bytes or URL
     if isinstance(audio_data, bytes):
         audio_bytes = audio_data
     else:
@@ -22,16 +21,14 @@ async def send_music_result(
             raise ValueError(f"Failed to download audio from {audio_data}")
         audio_bytes = downloaded
 
-    # Download cover from URL using shared session
     cover_bytes = await _download_url(cover_url) if cover_url else None
 
     audio = BufferedInputFile(audio_bytes, f"{video_id}.mp3")
     cover = BufferedInputFile(cover_bytes, f"{video_id}.jpg") if cover_bytes else None
 
-    caption = f"<b>{locale[lang]['bot_tag']}</b>"
     await query_msg.reply_audio(
         audio,
-        caption=caption,
+        caption=f"<b>{locale[lang]['bot_tag']}</b>",
         title=music_info.title,
         performer=music_info.author,
         duration=music_info.duration,

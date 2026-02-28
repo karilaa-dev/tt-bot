@@ -2,12 +2,13 @@ import logging
 
 from aiogram.types import BufferedInputFile
 
+from data.config import config
 from data.loader import bot
 from tiktok_api import VideoInfo
 
-from .http_session import STORAGE_CHANNEL_ID
-
 logger = logging.getLogger(__name__)
+
+STORAGE_CHANNEL_ID = config["bot"].get("storage_channel")
 
 
 async def upload_video_to_storage(
@@ -18,14 +19,7 @@ async def upload_video_to_storage(
     full_name: str | None = None,
     thumbnail: BufferedInputFile | None = None,
 ) -> str | None:
-    """Upload video to storage channel to get a file_id.
-
-    This is required for inline messages since Telegram doesn't support
-    uploading new files via BufferedInputFile for inline message edits.
-
-    Returns:
-        file_id string if successful, None otherwise
-    """
+    """Upload video to storage channel and return the file_id, or None on failure."""
     if not STORAGE_CHANNEL_ID:
         logger.warning("STORAGE_CHANNEL_ID not configured, cannot upload for inline")
         return None
@@ -33,7 +27,6 @@ async def upload_video_to_storage(
     try:
         video_file = BufferedInputFile(video_data, filename=f"{video_info.id}.mp4")
 
-        # Build caption with Source link and user info
         caption_parts = [f"<a href='{video_info.link}'>Source</a>"]
 
         if user_id:

@@ -23,13 +23,12 @@ async def send_video_result(
     video_data = video_info.data
     video_duration = video_info.duration
 
-    # For inline messages, we must upload to storage channel first to get file_id
-    # since Telegram doesn't support uploading new files for inline message edits
+    # Inline edits require a file_id (Telegram won't accept new uploads),
+    # so upload to storage channel first.
     if inline_message:
         if not isinstance(video_data, bytes):
             raise ValueError("Video data must be bytes for inline messages")
 
-        # Download thumbnail for videos > 30 seconds
         thumbnail = None
         if video_duration and video_duration > 30:
             thumbnail = await download_thumbnail(video_info.cover, video_id)
@@ -59,11 +58,10 @@ async def send_video_result(
         await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
         return
 
-    # Create BufferedInputFile from bytes for regular messages
     if isinstance(video_data, bytes):
         video_file = BufferedInputFile(video_data, filename=f"{video_id}.mp4")
     else:
-        video_file = video_data  # Fallback to URL if not bytes
+        video_file = video_data
 
     if file_mode:
         await bot.send_document(
@@ -75,7 +73,6 @@ async def send_video_result(
             disable_content_type_detection=True,
         )
     else:
-        # Download thumbnail for videos > 1 minute
         thumbnail = None
         if video_duration and video_duration > 60:
             thumbnail = await download_thumbnail(video_info.cover, video_id)

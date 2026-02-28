@@ -18,7 +18,7 @@ from tiktok_api import (
 
 from .image_processing import (
     IMAGE_CONVERSION_AVAILABLE,
-    check_and_convert_image,
+    _NATIVE_EXTENSIONS,
     convert_image_to_jpeg_optimized,
     detect_image_format,
     get_image_executor,
@@ -28,59 +28,15 @@ from .ui import music_button, result_caption
 logger = logging.getLogger(__name__)
 
 
-async def detect_image_processing_needed(
-    image_link: str, client: TikTokClient, video_info: VideoInfo
-) -> bool:
-    """Check if an image needs processing by examining its format.
-
-    Uses HTTP Range request to fetch only the first 20 bytes for efficient
-    format detection without downloading the entire image.
-    """
-    try:
-        extension = await client.detect_image_format(image_link, video_info)
-        return extension not in [".jpg", ".webp"]
-    except Exception:
-        return True
-
-
-async def download_image(
-    image_link: str, client: TikTokClient, video_info: VideoInfo
-) -> bytes:
-    """Download image data using yt-dlp client.
-
-    Uses the same authentication context (cookies, headers) that was
-    established during video info extraction.
-    """
-    return await client.download_image(image_link, video_info)
-
-
 async def download_images_parallel(
     image_urls: list[str],
     client: TikTokClient,
     video_info: VideoInfo,
 ) -> list[bytes | BaseException]:
-    """Download multiple images in parallel with no concurrency limit."""
     return await asyncio.gather(
         *[client.download_image(url, video_info) for url in image_urls],
         return_exceptions=True,
     )
-
-
-async def convert_single_image(
-    image_link: str,
-    file_name: str,
-    executor,
-    loop,
-    client: TikTokClient,
-    video_info: VideoInfo,
-) -> BufferedInputFile:
-    """Download and convert a single image to JPEG format if needed."""
-    image_data = await download_image(image_link, client, video_info)
-    processed_data, extension = await check_and_convert_image(
-        image_data, executor, loop
-    )
-    final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
-    return BufferedInputFile(processed_data, final_filename)
 
 
 async def send_image_result(
@@ -93,11 +49,8 @@ async def send_image_result(
 ) -> bool:
     """Send slideshow images to the user.
 
-    Downloads all images first using retry strategy (retry individual
-    failed images with proxy rotation), then processes and sends them.
-
-    Returns:
-        True if image processing (conversion) was performed
+    Downloads all images first, then processes and sends them.
+    Returns True if image processing (conversion) was performed.
     """
     video_id = video_info.id
     image_urls = video_info.image_urls
@@ -125,7 +78,6 @@ async def send_image_result(
             logger.error(f"Failed to download slideshow images: {e}")
             raise
     else:
-        # Fallback: download using legacy method (no retry)
         logger.warning("No proxy session available, using legacy download")
         all_image_bytes = await download_images_parallel(
             image_urls, client, video_info
@@ -163,7 +115,7 @@ async def send_image_result(
     if not file_mode and all_image_bytes:
         first_image = all_image_bytes[0]
         extension = detect_image_format(first_image)
-        processing_needed = extension not in [".jpg", ".webp"]
+        processing_needed = extension not in _NATIVE_EXTENSIONS
 
     async def process_and_send_images():
         nonlocal processing_needed, processing_message, was_processed
@@ -204,13 +156,12 @@ async def send_image_result(
                 else:
                     if (
                         IMAGE_CONVERSION_AVAILABLE
-                        and extension not in [".jpg", ".webp"]
+                        and extension not in _NATIVE_EXTENSIONS
                     ):
                         try:
-                            converted = await loop.run_in_executor(
+                            img_bytes = await loop.run_in_executor(
                                 executor, convert_image_to_jpeg_optimized, img_bytes
                             )
-                            img_bytes = converted
                             extension = ".jpg"
                         except Exception as e:
                             logger.error(
@@ -242,7 +193,6 @@ async def send_image_result(
 
     final = await process_and_send_images()
 
-    # Delete processing message after all images are sent
     if processing_message:
         try:
             await processing_message.delete()
@@ -251,7 +201,6 @@ async def send_image_result(
         except Exception as e:
             logger.warning(f"Unexpected error deleting processing message: {e}")
 
-    # Reply with caption to the first message in the final batch
     if final and len(final) > 0:
         await final[0].reply(
             result_caption(lang, video_info.link, bool(image_limit)),
@@ -260,38 +209,3 @@ async def send_image_result(
         )
 
     return was_processed
-
-
-async def get_image_data_raw(
-    image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-) -> BufferedInputFile:
-    """Download image data and create BufferedInputFile with correct extension
-    based on the actual image format, without any conversion.
-    """
-    image_data = await download_image(image_link, client, video_info)
-    extension = detect_image_format(image_data)
-    final_filename = f"{file_name}{extension}"
-    return BufferedInputFile(image_data, final_filename)
-
-
-async def get_image_data(
-    image_link: str, file_name: str, client: TikTokClient, video_info: VideoInfo
-) -> BufferedInputFile:
-    """Get image data with conversion if needed."""
-    image_data = await download_image(image_link, client, video_info)
-    extension = detect_image_format(image_data)
-
-    if IMAGE_CONVERSION_AVAILABLE and image_data and extension not in [".jpg", ".webp"]:
-        loop = asyncio.get_running_loop()
-        executor = get_image_executor()
-        try:
-            converted_data = await loop.run_in_executor(
-                executor, convert_image_to_jpeg_optimized, image_data
-            )
-            image_data = converted_data
-            extension = ".jpg"
-        except Exception as e:
-            logger.error(f"Failed to convert image {file_name}: {e}")
-
-    final_filename = f"{file_name.rsplit('.', 1)[0]}{extension}"
-    return BufferedInputFile(image_data, final_filename)
