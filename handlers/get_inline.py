@@ -54,7 +54,7 @@ async def handle_inline_query(inline_query: InlineQuery):
     if video_link is not None:
         results.append(
             InlineQueryResultArticle(
-                id=f"download/{query_text}",
+                id="tt_download",
                 title=locale[lang]["inline_download_video"],
                 description=locale[lang]["inline_download_video_description"],
                 input_message_content=InputTextMessageContent(
@@ -67,7 +67,7 @@ async def handle_inline_query(inline_query: InlineQuery):
     elif INSTAGRAM_URL_REGEX.search(query_text):
         results.append(
             InlineQueryResultArticle(
-                id=f"ig_download/{query_text}",
+                id="ig_download",
                 title=locale[lang]["inline_download_instagram"],
                 description=locale[lang]["inline_download_instagram_description"],
                 input_message_content=InputTextMessageContent(
@@ -107,7 +107,7 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
         return
     lang, file_mode = settings
 
-    is_instagram = chosen_result.result_id.startswith("ig_download/")
+    is_instagram = chosen_result.result_id == "ig_download"
 
     if is_instagram:
         await _handle_instagram_inline(
