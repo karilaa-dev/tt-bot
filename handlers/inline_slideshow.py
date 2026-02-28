@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 slideshow_router = Router(name=__name__)
 
-_SESSION_TTL = 5  # 10 minutes
+_SESSION_TTL = 600  # 10 minutes
 
 
 @dataclass
