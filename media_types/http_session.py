@@ -1,8 +1,10 @@
+import asyncio
 import logging
 
 import aiohttp
 from aiohttp import ClientTimeout
 from aiogram.types import BufferedInputFile
+from yarl import URL
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,7 @@ def _get_http_session() -> aiohttp.ClientSession:
         _http_session = aiohttp.ClientSession(
             timeout=_HTTP_TIMEOUT,
             connector=connector,
+            headers={"User-Agent": "Mozilla/5.0"},
         )
     return _http_session
 
@@ -33,14 +36,45 @@ async def close_http_session() -> None:
         _http_session = None
 
 
-async def _download_url(url: str) -> bytes | None:
-    try:
-        session = _get_http_session()
-        async with session.get(url, allow_redirects=True) as response:
-            if response.status == 200:
-                return await response.read()
-    except Exception as e:
-        logger.warning(f"Failed to download from {url}: {e}")
+_RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
+
+
+async def _download_url(
+    url: str, max_retries: int = 3, retry_delay: float = 1.0
+) -> bytes | None:
+    session = _get_http_session()
+    logger.debug(f"Starting download: {url} (max_retries={max_retries})")
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.debug(f"Attempt {attempt}/{max_retries}: GET {url}")
+            async with session.get(URL(url, encoded=True), allow_redirects=True) as response:
+                logger.debug(
+                    f"Response {response.status} for {url} "
+                    f"(attempt {attempt}/{max_retries}, "
+                    f"content-type={response.content_type}, "
+                    f"content-length={response.headers.get('Content-Length', 'unknown')})"
+                )
+                if response.status == 200:
+                    data = await response.read()
+                    logger.debug(f"Downloaded {len(data)} bytes from {url}")
+                    return data
+                if response.status not in _RETRYABLE_STATUSES:
+                    body = await response.text()
+                    logger.warning(
+                        f"Non-retryable status {response.status} for {url}: {body[:500]}"
+                    )
+                    return None
+                logger.warning(
+                    f"Retryable status {response.status} (attempt {attempt}/{max_retries}): {url}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"Download exception (attempt {attempt}/{max_retries}): {url}: {type(e).__name__}: {e}"
+            )
+        if attempt < max_retries:
+            logger.debug(f"Retrying in {retry_delay}s...")
+            await asyncio.sleep(retry_delay)
+    logger.error(f"All {max_retries} attempts failed for {url}")
     return None
 
 
@@ -49,7 +83,7 @@ async def download_thumbnail(
 ) -> BufferedInputFile | None:
     if not cover_url:
         return None
-    cover_bytes = await _download_url(cover_url)
+    cover_bytes = await _download_url(cover_url, max_retries=1)
     if cover_bytes:
         return BufferedInputFile(cover_bytes, f"{video_id}_thumb.jpg")
     return None

@@ -54,6 +54,17 @@ class InstagramClient:
                     )
 
                 data = await response.json()
+                logger.debug(f"Instagram API response keys: {list(data.keys())}")
+                logger.debug(
+                    f"Instagram API media count: {len(data.get('media', []))}"
+                )
+                for i, item in enumerate(data.get("media", [])):
+                    logger.debug(
+                        f"  media[{i}]: type={item.get('type')}, "
+                        f"url={item.get('url', '')[:120]}, "
+                        f"thumbnail={str(item.get('thumbnail', ''))[:120]}, "
+                        f"quality={item.get('quality')}"
+                    )
         except (InstagramNotFoundError, InstagramRateLimitError, InstagramNetworkError):
             raise
         except Exception as e:
@@ -74,4 +85,11 @@ class InstagramClient:
         if not media_items:
             raise InstagramNotFoundError("No media found in response")
 
-        return InstagramMediaInfo(media=media_items, link=url)
+        result = InstagramMediaInfo(media=media_items, link=url)
+        logger.debug(
+            f"InstagramMediaInfo: is_video={result.is_video}, "
+            f"video_url={str(result.video_url or '')[:120]}, "
+            f"thumbnail_url={str(result.thumbnail_url or '')[:120]}, "
+            f"media_count={len(result.media)}"
+        )
+        return result

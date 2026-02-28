@@ -78,6 +78,9 @@ async def _send_instagram_video(
     if not video_url:
         raise ValueError("No video URL in media info")
 
+    logger.debug(f"Instagram video URL: {video_url}")
+    logger.debug(f"Instagram thumbnail URL: {media_info.thumbnail_url}")
+
     # Download video and thumbnail concurrently
     thumb_coro = _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
     if thumb_coro:
@@ -87,6 +90,12 @@ async def _send_instagram_video(
     else:
         video_bytes = await _download_url(video_url)
         thumb_bytes = None
+
+    logger.debug(
+        f"Instagram video download result: "
+        f"video={len(video_bytes) if video_bytes else 'None'} bytes, "
+        f"thumb={len(thumb_bytes) if thumb_bytes else 'None'} bytes"
+    )
 
     if not video_bytes:
         raise ConnectionError("Failed to download video")
@@ -247,6 +256,9 @@ async def _send_instagram_inline_video(
     if not video_url:
         raise ValueError("No video URL in media info")
 
+    logger.debug(f"Instagram inline video URL: {video_url}")
+    logger.debug(f"Instagram inline thumbnail URL: {media_info.thumbnail_url}")
+
     # Download video and thumbnail concurrently
     thumb_coro = (
         _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
@@ -258,6 +270,12 @@ async def _send_instagram_inline_video(
     else:
         video_bytes = await _download_url(video_url)
         thumb_bytes = None
+
+    logger.debug(
+        f"Instagram inline video download result: "
+        f"video={len(video_bytes) if video_bytes else 'None'} bytes, "
+        f"thumb={len(thumb_bytes) if thumb_bytes else 'None'} bytes"
+    )
 
     if not video_bytes:
         raise ConnectionError("Failed to download video")
@@ -307,35 +325,44 @@ async def _send_instagram_inline_image(
     username: str | None,
     full_name: str | None,
 ) -> None:
-    if not media_info.media:
-        raise ValueError("No media items in media info")
+    from handlers.inline_slideshow import register_slideshow
+
+    image_urls = media_info.image_urls
+    if not image_urls:
+        raise ValueError("No image items in media info")
 
     _, image_data = await asyncio.gather(
         bot.edit_message_text(
             inline_message_id=inline_message_id,
             text=locale[lang]["sending_inline_image"],
         ),
-        _download_url(media_info.media[0].url),
+        _download_url(image_urls[0]),
     )
     if not image_data:
         raise ConnectionError("Failed to download image")
 
     image_data = await ensure_native_format(image_data)
 
-    file_id = await upload_photo_to_storage(
-        image_data, media_info.link, user_id, username, full_name
-    )
-    if not file_id:
-        raise ValueError(
-            "Failed to upload photo to storage. "
-            "Make sure STORAGE_CHANNEL_ID is configured in .env"
-        )
-
     caption = result_caption(lang, media_info.link)
-    if len(media_info.media) > 1:
-        caption += locale[lang]["inline_image_limit"]
+    if len(image_urls) > 1:
+        file_id, keyboard = await register_slideshow(
+            inline_message_id, image_urls, image_data, lang, media_info.link,
+            user_id, username, full_name,
+        )
+    else:
+        file_id = await upload_photo_to_storage(
+            image_data, media_info.link, user_id, username, full_name
+        )
+        keyboard = None
+        if not file_id:
+            raise ValueError(
+                "Failed to upload photo to storage. "
+                "Make sure STORAGE_CHANNEL_ID is configured in .env"
+            )
 
     photo_media = InputMediaPhoto(media=file_id, caption=caption)
     await bot.edit_message_media(
-        inline_message_id=inline_message_id, media=photo_media
+        inline_message_id=inline_message_id,
+        media=photo_media,
+        reply_markup=keyboard,
     )
