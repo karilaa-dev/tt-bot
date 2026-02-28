@@ -22,7 +22,6 @@ from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from instagram_api import INSTAGRAM_URL_REGEX, InstagramError
 from misc.queue_manager import QueueManager
 from media_types import send_video_result, get_error_message
-from media_types.http_session import _download_url
 from media_types.image_processing import ensure_native_format
 from media_types.storage import upload_photo_to_storage
 from media_types.ui import result_caption
@@ -148,69 +147,71 @@ async def _handle_tiktok_inline(
 
             video_info = await api.video(video_link)
 
-        if video_info.is_slideshow:
-            image_urls = video_info.image_urls
-            video_info.close()
+        try:
+            if video_info.is_slideshow:
+                image_urls = video_info.image_urls
 
-            if not image_urls:
-                await bot.edit_message_text(
-                    inline_message_id=message_id, text=locale[lang]["error"]
-                )
-                return
-
-            _, image_data = await asyncio.gather(
-                bot.edit_message_text(
-                    inline_message_id=message_id,
-                    text=locale[lang]["sending_inline_image"],
-                ),
-                _download_url(image_urls[0]),
-            )
-            if not image_data:
-                raise ConnectionError("Failed to download image")
-
-            image_data = await ensure_native_format(image_data)
-
-            caption = result_caption(lang, video_link)
-            if len(image_urls) > 1:
-                file_id, keyboard = await register_slideshow(
-                    message_id, image_urls, image_data, lang, video_link,
-                    user_id, username, full_name,
-                )
-            else:
-                file_id = await upload_photo_to_storage(
-                    image_data, video_link, user_id, username, full_name
-                )
-                keyboard = None
-                if not file_id:
-                    raise ValueError(
-                        "Failed to upload photo to storage. "
-                        "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                if not image_urls:
+                    await bot.edit_message_text(
+                        inline_message_id=message_id, text=locale[lang]["error"]
                     )
+                    return
 
-            photo_media = InputMediaPhoto(media=file_id, caption=caption)
-            await bot.edit_message_media(
-                inline_message_id=message_id,
-                media=photo_media,
-                reply_markup=keyboard,
-            )
-            is_images = True
-        else:
-            await bot.edit_message_text(
-                inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
-            )
+                _, image_data = await asyncio.gather(
+                    bot.edit_message_text(
+                        inline_message_id=message_id,
+                        text=locale[lang]["sending_inline_image"],
+                    ),
+                    api.download_image(image_urls[0], video_info),
+                )
+                if not image_data:
+                    raise ConnectionError("Failed to download image")
 
-            await send_video_result(
-                message_id,
-                video_info,
-                lang,
-                file_mode,
-                inline_message=True,
-                user_id=user_id,
-                username=username,
-                full_name=full_name,
-            )
+                image_data = await ensure_native_format(image_data)
+
+                caption = result_caption(lang, video_link)
+                if len(image_urls) > 1:
+                    file_id, keyboard = await register_slideshow(
+                        message_id, image_urls, image_data, lang, video_link,
+                        user_id, username, full_name,
+                        client=api, video_info=video_info,
+                    )
+                else:
+                    file_id = await upload_photo_to_storage(
+                        image_data, video_link, user_id, username, full_name
+                    )
+                    keyboard = None
+                    if not file_id:
+                        raise ValueError(
+                            "Failed to upload photo to storage. "
+                            "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                        )
+
+                photo_media = InputMediaPhoto(media=file_id, caption=caption)
+                await bot.edit_message_media(
+                    inline_message_id=message_id,
+                    media=photo_media,
+                    reply_markup=keyboard,
+                )
+                is_images = True
+            else:
+                await bot.edit_message_text(
+                    inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
+                )
+
+                await send_video_result(
+                    message_id,
+                    video_info,
+                    lang,
+                    file_mode,
+                    inline_message=True,
+                    user_id=user_id,
+                    username=username,
+                    full_name=full_name,
+                )
+                is_images = False
+        finally:
             video_info.close()
-            is_images = False
 
         try:
             await add_video(user_id, video_link, is_images, False, True)

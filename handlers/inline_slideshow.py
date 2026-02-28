@@ -25,6 +25,7 @@ from media_types.storage import (
 from media_types.ui import result_caption
 from misc.utils import lang_func
 from tiktok_api import TikTokClient, ProxyManager
+from tiktok_api.models import VideoInfo
 
 logger = logging.getLogger(__name__)
 
@@ -181,27 +182,46 @@ async def _download_and_upload_images(
     username: str | None,
     full_name: str | None,
     prepend: tuple[int, bytes] | None = None,
+    client: TikTokClient | None = None,
+    video_info: VideoInfo | None = None,
 ) -> dict[int, str]:
     """Download images, convert to native format, and upload in batches of 10.
 
-    If prepend is given as (index, data), that image is included without downloading.
+    If client and video_info are provided (TikTok), uses robust proxy download
+    for all images (prepend is ignored since all images are re-downloaded).
+    Otherwise (Instagram/fallback), if prepend is given as (index, data),
+    that image is included without re-downloading.
     Returns index->file_id map.
     """
-    start = prepend[0] + 1 if prepend else 0
-    urls_to_download = image_urls[start:]
-    results = await asyncio.gather(
-        *[_download_url(url) for url in urls_to_download], return_exceptions=True
-    )
-
     all_pairs: list[tuple[int, bytes]] = []
-    if prepend:
-        all_pairs.append(prepend)
-    for i, result in enumerate(results, start=start):
-        if isinstance(result, Exception) or result is None:
-            logger.warning(f"Slideshow: failed to download image {i}")
-            continue
-        data = await ensure_native_format(result)
-        all_pairs.append((i, data))
+
+    if client and video_info and video_info._proxy_session:
+        # TikTok: download all images via robust proxy path
+        try:
+            all_image_bytes = await client.download_slideshow_images(
+                video_info, video_info._proxy_session
+            )
+        finally:
+            video_info.close()
+        for i, img_bytes in enumerate(all_image_bytes):
+            data = await ensure_native_format(img_bytes)
+            all_pairs.append((i, data))
+    else:
+        # Instagram / fallback: use prepend to avoid re-downloading
+        start = prepend[0] + 1 if prepend else 0
+        if prepend:
+            all_pairs.append(prepend)
+        urls_to_download = image_urls[start:]
+        results = await asyncio.gather(
+            *[_download_url(url) for url in urls_to_download],
+            return_exceptions=True,
+        )
+        for i, result in enumerate(results, start=start):
+            if isinstance(result, Exception) or result is None:
+                logger.warning(f"Slideshow: failed to download image {i}")
+                continue
+            data = await ensure_native_format(result)
+            all_pairs.append((i, data))
 
     file_ids: dict[int, str] = {}
     for batch_start in range(0, len(all_pairs), 10):
@@ -222,11 +242,14 @@ async def register_slideshow(
     user_id: int,
     username: str | None,
     full_name: str | None,
+    client: TikTokClient | None = None,
+    video_info: VideoInfo | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Download all images, upload as galleries, create session, return (first_file_id, keyboard)."""
     file_ids = await _download_and_upload_images(
         image_urls, source_link, user_id, username, full_name,
         prepend=(0, first_image_data),
+        client=client, video_info=video_info,
     )
 
     first_file_id = file_ids.get(0)
@@ -370,27 +393,30 @@ async def handle_slideshow_refresh(callback: CallbackQuery) -> None:
     user_id = callback.from_user.id
     username = callback.from_user.username
     full_name = callback.from_user.full_name
+    tiktok_video_info: VideoInfo | None = None
 
     try:
         lang = await lang_func(user_id, callback.from_user.language_code)
 
         # Determine source and fetch images
+        tiktok_client: TikTokClient | None = None
+
         if INSTAGRAM_URL_REGEX.search(source_link):
-            client = InstagramClient()
-            media_info = await client.get_media(source_link)
+            ig_client = InstagramClient()
+            media_info = await ig_client.get_media(source_link)
             image_urls = media_info.image_urls
         else:
-            api = TikTokClient(proxy_manager=ProxyManager.get_instance())
-            video_info = await api.video(source_link)
-            image_urls = video_info.image_urls
-            video_info.close()
+            tiktok_client = TikTokClient(proxy_manager=ProxyManager.get_instance())
+            tiktok_video_info = await tiktok_client.video(source_link)
+            image_urls = tiktok_video_info.image_urls
 
         if not image_urls:
             await callback.answer("No images found.", show_alert=True)
             return
 
         file_ids = await _download_and_upload_images(
-            image_urls, source_link, user_id, username, full_name
+            image_urls, source_link, user_id, username, full_name,
+            client=tiktok_client, video_info=tiktok_video_info,
         )
 
         if not file_ids:
@@ -445,4 +471,6 @@ async def handle_slideshow_refresh(callback: CallbackQuery) -> None:
         logger.error(f"Slideshow refresh error: {e}", exc_info=True)
         await callback.answer("Failed to refresh.", show_alert=True)
     finally:
+        if tiktok_video_info:
+            tiktok_video_info.close()
         _refreshing_sessions.discard(inline_message_id)
