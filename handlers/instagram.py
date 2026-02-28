@@ -78,6 +78,9 @@ async def _send_instagram_video(
     if not video_url:
         raise ValueError("No video URL in media info")
 
+    logger.debug(f"Instagram video URL: {video_url}")
+    logger.debug(f"Instagram thumbnail URL: {media_info.thumbnail_url}")
+
     # Download video and thumbnail concurrently
     thumb_coro = _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
     if thumb_coro:
@@ -87,6 +90,12 @@ async def _send_instagram_video(
     else:
         video_bytes = await _download_url(video_url)
         thumb_bytes = None
+
+    logger.debug(
+        f"Instagram video download result: "
+        f"video={len(video_bytes) if video_bytes else 'None'} bytes, "
+        f"thumb={len(thumb_bytes) if thumb_bytes else 'None'} bytes"
+    )
 
     if not video_bytes:
         raise ConnectionError("Failed to download video")
@@ -247,6 +256,9 @@ async def _send_instagram_inline_video(
     if not video_url:
         raise ValueError("No video URL in media info")
 
+    logger.debug(f"Instagram inline video URL: {video_url}")
+    logger.debug(f"Instagram inline thumbnail URL: {media_info.thumbnail_url}")
+
     # Download video and thumbnail concurrently
     thumb_coro = (
         _download_url(media_info.thumbnail_url) if media_info.thumbnail_url else None
@@ -258,6 +270,12 @@ async def _send_instagram_inline_video(
     else:
         video_bytes = await _download_url(video_url)
         thumb_bytes = None
+
+    logger.debug(
+        f"Instagram inline video download result: "
+        f"video={len(video_bytes) if video_bytes else 'None'} bytes, "
+        f"thumb={len(thumb_bytes) if thumb_bytes else 'None'} bytes"
+    )
 
     if not video_bytes:
         raise ConnectionError("Failed to download video")
