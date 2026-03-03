@@ -11,6 +11,7 @@ from handlers.get_video import video_router
 from handlers.lang import lang_router
 from handlers.user import user_router
 from handlers.get_inline import inline_router
+from handlers.inline_slideshow import slideshow_router, cleanup_all_slideshows
 from media_types import close_http_session
 from stats.misc import update_overall_stats, update_daily_stats
 from tiktok_api import ProxyManager, TikTokClient
@@ -37,6 +38,7 @@ async def main() -> None:
         video_router,
         music_router,
         inline_router,
+        slideshow_router,
     )
     bot_info = await bot.get_me()
     logging.info(f"{bot_info.full_name} [@{bot_info.username}, id:{bot_info.id}]")
@@ -50,6 +52,7 @@ async def main() -> None:
         await TikTokClient.close_connector()  # aiohttp connector for URL resolution
         TikTokClient.shutdown_executor()
         await close_http_session()  # aiohttp session for thumbnail/cover downloads
+        cleanup_all_slideshows()
         logging.info("TikTokClient resources cleaned up")
 
 
