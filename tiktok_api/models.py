@@ -40,6 +40,11 @@ class VideoInfo:
     likes: Optional[int] = None
     views: Optional[int] = None
 
+    # Indices in the `data` URL list that are videos (vs images).
+    # Empty for TikTok slideshows (all images). For Instagram carousels,
+    # tracks which items are videos so send_image_result() can handle mixed media.
+    _video_indices: set[int] = field(default_factory=set, repr=False)
+
     # Download context for slideshows (set by TikTokClient).
     # Contains yt-dlp YoutubeDL instance and TikTok extractor with cookies/auth
     # already configured from the extraction phase. This allows image downloads

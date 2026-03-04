@@ -58,6 +58,18 @@ def music_button(
     return keyb.as_markup()
 
 
+def video_reply_markup(
+    video_id: int,
+    lang: str,
+    likes: int | None = None,
+    views: int | None = None,
+) -> InlineKeyboardMarkup | None:
+    """Return music_button for TikTok (has sound) or stats_keyboard for other sources."""
+    if video_id == 0:
+        return stats_keyboard(likes, views)
+    return music_button(video_id, lang, likes, views)
+
+
 def result_caption(lang: str, link: str, group_warning: bool | None = None) -> str:
     result = locale[lang]["result"].format(locale[lang]["bot_tag"], link)
     if group_warning:

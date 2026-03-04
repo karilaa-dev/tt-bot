@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -27,6 +28,31 @@ _RAPIDAPI_HOST = (
 
 class InstagramClient:
     async def get_media(self, url: str) -> InstagramMediaInfo:
+        max_retries = config["retry"]["download_max_retries"]
+        last_error: Exception | None = None
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                return await self._fetch_media(url)
+            except InstagramNotFoundError:
+                raise
+            except (InstagramNetworkError, InstagramRateLimitError) as e:
+                last_error = e
+                if attempt < max_retries:
+                    delay = 2 ** (attempt - 1)  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Instagram API attempt {attempt}/{max_retries} failed: {e}, "
+                        f"retrying in {delay}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"Instagram API failed after {max_retries} attempts for {url}: {e}"
+                    )
+
+        raise last_error  # type: ignore[misc]
+
+    async def _fetch_media(self, url: str) -> InstagramMediaInfo:
         session = _get_http_session()
         api_key = config["instagram"]["rapidapi_key"]
 

@@ -7,6 +7,7 @@ from aiogram.types import (
     BufferedInputFile,
     InputMediaDocument,
     InputMediaPhoto,
+    InputMediaVideo,
 )
 
 from data.config import locale
@@ -16,6 +17,7 @@ from tiktok_api import (
     VideoInfo,
 )
 
+from .http_session import _download_url
 from .image_processing import (
     IMAGE_CONVERSION_AVAILABLE,
     _NATIVE_EXTENSIONS,
@@ -23,7 +25,7 @@ from .image_processing import (
     detect_image_format,
     get_image_executor,
 )
-from .ui import music_button, result_caption
+from .ui import result_caption, video_reply_markup
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +41,37 @@ async def download_images_parallel(
     )
 
 
+async def _download_images_http(
+    image_urls: list[str], video_indices: set[int]
+) -> tuple[list[bytes], set[int]]:
+    """Download images via plain HTTP (for non-TikTok sources).
+
+    Returns (downloaded_bytes, remapped_video_indices) with indices adjusted
+    to account for any failed downloads that were filtered out.
+    """
+    results = await asyncio.gather(*[_download_url(url) for url in image_urls])
+    downloaded: list[bytes] = []
+    remapped: set[int] = set()
+    for i, r in enumerate(results):
+        if r is not None:
+            if i in video_indices:
+                remapped.add(len(downloaded))
+            downloaded.append(r)
+    failed = len(results) - len(downloaded)
+    if failed:
+        logger.warning(f"Failed to download {failed}/{len(image_urls)} media items")
+    if not downloaded:
+        raise ConnectionError("Failed to download any images")
+    return downloaded, remapped
+
+
 async def send_image_result(
     user_msg,
     video_info: VideoInfo,
     lang: str,
     file_mode: bool,
     image_limit: int | None,
-    client: TikTokClient,
+    client: TikTokClient | None = None,
 ) -> bool:
     """Send slideshow images to the user.
 
@@ -54,6 +80,7 @@ async def send_image_result(
     """
     video_id = video_info.id
     image_urls = video_info.image_urls
+    video_indices = video_info._video_indices
 
     if image_limit:
         image_urls = image_urls[:image_limit]
@@ -66,30 +93,35 @@ async def send_image_result(
     is_private_chat = user_msg.chat.type == "private"
 
     # Download all images with retry
-    proxy_session = video_info._proxy_session
-    if proxy_session:
-        try:
-            all_image_bytes = await client.download_slideshow_images(
-                video_info, proxy_session
+    if client is not None:
+        proxy_session = video_info._proxy_session
+        if proxy_session:
+            try:
+                all_image_bytes = await client.download_slideshow_images(
+                    video_info, proxy_session
+                )
+                if image_limit:
+                    all_image_bytes = all_image_bytes[:image_limit]
+            except TikTokNetworkError as e:
+                logger.error(f"Failed to download slideshow images: {e}")
+                raise
+        else:
+            logger.warning("No proxy session available, using legacy download")
+            all_image_bytes = await download_images_parallel(
+                image_urls, client, video_info
             )
-            if image_limit:
-                all_image_bytes = all_image_bytes[:image_limit]
-        except TikTokNetworkError as e:
-            logger.error(f"Failed to download slideshow images: {e}")
-            raise
+            all_image_bytes = [
+                img for img in all_image_bytes if isinstance(img, bytes)
+            ]
+            if not all_image_bytes:
+                logger.error(
+                    f"All {len(image_urls)} slideshow images failed in fallback mode"
+                )
+                raise TikTokNetworkError("Failed to download slideshow images")
     else:
-        logger.warning("No proxy session available, using legacy download")
-        all_image_bytes = await download_images_parallel(
-            image_urls, client, video_info
+        all_image_bytes, video_indices = await _download_images_http(
+            image_urls, video_indices
         )
-        all_image_bytes = [
-            img for img in all_image_bytes if isinstance(img, bytes)
-        ]
-        if not all_image_bytes:
-            logger.error(
-                f"All {len(image_urls)} slideshow images failed in fallback mode"
-            )
-            raise TikTokNetworkError("Failed to download slideshow images")
 
     # Split into batches of 10 for Telegram media groups
     if image_limit:
@@ -111,11 +143,14 @@ async def send_image_result(
             case _:
                 sleep_time = 3
 
-    # Check if processing is needed (only for photo mode)
+    # Check if processing is needed (only for photo mode, only for images not videos)
     if not file_mode and all_image_bytes:
-        first_image = all_image_bytes[0]
-        extension = detect_image_format(first_image)
-        processing_needed = extension not in _NATIVE_EXTENSIONS
+        for idx, img in enumerate(all_image_bytes):
+            if idx not in video_indices:
+                extension = detect_image_format(img)
+                if extension not in _NATIVE_EXTENSIONS:
+                    processing_needed = True
+                    break
 
     async def process_and_send_images():
         nonlocal processing_needed, processing_message, was_processed
@@ -141,11 +176,28 @@ async def send_image_result(
 
             for img_bytes in part_bytes:
                 current_image_number = image_index + 1
+                is_video_item = image_index in video_indices
                 image_index += 1
 
-                extension = detect_image_format(img_bytes)
-
-                if file_mode:
+                if is_video_item:
+                    # Video items: no conversion needed
+                    filename = f"{video_id}_{current_image_number}.mp4"
+                    buffered = BufferedInputFile(img_bytes, filename)
+                    if file_mode:
+                        media_group.append(
+                            InputMediaDocument(
+                                media=buffered, disable_content_type_detection=True
+                            )
+                        )
+                    else:
+                        # InputMediaVideo can be mixed with InputMediaPhoto
+                        media_group.append(
+                            InputMediaVideo(
+                                media=buffered, supports_streaming=True
+                            )
+                        )
+                elif file_mode:
+                    extension = detect_image_format(img_bytes)
                     filename = f"{video_id}_{current_image_number}{extension}"
                     buffered = BufferedInputFile(img_bytes, filename)
                     media_group.append(
@@ -154,6 +206,7 @@ async def send_image_result(
                         )
                     )
                 else:
+                    extension = detect_image_format(img_bytes)
                     if (
                         IMAGE_CONVERSION_AVAILABLE
                         and extension not in _NATIVE_EXTENSIONS
@@ -204,7 +257,7 @@ async def send_image_result(
     if final and len(final) > 0:
         await final[0].reply(
             result_caption(lang, video_info.link, bool(image_limit)),
-            reply_markup=music_button(video_id, lang, video_info.likes, video_info.views),
+            reply_markup=video_reply_markup(video_id, lang, video_info.likes, video_info.views),
             disable_web_page_preview=True,
         )
 
