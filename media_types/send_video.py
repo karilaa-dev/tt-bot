@@ -5,7 +5,7 @@ from tiktok_api import VideoInfo
 
 from .http_session import download_thumbnail
 from .storage import upload_video_to_storage
-from .ui import music_button, result_caption
+from .ui import music_button, result_caption, stats_keyboard
 
 
 async def send_video_result(
@@ -55,7 +55,11 @@ async def send_video_result(
             duration=video_duration,
             supports_streaming=True,
         )
-        await bot.edit_message_media(inline_message_id=targed_id, media=video_media)
+        await bot.edit_message_media(
+            inline_message_id=targed_id,
+            media=video_media,
+            reply_markup=stats_keyboard(video_info.likes, video_info.views),
+        )
         return
 
     if isinstance(video_data, bytes):
@@ -68,7 +72,7 @@ async def send_video_result(
             chat_id=targed_id,
             document=video_file,
             caption=result_caption(lang, video_info.link),
-            reply_markup=music_button(video_id, lang),
+            reply_markup=music_button(video_id, lang, video_info.likes, video_info.views),
             reply_to_message_id=reply_to_message_id,
             disable_content_type_detection=True,
         )
@@ -86,6 +90,6 @@ async def send_video_result(
             duration=video_duration,
             thumbnail=thumbnail,
             supports_streaming=True,
-            reply_markup=music_button(video_id, lang),
+            reply_markup=music_button(video_id, lang, video_info.likes, video_info.views),
             reply_to_message_id=reply_to_message_id,
         )

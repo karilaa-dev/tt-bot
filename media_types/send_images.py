@@ -204,7 +204,7 @@ async def send_image_result(
     if final and len(final) > 0:
         await final[0].reply(
             result_caption(lang, video_info.link, bool(image_limit)),
-            reply_markup=music_button(video_id, lang),
+            reply_markup=music_button(video_id, lang, video_info.likes, video_info.views),
             disable_web_page_preview=True,
         )
 

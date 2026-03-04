@@ -24,7 +24,7 @@ from misc.queue_manager import QueueManager
 from media_types import send_video_result, get_error_message
 from media_types.image_processing import ensure_native_format
 from media_types.storage import upload_photo_to_storage
-from media_types.ui import result_caption
+from media_types.ui import result_caption, stats_keyboard
 from handlers.inline_slideshow import register_slideshow
 
 inline_router = Router(name=__name__)
@@ -175,12 +175,13 @@ async def _handle_tiktok_inline(
                         message_id, image_urls, image_data, lang, video_link,
                         user_id, username, full_name,
                         client=api, video_info=video_info,
+                        likes=video_info.likes, views=video_info.views,
                     )
                 else:
                     file_id = await upload_photo_to_storage(
                         image_data, video_link, user_id, username, full_name
                     )
-                    keyboard = None
+                    keyboard = stats_keyboard(video_info.likes, video_info.views)
                     if not file_id:
                         raise ValueError(
                             "Failed to upload photo to storage. "
