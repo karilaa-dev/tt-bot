@@ -7,6 +7,7 @@ from aiogram.types import (
     BufferedInputFile,
     InputMediaDocument,
     InputMediaPhoto,
+    InputMediaVideo,
 )
 
 from data.config import locale
@@ -40,13 +41,28 @@ async def download_images_parallel(
     )
 
 
-async def _download_images_http(image_urls: list[str]) -> list[bytes]:
-    """Download images via plain HTTP (for non-TikTok sources)."""
+async def _download_images_http(
+    image_urls: list[str], video_indices: set[int]
+) -> tuple[list[bytes], set[int]]:
+    """Download images via plain HTTP (for non-TikTok sources).
+
+    Returns (downloaded_bytes, remapped_video_indices) with indices adjusted
+    to account for any failed downloads that were filtered out.
+    """
     results = await asyncio.gather(*[_download_url(url) for url in image_urls])
-    downloaded = [r for r in results if r is not None]
+    downloaded: list[bytes] = []
+    remapped: set[int] = set()
+    for i, r in enumerate(results):
+        if r is not None:
+            if i in video_indices:
+                remapped.add(len(downloaded))
+            downloaded.append(r)
+    failed = len(results) - len(downloaded)
+    if failed:
+        logger.warning(f"Failed to download {failed}/{len(image_urls)} media items")
     if not downloaded:
         raise ConnectionError("Failed to download any images")
-    return downloaded
+    return downloaded, remapped
 
 
 async def send_image_result(
@@ -103,7 +119,9 @@ async def send_image_result(
                 )
                 raise TikTokNetworkError("Failed to download slideshow images")
     else:
-        all_image_bytes = await _download_images_http(image_urls)
+        all_image_bytes, video_indices = await _download_images_http(
+            image_urls, video_indices
+        )
 
     # Split into batches of 10 for Telegram media groups
     if image_limit:
@@ -162,14 +180,22 @@ async def send_image_result(
                 image_index += 1
 
                 if is_video_item:
-                    # Video items: always send as document (no conversion)
+                    # Video items: no conversion needed
                     filename = f"{video_id}_{current_image_number}.mp4"
                     buffered = BufferedInputFile(img_bytes, filename)
-                    media_group.append(
-                        InputMediaDocument(
-                            media=buffered, disable_content_type_detection=True
+                    if file_mode:
+                        media_group.append(
+                            InputMediaDocument(
+                                media=buffered, disable_content_type_detection=True
+                            )
                         )
-                    )
+                    else:
+                        # InputMediaVideo can be mixed with InputMediaPhoto
+                        media_group.append(
+                            InputMediaVideo(
+                                media=buffered, supports_streaming=True
+                            )
+                        )
                 elif file_mode:
                     extension = detect_image_format(img_bytes)
                     filename = f"{video_id}_{current_image_number}{extension}"

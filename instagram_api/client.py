@@ -45,6 +45,10 @@ class InstagramClient:
                         f"retrying in {delay}s"
                     )
                     await asyncio.sleep(delay)
+                else:
+                    logger.error(
+                        f"Instagram API failed after {max_retries} attempts for {url}: {e}"
+                    )
 
         raise last_error  # type: ignore[misc]
 
