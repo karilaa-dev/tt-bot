@@ -1521,6 +1521,10 @@ class TikTokClient:
                 if image_urls:
                     author = video_data.get("author", {}).get("uniqueId", "")
 
+                    stats = video_data.get("stats", {})
+                    likes = stats.get("diggCount")
+                    views = stats.get("playCount")
+
                     # Transfer context ownership to VideoInfo
                     # Part 3 (image download) happens later via download_slideshow_images()
                     context_transferred = True
@@ -1534,6 +1538,8 @@ class TikTokClient:
                         duration=None,
                         link=video_link,
                         url=None,
+                        likes=likes,
+                        views=views,
                         _download_context=download_context,
                         _proxy_session=proxy_session,  # For Part 3 retry
                     )
@@ -1586,6 +1592,10 @@ class TikTokClient:
             height = video_info_data.get("height")
             cover = video_info_data.get("cover") or video_info_data.get("originCover")
 
+            stats = video_data.get("stats", {})
+            likes = stats.get("diggCount")
+            views = stats.get("playCount")
+
             return VideoInfo(
                 type="video",
                 data=video_bytes,
@@ -1596,6 +1606,8 @@ class TikTokClient:
                 duration=duration,
                 link=video_link,
                 url=video_url,
+                likes=likes,
+                views=views,
             )
 
         except TikTokError:

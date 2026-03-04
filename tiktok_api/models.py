@@ -37,6 +37,8 @@ class VideoInfo:
     duration: Optional[int]
     link: str
     url: Optional[str] = None  # Only present for videos
+    likes: Optional[int] = None
+    views: Optional[int] = None
 
     # Download context for slideshows (set by TikTokClient).
     # Contains yt-dlp YoutubeDL instance and TikTok extractor with cookies/auth

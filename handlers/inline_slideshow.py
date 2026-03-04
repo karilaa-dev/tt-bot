@@ -22,7 +22,7 @@ from media_types.storage import (
     _build_storage_caption,
     upload_photo_to_storage,
 )
-from media_types.ui import result_caption
+from media_types.ui import result_caption, stats_row
 from misc.utils import lang_func
 from tiktok_api import TikTokClient, ProxyManager
 from tiktok_api.models import VideoInfo
@@ -44,6 +44,8 @@ class SlideshowSession:
     user_id: int
     username: str | None
     full_name: str | None
+    likes: int | None = None
+    views: int | None = None
     _cleanup_task: asyncio.Task | None = field(default=None, repr=False)
     _loading_indices: set[int] = field(default_factory=set, repr=False)
 
@@ -52,18 +54,28 @@ _slideshow_sessions: dict[str, SlideshowSession] = {}
 _refreshing_sessions: set[str] = set()  # inline_message_ids currently refreshing
 
 
-def _build_keyboard(index: int, total: int) -> InlineKeyboardMarkup:
-    buttons: list[InlineKeyboardButton] = []
+def _build_keyboard(
+    index: int,
+    total: int,
+    likes: int | None = None,
+    views: int | None = None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    sr = stats_row(likes, views)
+    if sr:
+        rows.append(sr)
+    nav: list[InlineKeyboardButton] = []
     if index > 0:
-        buttons.append(InlineKeyboardButton(text="◀️", callback_data="slide:prev"))
-    buttons.append(
+        nav.append(InlineKeyboardButton(text="◀️", callback_data="slide:prev"))
+    nav.append(
         InlineKeyboardButton(
             text=f"📸 {index + 1}/{total}", callback_data="slide:noop"
         )
     )
     if index < total - 1:
-        buttons.append(InlineKeyboardButton(text="▶️", callback_data="slide:next"))
-    return InlineKeyboardMarkup(inline_keyboard=[buttons])
+        nav.append(InlineKeyboardButton(text="▶️", callback_data="slide:next"))
+    rows.append(nav)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _compress_url(source_link: str) -> str:
@@ -88,24 +100,31 @@ def _expand_url(compressed: str) -> str:
 
 
 def _build_expired_keyboard(
-    index: int, total: int, source_link: str
+    index: int,
+    total: int,
+    source_link: str,
+    likes: int | None = None,
+    views: int | None = None,
 ) -> InlineKeyboardMarkup:
     """Build a keyboard with counter + refresh button for expired sessions."""
     compressed = _compress_url(source_link)
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"📸 {index + 1}/{total}",
-                    callback_data="slide:noop",
-                ),
-                InlineKeyboardButton(
-                    text="🔄",
-                    callback_data=f"sr:{index}:{compressed}",
-                ),
-            ]
+    rows: list[list[InlineKeyboardButton]] = []
+    sr = stats_row(likes, views)
+    if sr:
+        rows.append(sr)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=f"📸 {index + 1}/{total}",
+                callback_data="slide:noop",
+            ),
+            InlineKeyboardButton(
+                text="🔄",
+                callback_data=f"sr:{index}:{compressed}",
+            ),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _expire_session(inline_message_id: str) -> None:
@@ -119,6 +138,8 @@ async def _expire_session(inline_message_id: str) -> None:
             session.current_index,
             len(session.image_urls),
             session.source_link,
+            session.likes,
+            session.views,
         )
         await bot.edit_message_reply_markup(
             inline_message_id=inline_message_id, reply_markup=keyboard
@@ -244,6 +265,8 @@ async def register_slideshow(
     full_name: str | None,
     client: TikTokClient | None = None,
     video_info: VideoInfo | None = None,
+    likes: int | None = None,
+    views: int | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """Download all images, upload as galleries, create session, return (first_file_id, keyboard)."""
     file_ids = await _download_and_upload_images(
@@ -268,10 +291,12 @@ async def register_slideshow(
         user_id=user_id,
         username=username,
         full_name=full_name,
+        likes=likes,
+        views=views,
     )
     _slideshow_sessions[inline_message_id] = session
     _reset_ttl(inline_message_id, session)
-    return first_file_id, _build_keyboard(0, len(image_urls))
+    return first_file_id, _build_keyboard(0, len(image_urls), likes, views)
 
 
 def cleanup_all_slideshows() -> None:
@@ -342,7 +367,7 @@ async def handle_slideshow_callback(callback: CallbackQuery) -> None:
         session.current_index = new_index
         caption = result_caption(session.lang, session.source_link)
         media = InputMediaPhoto(media=file_id, caption=caption)
-        keyboard = _build_keyboard(new_index, total)
+        keyboard = _build_keyboard(new_index, total, session.likes, session.views)
 
         await bot.edit_message_media(
             inline_message_id=inline_message_id,
@@ -438,6 +463,13 @@ async def handle_slideshow_refresh(callback: CallbackQuery) -> None:
             await callback.answer("Failed to upload images.", show_alert=True)
             return
 
+        # Extract stats from refreshed TikTok data if available
+        refresh_likes = None
+        refresh_views = None
+        if tiktok_video_info:
+            refresh_likes = tiktok_video_info.likes
+            refresh_views = tiktok_video_info.views
+
         # Create new session
         session = SlideshowSession(
             image_urls=image_urls,
@@ -448,13 +480,15 @@ async def handle_slideshow_refresh(callback: CallbackQuery) -> None:
             user_id=user_id,
             username=username,
             full_name=full_name,
+            likes=refresh_likes,
+            views=refresh_views,
         )
         _slideshow_sessions[inline_message_id] = session
 
         # Edit message with refreshed image + nav keyboard
         caption = result_caption(lang, source_link)
         media = InputMediaPhoto(media=file_id, caption=caption)
-        keyboard = _build_keyboard(index, total)
+        keyboard = _build_keyboard(index, total, refresh_likes, refresh_views)
 
         await bot.edit_message_media(
             inline_message_id=inline_message_id,

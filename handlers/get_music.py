@@ -10,11 +10,17 @@ from data.loader import bot
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
 from misc.utils import lang_func, error_catch
 from media_types import send_music_result, music_button, get_error_message
+from media_types.ui import STATS_CALLBACK_PREFIX
 
 music_router = Router(name=__name__)
 
 # Retry emoji sequence for music download
 RETRY_EMOJIS = ["👀", "🤔", "🙏"]
+
+
+@music_router.callback_query(F.data == STATS_CALLBACK_PREFIX)
+async def handle_stats_noop(callback: CallbackQuery):
+    await callback.answer()
 
 
 @music_router.callback_query(F.data.startswith("id"))
