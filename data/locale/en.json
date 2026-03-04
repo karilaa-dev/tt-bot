@@ -9,7 +9,7 @@
   "lang": "The language is set to English🇺🇸",
   "start": "You have launched <b>No Watermark TikTok🤖</b>\n\nThis bot supports download of:\n📹Video, 🖼Images and 🔈Audio\nfrom TikTok and Instagram <i><b>without watermark</b></i>\n\nYou can also subscribe to our channel to get the latest news about bot status, updates and news!\n@ttgrab\n\n<b>Send video link to get started</b>",
   "maintenance": "⚠️ <b>Bot Maintenance</b> ⚠️\n\nThe bot is currently undergoing maintenance and will be back soon.\nThank you for your patience!\n\nFollow @ttgrab for updates.",
-  "get_sound": "Get Sound",
+  "get_sound": "\uD83C\uDFB5 Get Sound",
   "bot_tag": "<a href='t.me/ttgrab_bot'>No Watermark TikTok</a>",
   "result": "<a href='{1}'>Source</a>\n\n<b>{0}</b>",
   "result_song": "<a href='{1}'>Song cover</a>\n\n<b>{0}</b>",
