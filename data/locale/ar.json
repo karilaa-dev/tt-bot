@@ -52,5 +52,7 @@
   "inline_download_instagram": "تنزيل فيديو Instagram",
   "inline_download_instagram_description": "تنزيل فيديوهات Instagram.",
   "sending_inline_image": "⬆️ <code>جارٍ إرسال الصورة...</code>\n\n",
+  "downloading_inline_video": "⬇️ <code>جارٍ تنزيل الفيديو...</code>\n\n",
+  "downloading_inline_image": "⬇️ <code>جارٍ تنزيل الصورة...</code>\n\n",
   "inline_image_limit": "\n\n⚠️ <i>بسبب قيود تيليجرام، يتم عرض صورة واحدة فقط في وضع inline.</i>"
 }

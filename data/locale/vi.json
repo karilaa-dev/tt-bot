@@ -52,5 +52,7 @@
   "inline_download_instagram": "Tải video Instagram",
   "inline_download_instagram_description": "Tải video từ Instagram.",
   "sending_inline_image": "⬆️ <code>Đang gửi hình ảnh...</code>\n\n",
+  "downloading_inline_video": "⬇️ <code>Đang tải video...</code>\n\n",
+  "downloading_inline_image": "⬇️ <code>Đang tải hình ảnh...</code>\n\n",
   "inline_image_limit": "\n\n⚠️ <i>Do giới hạn của Telegram, chỉ 1 hình ảnh được hiển thị trong chế độ inline.</i>"
 }
