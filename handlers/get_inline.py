@@ -152,7 +152,20 @@ async def _handle_inline_download(
                 video_info = await api.video(video_link)
 
         if is_instagram:
-            is_images = not media_info.is_video
+            is_video = media_info.is_video
+        else:
+            is_video = video_info.is_video
+        is_images = not is_video
+
+        # For TikTok video, the download already happened inside api.video(),
+        # so the initial message already covers the downloading phase.
+        if is_instagram or not is_video:
+            await bot.edit_message_text(
+                inline_message_id=message_id,
+                text=locale[lang]["downloading_inline_video" if is_video else "downloading_inline_image"],
+            )
+
+        if is_instagram:
 
             if not media_info.is_video:
                 # Instagram images/carousel
@@ -163,13 +176,7 @@ async def _handle_inline_download(
                     )
                     return
 
-                _, image_data = await asyncio.gather(
-                    bot.edit_message_text(
-                        inline_message_id=message_id,
-                        text=locale[lang]["sending_inline_image"],
-                    ),
-                    _download_url(image_urls[0]),
-                )
+                image_data = await _download_url(image_urls[0])
                 if not image_data:
                     raise ConnectionError("Failed to download image")
 
@@ -192,6 +199,11 @@ async def _handle_inline_download(
                             "Make sure STORAGE_CHANNEL_ID is configured in .env"
                         )
 
+                await bot.edit_message_text(
+                    inline_message_id=message_id,
+                    text=locale[lang]["sending_inline_image"],
+                )
+
                 photo_media = InputMediaPhoto(media=file_id, caption=caption)
                 await bot.edit_message_media(
                     inline_message_id=message_id,
@@ -204,22 +216,21 @@ async def _handle_inline_download(
                 if not video_url:
                     raise ValueError("No video URL in media info")
 
-                download_coros = [
-                    bot.edit_message_text(
-                        inline_message_id=message_id,
-                        text=locale[lang]["sending_inline_video"],
-                    ),
-                    _download_url(video_url),
-                ]
+                download_coros = [_download_url(video_url)]
                 if media_info.thumbnail_url:
                     download_coros.append(_download_url(media_info.thumbnail_url))
 
                 results = await asyncio.gather(*download_coros)
-                video_bytes = results[1]
-                thumb_bytes = results[2] if len(results) > 2 else None
+                video_bytes = results[0]
+                thumb_bytes = results[1] if len(results) > 1 else None
 
                 if not video_bytes:
                     raise ConnectionError("Failed to download video")
+
+                await bot.edit_message_text(
+                    inline_message_id=message_id,
+                    text=locale[lang]["sending_inline_video"],
+                )
 
                 thumb_file = (
                     BufferedInputFile(thumb_bytes, "thumb.jpg")
@@ -263,13 +274,7 @@ async def _handle_inline_download(
                         )
                         return
 
-                    _, image_data = await asyncio.gather(
-                        bot.edit_message_text(
-                            inline_message_id=message_id,
-                            text=locale[lang]["sending_inline_image"],
-                        ),
-                        api.download_image(image_urls[0], video_info),
-                    )
+                    image_data = await api.download_image(image_urls[0], video_info)
                     if not image_data:
                         raise ConnectionError("Failed to download image")
 
@@ -294,13 +299,17 @@ async def _handle_inline_download(
                                 "Make sure STORAGE_CHANNEL_ID is configured in .env"
                             )
 
+                    await bot.edit_message_text(
+                        inline_message_id=message_id,
+                        text=locale[lang]["sending_inline_image"],
+                    )
+
                     photo_media = InputMediaPhoto(media=file_id, caption=caption)
                     await bot.edit_message_media(
                         inline_message_id=message_id,
                         media=photo_media,
                         reply_markup=keyboard,
                     )
-                    is_images = True
                 else:
                     await bot.edit_message_text(
                         inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
@@ -316,7 +325,6 @@ async def _handle_inline_download(
                         username=username,
                         full_name=full_name,
                     )
-                    is_images = False
             finally:
                 video_info.close()
 

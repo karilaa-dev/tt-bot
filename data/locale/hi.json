@@ -52,5 +52,7 @@
   "inline_download_instagram": "Instagram वीडियो डाउनलोड करें",
   "inline_download_instagram_description": "Instagram वीडियो डाउनलोड करें।",
   "sending_inline_image": "⬆️ <code>छवि भेजी जा रही है...</code>\n\n",
+  "downloading_inline_video": "⬇️ <code>वीडियो डाउनलोड हो रहा है...</code>\n\n",
+  "downloading_inline_image": "⬇️ <code>छवि डाउनलोड हो रही है...</code>\n\n",
   "inline_image_limit": "\n\n⚠️ <i>Telegram की सीमाओं के कारण, inline मोड में केवल 1 छवि दिखाई जाती है।</i>"
 }
