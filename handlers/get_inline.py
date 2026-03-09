@@ -4,26 +4,29 @@ import logging
 from aiogram import Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
+    BufferedInputFile,
     InlineQuery,
     ChosenInlineResult,
     InlineQueryResultArticle,
     InputTextMessageContent,
     InputMediaPhoto,
+    InputMediaVideo,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     InlineQueryResultsButton,
 )
 
-from data.config import locale, config
+from data.config import locale
 from data.loader import bot
 from misc.utils import lang_func
 from data.db_service import add_video, get_user, get_user_settings
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
-from instagram_api import INSTAGRAM_URL_REGEX, InstagramError
+from instagram_api import INSTAGRAM_URL_REGEX, InstagramClient, InstagramError
 from misc.queue_manager import QueueManager
 from media_types import send_video_result, get_error_message
+from media_types.http_session import _download_url
 from media_types.image_processing import ensure_native_format
-from media_types.storage import upload_photo_to_storage
+from media_types.storage import STORAGE_CHANNEL_ID, _build_storage_caption, upload_photo_to_storage
 from media_types.ui import result_caption, stats_keyboard
 from handlers.inline_slideshow import register_slideshow
 
@@ -114,18 +117,13 @@ async def handle_chosen_inline_result(chosen_result: ChosenInlineResult):
 
     is_instagram = chosen_result.result_id == "ig_download"
 
-    if is_instagram:
-        await _handle_instagram_inline(
-            message_id, video_link, lang, user_id, username, full_name
-        )
-    else:
-        await _handle_tiktok_inline(
-            message_id, video_link, lang, file_mode,
-            user_id, username, full_name,
-        )
+    await _handle_inline_download(
+        message_id, video_link, lang, file_mode,
+        user_id, username, full_name, is_instagram=is_instagram,
+    )
 
 
-async def _handle_tiktok_inline(
+async def _handle_inline_download(
     message_id: str,
     video_link: str,
     lang: str,
@@ -133,8 +131,9 @@ async def _handle_tiktok_inline(
     user_id: int,
     username: str | None,
     full_name: str | None,
+    *,
+    is_instagram: bool = False,
 ) -> None:
-    api = TikTokClient(proxy_manager=ProxyManager.get_instance())
     queue = QueueManager.get_instance()
 
     try:
@@ -145,12 +144,19 @@ async def _handle_tiktok_inline(
                 )
                 return
 
-            video_info = await api.video(video_link)
+            if is_instagram:
+                client = InstagramClient()
+                media_info = await client.get_media(video_link)
+            else:
+                api = TikTokClient(proxy_manager=ProxyManager.get_instance())
+                video_info = await api.video(video_link)
 
-        try:
-            if video_info.is_slideshow:
-                image_urls = video_info.image_urls
+        if is_instagram:
+            is_images = not media_info.is_video
 
+            if not media_info.is_video:
+                # Instagram images/carousel
+                image_urls = media_info.image_urls
                 if not image_urls:
                     await bot.edit_message_text(
                         inline_message_id=message_id, text=locale[lang]["error"]
@@ -162,7 +168,7 @@ async def _handle_tiktok_inline(
                         inline_message_id=message_id,
                         text=locale[lang]["sending_inline_image"],
                     ),
-                    api.download_image(image_urls[0], video_info),
+                    _download_url(image_urls[0]),
                 )
                 if not image_data:
                     raise ConnectionError("Failed to download image")
@@ -174,14 +180,12 @@ async def _handle_tiktok_inline(
                     file_id, keyboard = await register_slideshow(
                         message_id, image_urls, image_data, lang, video_link,
                         user_id, username, full_name,
-                        client=api, video_info=video_info,
-                        likes=video_info.likes, views=video_info.views,
                     )
                 else:
                     file_id = await upload_photo_to_storage(
                         image_data, video_link, user_id, username, full_name
                     )
-                    keyboard = stats_keyboard(video_info.likes, video_info.views)
+                    keyboard = None
                     if not file_id:
                         raise ValueError(
                             "Failed to upload photo to storage. "
@@ -194,81 +198,137 @@ async def _handle_tiktok_inline(
                     media=photo_media,
                     reply_markup=keyboard,
                 )
-                is_images = True
             else:
-                await bot.edit_message_text(
-                    inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
+                # Instagram video
+                video_url = media_info.video_url
+                if not video_url:
+                    raise ValueError("No video URL in media info")
+
+                download_coros = [
+                    bot.edit_message_text(
+                        inline_message_id=message_id,
+                        text=locale[lang]["sending_inline_video"],
+                    ),
+                    _download_url(video_url),
+                ]
+                if media_info.thumbnail_url:
+                    download_coros.append(_download_url(media_info.thumbnail_url))
+
+                results = await asyncio.gather(*download_coros)
+                video_bytes = results[1]
+                thumb_bytes = results[2] if len(results) > 2 else None
+
+                if not video_bytes:
+                    raise ConnectionError("Failed to download video")
+
+                thumb_file = (
+                    BufferedInputFile(thumb_bytes, "thumb.jpg")
+                    if thumb_bytes else None
+                )
+                storage_msg = await bot.send_video(
+                    chat_id=STORAGE_CHANNEL_ID,
+                    video=BufferedInputFile(video_bytes, "instagram_video.mp4"),
+                    caption=_build_storage_caption(
+                        video_link, user_id, username, full_name
+                    ),
+                    parse_mode="HTML",
+                    disable_notification=True,
+                    thumbnail=thumb_file,
+                    supports_streaming=True,
                 )
 
-                await send_video_result(
-                    message_id,
-                    video_info,
-                    lang,
-                    file_mode,
-                    inline_message=True,
-                    user_id=user_id,
-                    username=username,
-                    full_name=full_name,
+                file_id = storage_msg.video.file_id if storage_msg.video else None
+                if not file_id:
+                    raise ValueError(
+                        "Failed to upload video to storage. "
+                        "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                    )
+
+                video_media = InputMediaVideo(
+                    media=file_id,
+                    caption=result_caption(lang, video_link),
+                    supports_streaming=True,
                 )
-                is_images = False
-        finally:
-            video_info.close()
+                await bot.edit_message_media(
+                    inline_message_id=message_id, media=video_media
+                )
+        else:
+            try:
+                if video_info.is_slideshow:
+                    image_urls = video_info.image_urls
+
+                    if not image_urls:
+                        await bot.edit_message_text(
+                            inline_message_id=message_id, text=locale[lang]["error"]
+                        )
+                        return
+
+                    _, image_data = await asyncio.gather(
+                        bot.edit_message_text(
+                            inline_message_id=message_id,
+                            text=locale[lang]["sending_inline_image"],
+                        ),
+                        api.download_image(image_urls[0], video_info),
+                    )
+                    if not image_data:
+                        raise ConnectionError("Failed to download image")
+
+                    image_data = await ensure_native_format(image_data)
+
+                    caption = result_caption(lang, video_link)
+                    if len(image_urls) > 1:
+                        file_id, keyboard = await register_slideshow(
+                            message_id, image_urls, image_data, lang, video_link,
+                            user_id, username, full_name,
+                            client=api, video_info=video_info,
+                            likes=video_info.likes, views=video_info.views,
+                        )
+                    else:
+                        file_id = await upload_photo_to_storage(
+                            image_data, video_link, user_id, username, full_name
+                        )
+                        keyboard = stats_keyboard(video_info.likes, video_info.views)
+                        if not file_id:
+                            raise ValueError(
+                                "Failed to upload photo to storage. "
+                                "Make sure STORAGE_CHANNEL_ID is configured in .env"
+                            )
+
+                    photo_media = InputMediaPhoto(media=file_id, caption=caption)
+                    await bot.edit_message_media(
+                        inline_message_id=message_id,
+                        media=photo_media,
+                        reply_markup=keyboard,
+                    )
+                    is_images = True
+                else:
+                    await bot.edit_message_text(
+                        inline_message_id=message_id, text=locale[lang]["sending_inline_video"]
+                    )
+
+                    await send_video_result(
+                        message_id,
+                        video_info,
+                        lang,
+                        file_mode,
+                        inline_message=True,
+                        user_id=user_id,
+                        username=username,
+                        full_name=full_name,
+                    )
+                    is_images = False
+            finally:
+                video_info.close()
 
         try:
             await add_video(user_id, video_link, is_images, False, True)
-            logging.info(f"Video Download: INLINE {user_id} - {'IMAGES' if is_images else 'VIDEO'} {video_link}")
+            logging.info(f"Inline Download: {user_id} - {'IMAGES' if is_images else 'VIDEO'} {video_link}")
         except Exception as e:
             logging.error("Cant write into database")
             logging.error(e)
 
-    except TikTokError as e:
-        logging.error(f"TikTok error for inline {video_link}: {e}")
-        try:
-            await bot.edit_message_text(
-                inline_message_id=message_id, text=get_error_message(e, lang)
-            )
-        except TelegramBadRequest:
-            logging.debug("Failed to update inline error message")
-        except Exception as err:
-            logging.warning(f"Unexpected error updating inline message: {err}")
-    except Exception as e:
-        logging.error(e)
-        try:
-            await bot.edit_message_text(
-                inline_message_id=message_id, text=locale[lang]["error"]
-            )
-        except TelegramBadRequest:
-            logging.debug("Failed to update inline error message")
-        except Exception as err:
-            logging.warning(f"Unexpected error updating inline message: {err}")
-
-
-async def _handle_instagram_inline(
-    message_id: str,
-    video_link: str,
-    lang: str,
-    user_id: int,
-    username: str | None,
-    full_name: str | None,
-) -> None:
-    from handlers.instagram import send_instagram_inline
-
-    try:
-        await send_instagram_inline(
-            message_id, video_link, lang, user_id, username, full_name
-        )
-
-        try:
-            await add_video(user_id, video_link, False, False, True)
-            logging.info(
-                f"Instagram Download: INLINE {user_id} - URL {video_link}"
-            )
-        except Exception as e:
-            logging.error("Cant write into database")
-            logging.error(e)
-
-    except InstagramError as e:
-        logging.error(f"Instagram error for inline {video_link}: {e}")
+    except (TikTokError, InstagramError) as e:
+        logging.error(f"{'Instagram' if is_instagram else 'TikTok'} error for inline {video_link}: {e}")
         try:
             await bot.edit_message_text(
                 inline_message_id=message_id, text=get_error_message(e, lang)
