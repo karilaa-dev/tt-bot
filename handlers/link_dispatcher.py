@@ -89,7 +89,8 @@ async def handle_instagram_message(
 
             try:
                 await handle_instagram_link(
-                    message, instagram_url, lang, file_mode, group_chat
+                    message, instagram_url, lang, file_mode, group_chat,
+                    status_message=status_message,
                 )
             except InstagramError as e:
                 if status_message:
