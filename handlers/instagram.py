@@ -7,6 +7,7 @@ from aiogram.types import (
     InputMediaDocument,
     InputMediaPhoto,
     Message,
+    ReactionTypeEmoji,
 )
 
 from data.config import locale
@@ -33,9 +34,18 @@ async def handle_instagram_link(
     lang: str,
     file_mode: bool,
     group_chat: bool,
+    status_message: Message | None = None,
 ) -> None:
     client = InstagramClient()
     media_info = await client.get_media(instagram_url)
+
+    if not status_message:
+        try:
+            await message.react(
+                [ReactionTypeEmoji(emoji="👨‍💻")], disable_notification=True
+            )
+        except TelegramBadRequest:
+            logger.debug("Failed to set processing reaction")
 
     if media_info.is_video:
         await bot.send_chat_action(
