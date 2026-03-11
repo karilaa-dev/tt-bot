@@ -45,7 +45,7 @@ async def handle_instagram_link(
                 [ReactionTypeEmoji(emoji="👨‍💻")], disable_notification=True
             )
         except TelegramBadRequest:
-            logging.debug("Failed to set processing reaction")
+            logger.debug("Failed to set processing reaction")
 
     if media_info.is_video:
         await bot.send_chat_action(
