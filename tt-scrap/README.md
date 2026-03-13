@@ -1,6 +1,8 @@
-# TT Scrap API
+# Media Scraper API
 
-Standalone FastAPI server for extracting TikTok video, slideshow, and music metadata.
+Standalone FastAPI server for extracting video, slideshow, and music metadata from social media platforms. Built with a service-based architecture — each platform is a self-contained plugin under `app/services/`.
+
+Currently supported: **TikTok**
 
 ## Running with uv
 
@@ -38,7 +40,11 @@ docker run -p 8000:8000 \
 
 ## API Endpoints
 
-### `GET /video`
+Routes are namespaced per service: `/{service}/...`
+
+### TikTok
+
+#### `GET /tiktok/video`
 
 Extract video or slideshow metadata from a TikTok URL.
 
@@ -47,7 +53,7 @@ Extract video or slideshow metadata from a TikTok URL.
 | `url`     | string | TikTok video or slideshow URL     |
 | `raw`     | bool   | Return raw TikTok API data (default: false) |
 
-### `GET /music`
+#### `GET /tiktok/music`
 
 Extract music metadata from a TikTok video.
 
@@ -56,21 +62,37 @@ Extract music metadata from a TikTok video.
 | `video_id` | int  | TikTok video ID        |
 | `raw`      | bool | Return raw data (default: false) |
 
-### `GET /health`
+### Shared
+
+#### `GET /health`
 
 Health check. Returns `{"status": "ok"}`.
 
-### `GET /docs`
+#### `GET /docs`
 
 Interactive OpenAPI documentation (Swagger UI).
 
 ## Environment Variables
 
-| Variable                      | Default | Description                              |
-|-------------------------------|---------|------------------------------------------|
-| `URL_RESOLVE_MAX_RETRIES`     | `3`     | Max retries for short URL resolution     |
-| `VIDEO_INFO_MAX_RETRIES`      | `3`     | Max retries for video info extraction    |
-| `PROXY_FILE`                  | `""`    | Path to proxy file (one URL per line)    |
-| `PROXY_INCLUDE_HOST`          | `false` | Include direct connection in proxy rotation |
-| `LOG_LEVEL`                   | `INFO`  | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `YTDLP_COOKIES`              | `""`    | Path to Netscape-format cookies file     |
+### Global
+
+| Variable             | Default | Description                              |
+|----------------------|---------|------------------------------------------|
+| `PROXY_FILE`         | `""`    | Path to proxy file (one URL per line)    |
+| `PROXY_INCLUDE_HOST` | `false` | Include direct connection in proxy rotation |
+| `LOG_LEVEL`          | `INFO`  | Logging level (DEBUG, INFO, WARNING, ERROR) |
+
+### TikTok (`TIKTOK_` prefix)
+
+| Variable                          | Default | Description                              |
+|-----------------------------------|---------|------------------------------------------|
+| `TIKTOK_URL_RESOLVE_MAX_RETRIES`  | `3`     | Max retries for short URL resolution     |
+| `TIKTOK_VIDEO_INFO_MAX_RETRIES`   | `3`     | Max retries for video info extraction    |
+| `YTDLP_COOKIES`                   | `""`    | Path to Netscape-format cookies file     |
+
+## Adding a New Service
+
+1. Create `app/services/<name>/` with `client.py`, `parser.py`, `routes.py`
+2. Implement the `BaseClient` protocol (see `app/base_client.py`)
+3. Create a factory function returning a `ServiceEntry`
+4. Register it in `app/app.py` lifespan
