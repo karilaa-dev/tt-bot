@@ -58,7 +58,7 @@ from .exceptions import (
     TikTokVideoTooLongError,
 )
 from .models import MusicInfo, VideoInfo
-from data.config import config
+from .config import config
 
 if TYPE_CHECKING:
     from .proxy_manager import ProxyManager
@@ -1966,6 +1966,101 @@ class TikTokClient:
         raise TikTokExtractionError(
             f"Failed to extract music after {max_attempts} attempts"
         )
+
+    async def extract_video_info(self, video_link: str) -> dict[str, Any]:
+        """Extract video/slideshow metadata without downloading media.
+
+        Performs Parts 1 & 2 only (URL resolution + info extraction).
+        Returns the raw TikTok API data dict for the caller to process.
+
+        Args:
+            video_link: TikTok video or slideshow URL
+
+        Returns:
+            Dict with keys:
+                - video_data: Raw TikTok API response dict
+                - video_id: Extracted video ID string
+                - resolved_url: Full resolved URL
+
+        Raises:
+            Same exceptions as video()
+        """
+        proxy_session = ProxySession(self.proxy_manager)
+        download_context: Optional[dict[str, Any]] = None
+
+        try:
+            # Part 1: URL Resolution
+            full_url = await self._resolve_url(video_link, proxy_session)
+            video_id = self._extract_video_id(full_url)
+
+            if not video_id:
+                raise TikTokInvalidLinkError("Invalid or expired TikTok link")
+
+            # Part 2: Video Info Extraction
+            extraction_url = f"https://www.tiktok.com/@_/video/{video_id}"
+            video_data, download_context = await self._extract_video_info_with_retry(
+                extraction_url, video_id, proxy_session
+            )
+
+            return {
+                "video_data": video_data,
+                "video_id": video_id,
+                "resolved_url": full_url,
+            }
+
+        except TikTokError:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except aiohttp.ClientError as e:
+            raise TikTokNetworkError(f"Network error: {e}") from e
+        except Exception as e:
+            raise TikTokExtractionError(f"Failed to extract video info: {e}") from e
+        finally:
+            self._close_download_context(download_context)
+
+    async def extract_music_info(self, video_id: int) -> dict[str, Any]:
+        """Extract music metadata without downloading audio.
+
+        Performs Part 2 only (info extraction).
+        Returns the raw music data dict.
+
+        Args:
+            video_id: TikTok video ID
+
+        Returns:
+            Dict with the raw music info from TikTok API.
+
+        Raises:
+            Same exceptions as music()
+        """
+        proxy_session = ProxySession(self.proxy_manager)
+        download_context: Optional[dict[str, Any]] = None
+
+        try:
+            url = f"https://www.tiktok.com/@_/video/{video_id}"
+            video_data, download_context = await self._extract_video_info_with_retry(
+                url, str(video_id), proxy_session
+            )
+
+            music_info = video_data.get("music")
+            if not music_info:
+                raise TikTokExtractionError(f"No music info found for video {video_id}")
+
+            return {
+                "video_data": video_data,
+                "music_data": music_info,
+                "video_id": video_id,
+            }
+
+        except TikTokError:
+            raise
+        except aiohttp.ClientError as e:
+            raise TikTokNetworkError(f"Network error: {e}") from e
+        except Exception as e:
+            raise TikTokExtractionError(f"Failed to extract music info: {e}") from e
+        finally:
+            self._close_download_context(download_context)
 
 
 # Backwards compatibility alias

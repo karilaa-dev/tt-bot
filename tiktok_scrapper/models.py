@@ -1,4 +1,8 @@
-"""Data models for TikTok API responses."""
+"""Data models for TikTok scrapper.
+
+Internal dataclasses (VideoInfo, MusicInfo) are used by the client library.
+Pydantic models (*Response) are used by the REST API for JSON serialization.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +10,17 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, List, Optional, Union
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from .client import ProxySession
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Internal dataclasses (used by TikTokClient)
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -145,3 +156,82 @@ class MusicInfo:
     author: str
     duration: int
     cover: str
+
+
+# ---------------------------------------------------------------------------
+# Pydantic API response models (used by FastAPI endpoints)
+# ---------------------------------------------------------------------------
+
+
+class MusicResponse(BaseModel):
+    """Music metadata returned by the API."""
+
+    url: str
+    title: str
+    author: str
+    duration: int
+    cover: str
+
+
+class VideoResponse(BaseModel):
+    """Filtered video/slideshow response."""
+
+    type: str  # "video" or "images"
+    id: int
+    video_url: Optional[str] = None
+    image_urls: list[str] = []
+    cover: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[int] = None
+    likes: Optional[int] = None
+    views: Optional[int] = None
+    link: str
+    music: Optional[MusicResponse] = None
+
+
+class RawVideoResponse(BaseModel):
+    """Raw TikTok API response (full yt-dlp extraction data)."""
+
+    id: int
+    resolved_url: str
+    data: dict[str, Any]
+
+
+class MusicDetailResponse(BaseModel):
+    """Filtered music response for the /music endpoint."""
+
+    id: int
+    title: str
+    author: str
+    duration: int
+    cover: str
+    url: str
+
+
+class RawMusicResponse(BaseModel):
+    """Raw music data from TikTok API."""
+
+    id: int
+    data: dict[str, Any]
+
+
+class CheckResponse(BaseModel):
+    """URL validation response."""
+
+    valid: bool
+    url: Optional[str] = None
+    is_mobile: Optional[bool] = None
+
+
+class HealthResponse(BaseModel):
+    """Health check response."""
+
+    status: str = "ok"
+
+
+class ErrorResponse(BaseModel):
+    """Error response body."""
+
+    error: str
+    error_type: str
