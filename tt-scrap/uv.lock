@@ -255,7 +255,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tiktok-scrapper"
+name = "tt-scrap"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

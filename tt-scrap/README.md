@@ -1,11 +1,11 @@
-# TikTok Scrapper API
+# TT Scrap API
 
 Standalone FastAPI server for extracting TikTok video, slideshow, and music metadata.
 
 ## Running with uv
 
 ```bash
-cd tiktok_scrapper
+cd tt-scrap
 
 # Install dependencies
 uv sync
@@ -20,20 +20,20 @@ uv run uvicorn app.app:app --reload
 ## Running with Docker
 
 ```bash
-cd tiktok_scrapper
+cd tt-scrap
 
 # Build
-docker build -t tiktok-scrapper .
+docker build -t tt-scrap .
 
 # Run
-docker run -p 8000:8000 tiktok-scrapper
+docker run -p 8000:8000 tt-scrap
 
 # Run with environment variables
 docker run -p 8000:8000 \
   -e PROXY_FILE=/data/proxies.txt \
   -e LOG_LEVEL=DEBUG \
   -v /path/to/proxies.txt:/data/proxies.txt \
-  tiktok-scrapper
+  tt-scrap
 ```
 
 ## API Endpoints
