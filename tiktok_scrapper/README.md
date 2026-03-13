@@ -71,11 +71,6 @@ Interactive OpenAPI documentation (Swagger UI).
 | `URL_RESOLVE_MAX_RETRIES`     | `3`     | Max retries for short URL resolution     |
 | `VIDEO_INFO_MAX_RETRIES`      | `3`     | Max retries for video info extraction    |
 | `PROXY_FILE`                  | `""`    | Path to proxy file (one URL per line)    |
-| `PROXY_DATA_ONLY`             | `false` | Use proxy only for API extraction        |
 | `PROXY_INCLUDE_HOST`          | `false` | Include direct connection in proxy rotation |
-| `MAX_VIDEO_DURATION`          | `0`     | Max video duration in seconds (0 = no limit) |
-| `STREAMING_DURATION_THRESHOLD`| `300`   | Duration threshold for streaming downloads |
 | `LOG_LEVEL`                   | `INFO`  | Logging level (DEBUG, INFO, WARNING, ERROR) |
-| `HOST`                        | `0.0.0.0` | Server bind address                    |
-| `PORT`                        | `8000`  | Server port                              |
 | `YTDLP_COOKIES`              | `""`    | Path to Netscape-format cookies file     |

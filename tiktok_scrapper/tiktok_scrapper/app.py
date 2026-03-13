@@ -58,7 +58,6 @@ async def lifespan(app: FastAPI):
 
     app.state.client = TikTokClient(
         proxy_manager=proxy_manager,
-        data_only_proxy=settings.proxy_data_only,
     )
 
     logger.info("TikTok scrapper API started")

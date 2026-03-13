@@ -100,7 +100,6 @@ class TikTokClient:
 
     Args:
         proxy_manager: Optional ProxyManager instance for round-robin proxy rotation.
-        data_only_proxy: If True, proxy is used only for API extraction.
         cookies: Optional path to a Netscape-format cookies file.
     """
 
@@ -183,11 +182,9 @@ class TikTokClient:
     def __init__(
         self,
         proxy_manager: "ProxyManager | None" = None,
-        data_only_proxy: bool = False,
         cookies: str | None = None,
     ):
         self.proxy_manager = proxy_manager
-        self.data_only_proxy = data_only_proxy
 
         cookies_path = cookies or os.getenv("YTDLP_COOKIES")
         if cookies_path:

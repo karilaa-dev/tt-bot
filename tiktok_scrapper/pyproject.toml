@@ -4,13 +4,12 @@ version = "0.1.0"
 description = "TikTok video/music/slideshow metadata extraction REST API"
 requires-python = "==3.13.*"
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn>=0.34.0",
-    "yt-dlp==2026.02.04",
-    "httpx>=0.28.0",
-    "curl-cffi>=0.7.0",
-    "pydantic-settings>=2.0.0",
-    "python-dotenv>=1.0.0",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
+    "yt-dlp>=2026.3.3",
+    "httpx>=0.28.1",
+    "curl-cffi>=0.14.0",
+    "pydantic-settings>=2.13.1",
 ]
 
 [build-system]

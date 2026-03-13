@@ -20,19 +20,10 @@ class Settings(BaseSettings):
 
     # Proxy
     proxy_file: str = ""
-    proxy_data_only: bool = False
     proxy_include_host: bool = False
-
-    # Performance
-    max_video_duration: int = 0
-    streaming_duration_threshold: int = 300
 
     # Logging
     log_level: str = "INFO"
-
-    # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
 
 
 @lru_cache
