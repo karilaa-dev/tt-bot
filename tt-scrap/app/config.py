@@ -1,4 +1,4 @@
-"""Configuration for TikTok scrapper API using pydantic-settings."""
+"""Configuration for scraper API using pydantic-settings."""
 
 from __future__ import annotations
 
@@ -13,10 +13,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
-
-    # Retry
-    url_resolve_max_retries: int = 3
-    video_info_max_retries: int = 3
 
     # Proxy
     proxy_file: str = ""

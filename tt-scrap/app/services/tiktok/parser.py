@@ -1,24 +1,17 @@
-"""Video/slideshow extraction endpoint."""
+"""TikTok-specific response parsing."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
-
-from ..client import TikTokClient
-from ..dependencies import get_client
-from ..models import MusicResponse, RawVideoResponse, VideoResponse
-
-router = APIRouter()
+from ...models import MusicDetailResponse, MusicResponse, VideoResponse
 
 
-def _build_filtered_video_response(
+def build_video_response(
     video_data: dict[str, Any],
     video_id: int,
     link: str,
 ) -> VideoResponse:
-    """Build a filtered VideoResponse from raw TikTok API data."""
     image_post = video_data.get("imagePost")
     video_info = video_data.get("video", {})
     stats = video_data.get("stats", {})
@@ -86,23 +79,22 @@ def _build_filtered_video_response(
     )
 
 
-@router.get("/video", response_model=VideoResponse | RawVideoResponse)
-async def get_video(
-    url: str = Query(..., description="TikTok video or slideshow URL"),
-    raw: bool = Query(False, description="Return raw TikTok API data"),
-    client: TikTokClient = Depends(get_client),
-):
-    """Extract video/slideshow info from a TikTok URL."""
-    result = await client.extract_video_info(url)
-    video_data = result["video_data"]
-    video_id = int(result["video_id"])
-    resolved_url = result["resolved_url"]
+def build_music_response(
+    music_data: dict[str, Any],
+    video_id: int,
+) -> MusicDetailResponse:
+    cover = (
+        music_data.get("coverLarge")
+        or music_data.get("coverMedium")
+        or music_data.get("coverThumb")
+        or ""
+    )
 
-    if raw:
-        return RawVideoResponse(
-            id=video_id,
-            resolved_url=resolved_url,
-            data=video_data,
-        )
-
-    return _build_filtered_video_response(video_data, video_id, url)
+    return MusicDetailResponse(
+        id=video_id,
+        title=music_data.get("title", ""),
+        author=music_data.get("authorName", ""),
+        duration=int(music_data.get("duration", 0)),
+        cover=cover,
+        url=music_data.get("playUrl", ""),
+    )

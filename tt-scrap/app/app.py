@@ -1,4 +1,4 @@
-"""FastAPI REST API server for TikTok scrapping."""
+"""FastAPI REST API server for media scraping."""
 
 from __future__ import annotations
 
@@ -8,34 +8,37 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .client import TikTokClient
 from .config import settings
 from .exceptions import (
-    TikTokDeletedError,
-    TikTokError,
-    TikTokExtractionError,
-    TikTokInvalidLinkError,
-    TikTokNetworkError,
-    TikTokPrivateError,
-    TikTokRateLimitError,
-    TikTokRegionError,
-    TikTokVideoTooLongError,
+    ContentDeletedError,
+    ContentPrivateError,
+    ContentTooLongError,
+    ExtractionError,
+    InvalidLinkError,
+    NetworkError,
+    RateLimitError,
+    RegionBlockedError,
+    ScraperError,
+    UnsupportedServiceError,
 )
 from .models import ErrorResponse
 from .proxy_manager import ProxyManager
+from .registry import ServiceRegistry
 from .routes import router
+from .services import create_tiktok_service
 
 logger = logging.getLogger(__name__)
 
-_ERROR_STATUS_MAP: dict[type[TikTokError], int] = {
-    TikTokDeletedError: 404,
-    TikTokPrivateError: 403,
-    TikTokInvalidLinkError: 400,
-    TikTokVideoTooLongError: 413,
-    TikTokRateLimitError: 429,
-    TikTokNetworkError: 502,
-    TikTokRegionError: 451,
-    TikTokExtractionError: 500,
+_ERROR_STATUS_MAP: dict[type[ScraperError], int] = {
+    ContentDeletedError: 404,
+    ContentPrivateError: 403,
+    InvalidLinkError: 400,
+    UnsupportedServiceError: 400,
+    ContentTooLongError: 413,
+    RateLimitError: 429,
+    NetworkError: 502,
+    RegionBlockedError: 451,
+    ExtractionError: 500,
 }
 
 
@@ -56,27 +59,32 @@ async def lifespan(app: FastAPI):
         else None
     )
 
-    app.state.client = TikTokClient(
-        proxy_manager=proxy_manager,
-    )
+    registry = ServiceRegistry()
+    tiktok = create_tiktok_service(proxy_manager=proxy_manager)
+    registry.register(tiktok)
+    app.include_router(tiktok.router)
 
-    logger.info("TikTok scrapper API started")
+    app.state.registry = registry
+
+    logger.info("Scraper API started")
     yield
 
-    await TikTokClient.close_http_client()
-    TikTokClient.shutdown_executor()
-    logger.info("TikTok scrapper API stopped")
+    for service in registry.get_all():
+        if service.shutdown:
+            await service.shutdown()
+
+    logger.info("Scraper API stopped")
 
 
 app = FastAPI(
-    title="TikTok Scrapper API",
-    version="0.1.0",
+    title="Media Scraper API",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 
-@app.exception_handler(TikTokError)
-async def tiktok_error_handler(request, exc: TikTokError):
+@app.exception_handler(ScraperError)
+async def scraper_error_handler(request, exc: ScraperError):
     status_code = _ERROR_STATUS_MAP.get(type(exc), 500)
     return JSONResponse(
         status_code=status_code,

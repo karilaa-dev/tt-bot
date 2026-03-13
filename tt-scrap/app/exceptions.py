@@ -1,37 +1,41 @@
-"""TikTok API exception classes."""
+"""Scraper exception classes (service-agnostic)."""
 
 
-class TikTokError(Exception):
-    """Base exception for TikTok API errors."""
+class ScraperError(Exception):
+    """Base exception for all scraper errors."""
 
 
-class TikTokDeletedError(TikTokError):
-    """Video has been deleted by the creator."""
+class ContentDeletedError(ScraperError):
+    """Content has been deleted by the creator."""
 
 
-class TikTokPrivateError(TikTokError):
-    """Video is private and cannot be accessed."""
+class ContentPrivateError(ScraperError):
+    """Content is private and cannot be accessed."""
 
 
-class TikTokNetworkError(TikTokError):
+class NetworkError(ScraperError):
     """Network error occurred during request."""
 
 
-class TikTokRateLimitError(TikTokError):
+class RateLimitError(ScraperError):
     """Too many requests - rate limited."""
 
 
-class TikTokRegionError(TikTokError):
-    """Video is not available in the user's region (geo-blocked)."""
+class RegionBlockedError(ScraperError):
+    """Content is not available in the user's region (geo-blocked)."""
 
 
-class TikTokExtractionError(TikTokError):
+class ExtractionError(ScraperError):
     """Generic extraction/parsing error (invalid ID, unknown failure, etc.)."""
 
 
-class TikTokVideoTooLongError(TikTokError):
-    """Video exceeds the maximum allowed duration."""
+class ContentTooLongError(ScraperError):
+    """Content exceeds the maximum allowed duration."""
 
 
-class TikTokInvalidLinkError(TikTokError):
-    """TikTok link is invalid or expired (failed URL resolution)."""
+class InvalidLinkError(ScraperError):
+    """Link is invalid or expired (failed URL resolution)."""
+
+
+class UnsupportedServiceError(ScraperError):
+    """URL does not match any registered service."""

@@ -17,16 +17,16 @@ try:
 except ImportError:
     ImpersonateTarget = None
 
-from .config import settings
-from .exceptions import (
-    TikTokDeletedError,
-    TikTokError,
-    TikTokExtractionError,
-    TikTokInvalidLinkError,
-    TikTokNetworkError,
-    TikTokPrivateError,
-    TikTokRateLimitError,
-    TikTokRegionError,
+from .config import tiktok_settings
+from ...exceptions import (
+    ContentDeletedError,
+    ContentPrivateError,
+    ExtractionError,
+    InvalidLinkError,
+    NetworkError,
+    RateLimitError,
+    RegionBlockedError,
+    ScraperError,
 )
 
 # TikTok WAF blocks newer Chrome versions (136+) when used with proxies due to
@@ -37,13 +37,12 @@ TIKTOK_USER_AGENT = (
 )
 
 if TYPE_CHECKING:
-    from .proxy_manager import ProxyManager
+    from ...proxy_manager import ProxyManager
 
 logger = logging.getLogger(__name__)
 
 
 def _strip_proxy_auth(proxy_url: str | None) -> str:
-    """Strip authentication info from proxy URL for safe logging."""
     if proxy_url is None:
         return "direct connection"
     match = re.match(r"^(https?://)(?:[^@]+@)?(.+)$", proxy_url)
@@ -66,7 +65,6 @@ class ProxySession:
     _initialized: bool = field(default=False, init=False)
 
     def get_proxy(self) -> str | None:
-        """Get the current proxy (lazily initialized on first call)."""
         if not self._initialized:
             self._initialized = True
             if self.proxy_manager:
@@ -80,7 +78,6 @@ class ProxySession:
         return self._current_proxy
 
     def rotate_proxy(self) -> str | None:
-        """Rotate to the next proxy in the rotation (for retries)."""
         if self.proxy_manager:
             old_proxy = self._current_proxy
             self._current_proxy = self.proxy_manager.get_next_proxy()
@@ -93,14 +90,9 @@ class ProxySession:
 
 
 class TikTokClient:
-    """Client for extracting TikTok video and music metadata.
+    """Client for extracting TikTok video and music metadata via yt-dlp.
 
-    This client uses yt-dlp internally to extract video/slideshow data and music
-    from TikTok URLs. It only extracts metadata — no media downloads.
-
-    Args:
-        proxy_manager: Optional ProxyManager instance for round-robin proxy rotation.
-        cookies: Optional path to a Netscape-format cookies file.
+    Extracts only metadata -- no media downloads.
     """
 
     _executor: ThreadPoolExecutor | None = None
@@ -113,7 +105,6 @@ class TikTokClient:
 
     @classmethod
     def _get_executor(cls) -> ThreadPoolExecutor:
-        """Get or create the shared ThreadPoolExecutor."""
         with cls._executor_lock:
             if cls._executor is None:
                 cls._executor = ThreadPoolExecutor(
@@ -127,7 +118,6 @@ class TikTokClient:
 
     @classmethod
     def _get_http_client(cls) -> httpx.AsyncClient:
-        """Get or create shared httpx client for URL resolution."""
         with cls._http_client_lock:
             if cls._http_client is None or cls._http_client.is_closed:
                 cls._http_client = httpx.AsyncClient(
@@ -142,7 +132,6 @@ class TikTokClient:
 
     @classmethod
     def _can_impersonate(cls) -> bool:
-        """Check if browser impersonation is available (cached)."""
         if cls._impersonate_available is None:
             if ImpersonateTarget is None:
                 cls._impersonate_available = False
@@ -151,7 +140,7 @@ class TikTokClient:
                     ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True})
                     targets = list(ydl._get_available_impersonate_targets())
                     ydl.close()
-                    cls._impersonate_available = len(targets) > 0
+                    cls._impersonate_available = bool(targets)
                     if not cls._impersonate_available:
                         logger.warning(
                             "No impersonate targets available (curl_cffi not installed?), "
@@ -164,7 +153,6 @@ class TikTokClient:
 
     @classmethod
     async def close_http_client(cls) -> None:
-        """Close shared httpx client. Call on application shutdown."""
         with cls._http_client_lock:
             client = cls._http_client
             cls._http_client = None
@@ -173,7 +161,6 @@ class TikTokClient:
 
     @classmethod
     def shutdown_executor(cls) -> None:
-        """Shutdown the shared executor. Call on application shutdown."""
         with cls._executor_lock:
             if cls._executor is not None:
                 cls._executor.shutdown(wait=False)
@@ -206,9 +193,8 @@ class TikTokClient:
         proxy_session: ProxySession,
         max_retries: int | None = None,
     ) -> str:
-        """Resolve short URLs to full URLs with retry and proxy rotation."""
         if max_retries is None:
-            max_retries = settings.url_resolve_max_retries
+            max_retries = tiktok_settings.url_resolve_max_retries
 
         is_short_url = (
             "vm.tiktok.com" in url
@@ -261,17 +247,15 @@ class TikTokClient:
         logger.error(
             f"URL resolution failed after {max_retries} attempts for {url}: {last_error}"
         )
-        raise TikTokInvalidLinkError("Invalid or expired TikTok link")
+        raise InvalidLinkError("Invalid or expired TikTok link")
 
     def _extract_video_id(self, url: str) -> str | None:
-        """Extract video ID from TikTok URL."""
         match = re.search(r"/(?:video|photo)/(\d+)", url)
         return match.group(1) if match else None
 
     def _get_ydl_opts(
         self, use_proxy: bool = True, explicit_proxy: Any = ...
     ) -> dict[str, Any]:
-        """Get base yt-dlp options."""
         opts: dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
@@ -305,11 +289,6 @@ class TikTokClient:
     def _extract_with_context_sync(
         self, url: str, video_id: str, request_proxy: Any = ...
     ) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None]:
-        """Extract TikTok data synchronously via yt-dlp.
-
-        Returns:
-            Tuple of (video_data, status, download_context)
-        """
         ydl_opts = self._get_ydl_opts(use_proxy=True, explicit_proxy=request_proxy)
         ydl = None
 
@@ -326,7 +305,7 @@ class TikTokClient:
                     f"Current yt-dlp version: {yt_dlp.version.__version__}. "
                     "Please update yt-dlp: pip install -U yt-dlp"
                 )
-                raise TikTokExtractionError(
+                raise ExtractionError(
                     "Incompatible yt-dlp version: missing required internal method."
                 )
 
@@ -348,7 +327,7 @@ class TikTokClient:
                     f"Failed to call yt-dlp internal method: {e}. "
                     f"Current yt-dlp version: {yt_dlp.version.__version__}."
                 )
-                raise TikTokExtractionError(
+                raise ExtractionError(
                     "Incompatible yt-dlp version."
                 ) from e
 
@@ -382,7 +361,7 @@ class TikTokClient:
         except yt_dlp.utils.ExtractorError as e:
             logger.error(f"yt-dlp extractor error for video {video_id}: {e}")
             return None, "extraction", None
-        except TikTokError:
+        except ScraperError:
             raise
         except Exception as e:
             logger.error(f"yt-dlp extraction failed for video {video_id}: {e}", exc_info=True)
@@ -395,26 +374,24 @@ class TikTokClient:
                     pass
 
     async def _run_sync(self, func: Any, *args: Any) -> Any:
-        """Run synchronous function in executor."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._get_executor(), func, *args)
 
     def _close_download_context(
         self, download_context: dict[str, Any] | None
     ) -> None:
-        """Close the YoutubeDL instance in a download context if present."""
         if download_context and "ydl" in download_context:
             try:
                 download_context["ydl"].close()
             except Exception:
                 pass
 
-    _STATUS_EXCEPTIONS: dict[str, type[TikTokError]] = {
-        "deleted": TikTokDeletedError,
-        "private": TikTokPrivateError,
-        "rate_limit": TikTokRateLimitError,
-        "network": TikTokNetworkError,
-        "region": TikTokRegionError,
+    _STATUS_EXCEPTIONS: dict[str, type[ScraperError]] = {
+        "deleted": ContentDeletedError,
+        "private": ContentPrivateError,
+        "rate_limit": RateLimitError,
+        "network": NetworkError,
+        "region": RegionBlockedError,
     }
 
     _STATUS_MESSAGES: dict[str, str] = {
@@ -426,12 +403,11 @@ class TikTokClient:
     }
 
     def _raise_for_status(self, status: str, video_link: str) -> None:
-        """Raise appropriate exception based on status string."""
         exc_cls = self._STATUS_EXCEPTIONS.get(status)
         if exc_cls:
             message = self._STATUS_MESSAGES[status].format(link=video_link)
             raise exc_cls(message)
-        raise TikTokExtractionError(f"Failed to extract video {video_link}")
+        raise ExtractionError(f"Failed to extract video {video_link}")
 
     async def _extract_video_info_with_retry(
         self,
@@ -440,13 +416,8 @@ class TikTokClient:
         proxy_session: ProxySession,
         max_retries: int | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        """Extract video info with retry and proxy rotation.
-
-        Returns:
-            Tuple of (video_data, download_context)
-        """
         if max_retries is None:
-            max_retries = settings.video_info_max_retries
+            max_retries = tiktok_settings.video_info_max_retries
 
         last_error: Exception | None = None
         download_context: dict[str, Any] | None = None
@@ -467,17 +438,17 @@ class TikTokClient:
                     self._raise_for_status(status, url)
 
                 if status and status not in ("ok", None):
-                    raise TikTokExtractionError(f"Extraction failed with status: {status}")
+                    raise ExtractionError(f"Extraction failed with status: {status}")
 
                 if video_data is None:
-                    raise TikTokExtractionError("No video data returned")
+                    raise ExtractionError("No video data returned")
 
                 if download_context is None:
-                    raise TikTokExtractionError("No download context returned")
+                    raise ExtractionError("No download context returned")
 
                 return video_data, download_context
 
-            except (TikTokDeletedError, TikTokPrivateError, TikTokRegionError):
+            except (ContentDeletedError, ContentPrivateError, RegionBlockedError):
                 self._close_download_context(download_context)
                 raise
 
@@ -497,16 +468,11 @@ class TikTokClient:
             f"Video info extraction failed after {max_retries} attempts "
             f"for {video_id}: {last_error}"
         )
-        raise TikTokExtractionError(
+        raise ExtractionError(
             f"Failed to extract video info after {max_retries} attempts"
         )
 
     async def extract_video_info(self, video_link: str) -> dict[str, Any]:
-        """Extract video/slideshow metadata without downloading media.
-
-        Returns:
-            Dict with keys: video_data, video_id, resolved_url
-        """
         proxy_session = ProxySession(self.proxy_manager)
         download_context: dict[str, Any] | None = None
 
@@ -515,7 +481,7 @@ class TikTokClient:
             video_id = self._extract_video_id(full_url)
 
             if not video_id:
-                raise TikTokInvalidLinkError("Invalid or expired TikTok link")
+                raise InvalidLinkError("Invalid or expired TikTok link")
 
             extraction_url = f"https://www.tiktok.com/@_/video/{video_id}"
             video_data, download_context = await self._extract_video_info_with_retry(
@@ -528,21 +494,16 @@ class TikTokClient:
                 "resolved_url": full_url,
             }
 
-        except (TikTokError, asyncio.CancelledError):
+        except (ScraperError, asyncio.CancelledError):
             raise
         except httpx.HTTPError as e:
-            raise TikTokNetworkError(f"Network error: {e}") from e
+            raise NetworkError(f"Network error: {e}") from e
         except Exception as e:
-            raise TikTokExtractionError(f"Failed to extract video info: {e}") from e
+            raise ExtractionError(f"Failed to extract video info: {e}") from e
         finally:
             self._close_download_context(download_context)
 
-    async def extract_music_info(self, video_id: int) -> dict[str, Any]:
-        """Extract music metadata without downloading audio.
-
-        Returns:
-            Dict with keys: video_data, music_data, video_id
-        """
+    async def extract_music_info(self, video_id: int) -> dict[str, Any] | None:
         proxy_session = ProxySession(self.proxy_manager)
         download_context: dict[str, Any] | None = None
 
@@ -554,7 +515,7 @@ class TikTokClient:
 
             music_info = video_data.get("music")
             if not music_info:
-                raise TikTokExtractionError(f"No music info found for video {video_id}")
+                raise ExtractionError(f"No music info found for video {video_id}")
 
             return {
                 "video_data": video_data,
@@ -562,11 +523,11 @@ class TikTokClient:
                 "video_id": video_id,
             }
 
-        except (TikTokError, asyncio.CancelledError):
+        except (ScraperError, asyncio.CancelledError):
             raise
         except httpx.HTTPError as e:
-            raise TikTokNetworkError(f"Network error: {e}") from e
+            raise NetworkError(f"Network error: {e}") from e
         except Exception as e:
-            raise TikTokExtractionError(f"Failed to extract music info: {e}") from e
+            raise ExtractionError(f"Failed to extract music info: {e}") from e
         finally:
             self._close_download_context(download_context)
