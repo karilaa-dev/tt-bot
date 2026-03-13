@@ -9,8 +9,8 @@ COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
 # Copy application code
-COPY tiktok_scrapper/ tiktok_scrapper/
+COPY app/ app/
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "tiktok_scrapper.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8000"]

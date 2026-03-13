@@ -23,12 +23,8 @@ main = [
     "APScheduler==3.11.2",
     "Pillow==12.1.0",
     "pillow-heif==1.1.1",
-    "tiktok-scrapper",
 ]
 
 [tool.uv]
 # This is an application, not a library package
 package = false
-
-[tool.uv.sources]
-tiktok-scrapper = { path = "tiktok_scrapper", editable = true }

@@ -11,10 +11,10 @@ cd tiktok_scrapper
 uv sync
 
 # Start the server
-uv run uvicorn tiktok_scrapper.app:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.app:app --host 0.0.0.0 --port 8000
 
 # With auto-reload for development
-uv run uvicorn tiktok_scrapper.app:app --reload
+uv run uvicorn app.app:app --reload
 ```
 
 ## Running with Docker
