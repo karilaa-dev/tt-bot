@@ -1,0 +1,81 @@
+# TikTok Scrapper API
+
+Standalone FastAPI server for extracting TikTok video, slideshow, and music metadata.
+
+## Running with uv
+
+```bash
+cd tiktok_scrapper
+
+# Install dependencies
+uv sync
+
+# Start the server
+uv run uvicorn tiktok_scrapper.app:app --host 0.0.0.0 --port 8000
+
+# With auto-reload for development
+uv run uvicorn tiktok_scrapper.app:app --reload
+```
+
+## Running with Docker
+
+```bash
+cd tiktok_scrapper
+
+# Build
+docker build -t tiktok-scrapper .
+
+# Run
+docker run -p 8000:8000 tiktok-scrapper
+
+# Run with environment variables
+docker run -p 8000:8000 \
+  -e PROXY_FILE=/data/proxies.txt \
+  -e LOG_LEVEL=DEBUG \
+  -v /path/to/proxies.txt:/data/proxies.txt \
+  tiktok-scrapper
+```
+
+## API Endpoints
+
+### `GET /video`
+
+Extract video or slideshow metadata from a TikTok URL.
+
+| Parameter | Type   | Description                       |
+|-----------|--------|-----------------------------------|
+| `url`     | string | TikTok video or slideshow URL     |
+| `raw`     | bool   | Return raw TikTok API data (default: false) |
+
+### `GET /music`
+
+Extract music metadata from a TikTok video.
+
+| Parameter  | Type | Description            |
+|------------|------|------------------------|
+| `video_id` | int  | TikTok video ID        |
+| `raw`      | bool | Return raw data (default: false) |
+
+### `GET /health`
+
+Health check. Returns `{"status": "ok"}`.
+
+### `GET /docs`
+
+Interactive OpenAPI documentation (Swagger UI).
+
+## Environment Variables
+
+| Variable                      | Default | Description                              |
+|-------------------------------|---------|------------------------------------------|
+| `URL_RESOLVE_MAX_RETRIES`     | `3`     | Max retries for short URL resolution     |
+| `VIDEO_INFO_MAX_RETRIES`      | `3`     | Max retries for video info extraction    |
+| `PROXY_FILE`                  | `""`    | Path to proxy file (one URL per line)    |
+| `PROXY_DATA_ONLY`             | `false` | Use proxy only for API extraction        |
+| `PROXY_INCLUDE_HOST`          | `false` | Include direct connection in proxy rotation |
+| `MAX_VIDEO_DURATION`          | `0`     | Max video duration in seconds (0 = no limit) |
+| `STREAMING_DURATION_THRESHOLD`| `300`   | Duration threshold for streaming downloads |
+| `LOG_LEVEL`                   | `INFO`  | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `HOST`                        | `0.0.0.0` | Server bind address                    |
+| `PORT`                        | `8000`  | Server port                              |
+| `YTDLP_COOKIES`              | `""`    | Path to Netscape-format cookies file     |

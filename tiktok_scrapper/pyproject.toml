@@ -1,15 +1,15 @@
 [project]
 name = "tiktok-scrapper"
 version = "0.1.0"
-description = "TikTok video/music/slideshow scraper REST API"
+description = "TikTok video/music/slideshow metadata extraction REST API"
 requires-python = "==3.13.*"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "yt-dlp==2026.02.04",
-    # curl_cffi version must be compatible with yt-dlp's BROWSER_TARGETS
-    "curl_cffi>=0.10.0,<0.15.0",
-    "aiohttp>=3.9.0",
+    "httpx>=0.28.0",
+    "curl-cffi>=0.7.0",
+    "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
 ]
 
