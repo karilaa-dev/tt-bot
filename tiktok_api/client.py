@@ -388,31 +388,29 @@ class TikTokClient:
 
     @staticmethod
     def _raise_scraper_api_error(status_code: int, error_payload: dict[str, Any]) -> None:
-        """Map scraper API errors to local TikTok exceptions."""
+        """Map scraper API failures to conservative local TikTok exceptions.
+
+        Scraper-side HTTP status codes are not always precise enough to confidently
+        tell the user whether content is deleted/private/region-blocked. Keep the
+        user-facing mapping simple and only preserve categories we can trust.
+        """
         message = error_payload.get("error") or "Scraper API request failed"
         error_type = error_payload.get("error_type")
 
-        if status_code == 404 or error_type == "ContentDeletedError":
-            raise TikTokDeletedError(message)
-        if status_code == 403 or error_type == "ContentPrivateError":
-            raise TikTokPrivateError(message)
-        if status_code == 400 and error_type == "InvalidLinkError":
-            raise TikTokInvalidLinkError(message)
         if status_code == 413 or error_type == "ContentTooLongError":
             raise TikTokVideoTooLongError(message)
-        if status_code == 429 or error_type == "RateLimitError":
-            raise TikTokRateLimitError(message)
-        if status_code == 451 or error_type == "RegionBlockedError":
-            raise TikTokRegionError(message)
-        if status_code == 502 or error_type == "NetworkError":
+        if status_code in {502, 503, 504} or error_type == "NetworkError":
             raise TikTokNetworkError(message)
+
+        # For scraper responses, treat client-side failures conservatively as an
+        # invalid/broken link instead of surfacing potentially misleading reasons
+        # like "deleted" or "private".
+        if 400 <= status_code < 500:
+            raise TikTokInvalidLinkError(message)
+
         if error_type == "ExtractionError":
             raise TikTokExtractionError(message)
 
-        if status_code in {502, 503, 504}:
-            raise TikTokNetworkError(message)
-        if 400 <= status_code < 500:
-            raise TikTokInvalidLinkError(message)
         raise TikTokExtractionError(message)
 
     async def _request_scraper_api(
