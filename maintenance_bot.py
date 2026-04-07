@@ -10,9 +10,21 @@ from aiogram.types import Message
 
 from data.config import config, locale
 
+_NOISY_LOGGER_LEVELS = {
+    "aiogram": logging.WARNING,
+    "apscheduler": logging.WARNING,
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+    "aiohttp": logging.WARNING,
+    "aiohttp.access": logging.WARNING,
+    "asyncio": logging.WARNING,
+}
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
                     handlers=[logging.StreamHandler()])
+for logger_name, logger_level in _NOISY_LOGGER_LEVELS.items():
+    logging.getLogger(logger_name).setLevel(logger_level)
 
 # Setup bot
 bot = Bot(token=config["bot"]["token"], default=DefaultBotProperties(parse_mode=ParseMode.HTML))

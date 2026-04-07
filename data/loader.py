@@ -11,6 +11,16 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from data.config import config
 from data.database import init_db, initialize_database_components
 
+_NOISY_LOGGER_LEVELS = {
+    "aiogram": logging.WARNING,
+    "apscheduler": logging.WARNING,
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+    "aiohttp": logging.WARNING,
+    "aiohttp.access": logging.WARNING,
+    "asyncio": logging.WARNING,
+}
+
 logging.basicConfig(
     level=config["logging"]["log_level"],
     format="%(asctime)s [%(levelname)-5.5s]  %(message)s",
@@ -19,9 +29,9 @@ logging.basicConfig(
         logging.StreamHandler()
     ],
 )
-logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
+for logger_name, logger_level in _NOISY_LOGGER_LEVELS.items():
+    logging.getLogger(logger_name).setLevel(logger_level)
 logging.getLogger("apscheduler.scheduler").propagate = False
-logging.getLogger("aiogram").setLevel(logging.WARNING)
 
 local_server = AiohttpSession(
     api=TelegramAPIServer.from_base(config["bot"]["tg_server"])
