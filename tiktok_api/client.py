@@ -15,6 +15,7 @@ ProgressCallback = Callable[[int, Optional[int]], None]
 
 import aiohttp
 from aiohttp import TCPConnector, ClientTimeout
+import httpx
 import yt_dlp
 
 # Dynamic import of yt-dlp bypass mechanisms (updates automatically with yt-dlp)
@@ -58,7 +59,7 @@ from .exceptions import (
     TikTokVideoTooLongError,
 )
 from .models import MusicInfo, VideoInfo
-from data.config import config
+from data.config import config, scraper_url
 
 if TYPE_CHECKING:
     from .proxy_manager import ProxyManager
@@ -188,6 +189,9 @@ class TikTokClient:
     _executor_lock = threading.Lock()
     _executor_size: int = 500  # High value for maximum throughput
 
+    _scraper_http_client: httpx.AsyncClient | None = None
+    _scraper_http_client_lock = threading.Lock()
+
     _aiohttp_connector: Optional[TCPConnector] = None
     _connector_lock = threading.Lock()
 
@@ -265,6 +269,31 @@ class TikTokClient:
                 await session.close()
             except Exception as e:
                 logger.debug(f"Error closing curl_cffi session: {e}")
+
+    @classmethod
+    def _get_scraper_http_client(cls) -> httpx.AsyncClient:
+        """Get or create shared HTTP client for the external scraper API."""
+        with cls._scraper_http_client_lock:
+            if (
+                cls._scraper_http_client is None
+                or cls._scraper_http_client.is_closed
+            ):
+                cls._scraper_http_client = httpx.AsyncClient(
+                    base_url=scraper_url,
+                    follow_redirects=True,
+                    timeout=httpx.Timeout(20.0, connect=5.0, read=15.0),
+                )
+            return cls._scraper_http_client
+
+    @classmethod
+    async def close_scraper_http_client(cls) -> None:
+        """Close shared HTTP client used for the external scraper API."""
+        with cls._scraper_http_client_lock:
+            client = cls._scraper_http_client
+            cls._scraper_http_client = None
+
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
     @classmethod
     def _get_executor(cls) -> ThreadPoolExecutor:
@@ -356,6 +385,63 @@ class TikTokClient:
             count = self.proxy_manager.get_proxy_count()
             return f"rotating ({count} proxies)"
         return "None"
+
+    @staticmethod
+    def _raise_scraper_api_error(status_code: int, error_payload: dict[str, Any]) -> None:
+        """Map scraper API errors to local TikTok exceptions."""
+        message = error_payload.get("error") or "Scraper API request failed"
+        error_type = error_payload.get("error_type")
+
+        if status_code == 404 or error_type == "ContentDeletedError":
+            raise TikTokDeletedError(message)
+        if status_code == 403 or error_type == "ContentPrivateError":
+            raise TikTokPrivateError(message)
+        if status_code == 400 and error_type == "InvalidLinkError":
+            raise TikTokInvalidLinkError(message)
+        if status_code == 413 or error_type == "ContentTooLongError":
+            raise TikTokVideoTooLongError(message)
+        if status_code == 429 or error_type == "RateLimitError":
+            raise TikTokRateLimitError(message)
+        if status_code == 451 or error_type == "RegionBlockedError":
+            raise TikTokRegionError(message)
+        if status_code == 502 or error_type == "NetworkError":
+            raise TikTokNetworkError(message)
+        if error_type == "ExtractionError":
+            raise TikTokExtractionError(message)
+
+        if status_code in {502, 503, 504}:
+            raise TikTokNetworkError(message)
+        if 400 <= status_code < 500:
+            raise TikTokInvalidLinkError(message)
+        raise TikTokExtractionError(message)
+
+    async def _request_scraper_api(
+        self,
+        path: str,
+        params: dict[str, str | int | bool],
+    ) -> dict[str, Any]:
+        """Request metadata from the external scraper API."""
+        client = self._get_scraper_http_client()
+
+        try:
+            response = await client.get(path, params=params)
+        except httpx.HTTPError as e:
+            logger.error(f"Scraper API request failed for {path}: {e}")
+            raise TikTokNetworkError(f"Scraper API request failed: {e}") from e
+
+        if response.is_success:
+            return response.json()
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"error": response.text or response.reason_phrase}
+
+        logger.warning(
+            f"Scraper API returned {response.status_code} for {path}: "
+            f"{payload.get('error', response.reason_phrase)}"
+        )
+        self._raise_scraper_api_error(response.status_code, payload)
 
     def _get_bypass_headers(self, referer_url: str) -> dict[str, str]:
         """Get bypass headers for TikTok media downloads.
@@ -1450,111 +1536,80 @@ class TikTokClient:
 
     async def video(self, video_link: str) -> VideoInfo:
         """
-        Extract video/slideshow data from TikTok URL using 3-part retry strategy.
+        Fetch TikTok metadata from the scraper API and use the main-branch
+        download flow locally in the bot.
 
-        The extraction process has 3 parts, each with its own retry logic:
-        - Part 1: URL resolution (short URLs to full URLs)
-        - Part 2: Video info extraction (metadata and video data)
-        - Part 3: Download (video bytes or slideshow image URLs)
-
-        Each part retries with proxy rotation on failure. The same proxy is used
-        across all parts unless a retry is triggered.
-
-        Args:
-            video_link: TikTok video or slideshow URL
-
-        Returns:
-            VideoInfo: Object containing video/slideshow information.
-                - For videos: data contains bytes, url contains direct video URL
-                - For slideshows: data contains list of image URLs, _proxy_session
-                  is set for Part 3 retry during image download
-
-        Raises:
-            TikTokInvalidLinkError: URL resolution failed (Part 1)
-            TikTokDeletedError: Video was deleted by creator
-            TikTokPrivateError: Video is private
-            TikTokNetworkError: Network/connection error
-            TikTokRateLimitError: Too many requests
-            TikTokRegionError: Video not available in region
-            TikTokExtractionError: Generic extraction failure
+        The scraper remains the source of metadata/id resolution, while the bot
+        recreates the proven local extraction/download context before fetching
+        video bytes or slideshow images.
         """
         download_context: Optional[dict[str, Any]] = None
-        context_transferred = False  # Track if context ownership was transferred
+        context_transferred = False
 
-        # Create proxy session for this request flow
+        scraper_payload = await self._request_scraper_api(
+            "/tiktok/video",
+            {"url": video_link},
+        )
+
+        payload_video_id = scraper_payload.get("id")
+        if payload_video_id is None:
+            raise TikTokExtractionError(
+                f"Scraper response did not include a video ID for {video_link}"
+            )
+
+        video_id = str(payload_video_id)
+        content_type = scraper_payload.get("type")
         proxy_session = ProxySession(self.proxy_manager)
 
         try:
-            # ===== Part 1: URL Resolution =====
-            # Resolve short URLs with retry and proxy rotation
-            full_url = await self._resolve_url(video_link, proxy_session)
-            video_id = self._extract_video_id(full_url)
-            logger.debug(f"Extracted video ID: {video_id} from URL: {full_url}")
-
-            if not video_id:
-                logger.error(f"Could not extract video ID from {video_link}")
-                raise TikTokInvalidLinkError("Invalid or expired TikTok link")
-
-            # ===== Part 2: Video Info Extraction =====
-            # Construct clean URL for extraction (yt-dlp works better with clean URLs)
-            # The resolved URL often has tracking params and empty username that cause issues
             extraction_url = f"https://www.tiktok.com/@_/video/{video_id}"
-            logger.debug(f"Using clean extraction URL: {extraction_url}")
+            logger.debug(
+                f"Using scraper video ID {video_id} with clean extraction URL: "
+                f"{extraction_url}"
+            )
 
-            # Extract video data with retry and proxy rotation
             video_data, download_context = await self._extract_video_info_with_retry(
                 extraction_url, video_id, proxy_session
             )
 
-            # Check if it's a slideshow (imagePost present in raw data)
             image_post = video_data.get("imagePost")
-            if image_post:
-                images = image_post.get("images", [])
-                image_urls = []
+            if content_type == "images" or image_post:
+                image_urls = list(scraper_payload.get("image_urls") or [])
+                if not image_urls and image_post:
+                    for img in image_post.get("images", []):
+                        url_list = img.get("imageURL", {}).get("urlList", [])
+                        if url_list:
+                            image_urls.append(url_list[0])
 
-                for img in images:
-                    url_list = img.get("imageURL", {}).get("urlList", [])
-                    if url_list:
-                        # Use first URL (primary CDN)
-                        image_urls.append(url_list[0])
-
-                if image_urls:
-                    author = video_data.get("author", {}).get("uniqueId", "")
-
-                    stats = video_data.get("stats", {})
-                    likes = stats.get("diggCount")
-                    views = stats.get("playCount")
-
-                    # Transfer context ownership to VideoInfo
-                    # Part 3 (image download) happens later via download_slideshow_images()
-                    context_transferred = True
-                    return VideoInfo(
-                        type="images",
-                        data=image_urls,
-                        id=int(video_id),
-                        cover=None,
-                        width=None,
-                        height=None,
-                        duration=None,
-                        link=video_link,
-                        url=None,
-                        likes=likes,
-                        views=views,
-                        _download_context=download_context,
-                        _proxy_session=proxy_session,  # For Part 3 retry
+                if not image_urls:
+                    raise TikTokExtractionError(
+                        f"Could not find slideshow image URLs for {video_link}"
                     )
 
-            # It's a video - extract video URL from raw data and download
+                context_transferred = True
+                return VideoInfo(
+                    type="images",
+                    data=image_urls,
+                    id=int(video_id),
+                    cover=scraper_payload.get("cover"),
+                    width=scraper_payload.get("width"),
+                    height=scraper_payload.get("height"),
+                    duration=scraper_payload.get("duration"),
+                    link=video_link,
+                    url=None,
+                    likes=scraper_payload.get("likes"),
+                    views=scraper_payload.get("views"),
+                    _download_context=download_context,
+                    _proxy_session=proxy_session,
+                )
 
-            # Get video info and extract metadata early (needed for download decisions)
             video_info_data = video_data.get("video", {})
 
-            # Extract duration BEFORE download - needed for streaming decision
-            duration = video_info_data.get("duration")
-            if duration:
-                duration = int(duration)
+            raw_duration = scraper_payload.get("duration")
+            if raw_duration is None:
+                raw_duration = video_info_data.get("duration")
+            duration = int(raw_duration) if raw_duration else None
 
-            # Check if video exceeds maximum duration
             perf_config = config.get("performance", {})
             max_video_duration = perf_config.get("max_video_duration", 1800)
             if max_video_duration > 0 and duration and duration > max_video_duration:
@@ -1565,44 +1620,55 @@ class TikTokClient:
                     f"Video is {duration // 60} minutes long, max allowed is {max_video_duration // 60} minutes"
                 )
 
-            # Get video URL from raw TikTok data
             video_url = self._extract_video_url(video_info_data)
+            if not video_url:
+                video_url = scraper_payload.get("video_url")
 
             if not video_url:
-                logger.error(f"Could not find video URL in raw data for {video_link}")
+                logger.error(f"Could not find video URL for {video_link}")
                 raise TikTokExtractionError(
                     f"Could not find video URL for {video_link}"
                 )
 
-            # ===== Part 3: Video Download =====
-            # Download video with retry and proxy rotation
             video_bytes = await self._download_video_with_retry(
-                video_url, download_context, proxy_session, duration=duration
+                video_url,
+                download_context,
+                proxy_session,
+                duration=duration,
             )
 
-            # Close the download context - it's no longer needed for videos
             self._close_download_context(download_context)
             context_transferred = True
-
-            # Log successful download
             logger.info(f"Successfully downloaded video {video_id}")
 
-            # Extract remaining metadata from raw data
-            width = video_info_data.get("width")
-            height = video_info_data.get("height")
-            cover = video_info_data.get("cover") or video_info_data.get("originCover")
+            raw_width = scraper_payload.get("width")
+            if raw_width is None:
+                raw_width = video_info_data.get("width")
 
-            stats = video_data.get("stats", {})
-            likes = stats.get("diggCount")
-            views = stats.get("playCount")
+            raw_height = scraper_payload.get("height")
+            if raw_height is None:
+                raw_height = video_info_data.get("height")
+
+            cover = scraper_payload.get("cover")
+            if cover is None:
+                cover = video_info_data.get("cover") or video_info_data.get("originCover")
+
+            likes = scraper_payload.get("likes")
+            views = scraper_payload.get("views")
+            if likes is None or views is None:
+                stats = video_data.get("stats", {})
+                if likes is None:
+                    likes = stats.get("diggCount")
+                if views is None:
+                    views = stats.get("playCount")
 
             return VideoInfo(
                 type="video",
                 data=video_bytes,
                 id=int(video_id),
                 cover=cover,
-                width=int(width) if width else None,
-                height=int(height) if height else None,
+                width=int(raw_width) if raw_width else None,
+                height=int(raw_height) if raw_height else None,
                 duration=duration,
                 link=video_link,
                 url=video_url,
@@ -1611,10 +1677,8 @@ class TikTokClient:
             )
 
         except TikTokError:
-            # Re-raise TikTok errors as-is
             raise
         except asyncio.CancelledError:
-            # Handle cancellation (e.g., from timeout) - ensure cleanup happens
             logger.debug(f"Video extraction cancelled for {video_link}")
             raise
         except aiohttp.ClientError as e:
@@ -1624,7 +1688,6 @@ class TikTokClient:
             logger.error(f"Error extracting video {video_link}: {e}")
             raise TikTokExtractionError(f"Failed to extract video: {e}") from e
         finally:
-            # Clean up download context if ownership wasn't transferred
             if not context_transferred:
                 self._close_download_context(download_context)
 
@@ -1773,64 +1836,43 @@ class TikTokClient:
 
     async def music(self, video_id: int) -> MusicInfo:
         """
-        Extract music info from a TikTok video using 2-part retry strategy.
-
-        Music extraction uses Parts 2 and 3 of the retry strategy:
-        - Part 2: Video/music info extraction (metadata)
-        - Part 3: Music download (audio bytes)
-
-        Note: Part 1 (URL resolution) is not needed since we construct the URL
-        directly from the video ID.
-
-        Args:
-            video_id: TikTok video ID
-
-        Returns:
-            MusicInfo: Object containing music/audio information
-
-        Raises:
-            TikTokDeletedError: Video was deleted by creator
-            TikTokPrivateError: Video is private
-            TikTokNetworkError: Network/connection error
-            TikTokRateLimitError: Too many requests
-            TikTokRegionError: Video not available in region
-            TikTokExtractionError: Generic extraction failure
+        Fetch TikTok music metadata from the scraper API, but use the working
+        main-branch local extraction/download flow for the actual audio fetch.
         """
         download_context: Optional[dict[str, Any]] = None
-
-        # Create proxy session for this request flow
         proxy_session = ProxySession(self.proxy_manager)
 
         try:
-            # Construct a URL with the video ID (no Part 1 needed)
+            music_payload = await self._request_scraper_api(
+                "/tiktok/music",
+                {"video_id": video_id},
+            )
+
             url = f"https://www.tiktok.com/@_/video/{video_id}"
             logger.debug(f"Using video ID: {video_id} for music extraction")
 
-            # ===== Part 2: Music Info Extraction =====
             video_data, download_context = await self._extract_video_info_with_retry(
                 url, str(video_id), proxy_session
             )
 
-            # Get music info
             music_info = video_data.get("music")
             if not music_info:
                 raise TikTokExtractionError(f"No music info found for video {video_id}")
 
-            music_url = music_info.get("playUrl")
+            music_url = music_info.get("playUrl") or music_payload.get("url", "")
             if not music_url:
                 raise TikTokExtractionError(f"No music URL found for video {video_id}")
 
-            # ===== Part 3: Music Download =====
             audio_bytes = await self._download_music_with_retry(
-                music_url, download_context, proxy_session
+                music_url,
+                download_context,
+                proxy_session,
             )
-
-            # Log successful download
             logger.info(f"Successfully downloaded music from video {video_id}")
 
-            # Get the music cover URL from music object
             cover_url = (
-                music_info.get("coverLarge")
+                music_payload.get("cover")
+                or music_info.get("coverLarge")
                 or music_info.get("coverMedium")
                 or music_info.get("coverThumb")
                 or ""
@@ -1838,15 +1880,17 @@ class TikTokClient:
 
             return MusicInfo(
                 data=audio_bytes,
-                id=int(video_id),
-                title=music_info.get("title", ""),
-                author=music_info.get("authorName", ""),
-                duration=int(music_info.get("duration", 0)),
+                id=int(music_payload.get("id", video_id)),
+                title=music_payload.get("title") or music_info.get("title", ""),
+                author=music_payload.get("author")
+                or music_info.get("authorName", ""),
+                duration=int(
+                    music_payload.get("duration") or music_info.get("duration", 0)
+                ),
                 cover=cover_url,
             )
 
         except TikTokError:
-            # Re-raise TikTok errors as-is
             raise
         except aiohttp.ClientError as e:
             logger.error(f"Network error extracting music for video {video_id}: {e}")
@@ -1855,7 +1899,6 @@ class TikTokClient:
             logger.error(f"Error extracting music for video {video_id}: {e}")
             raise TikTokExtractionError(f"Failed to extract music: {e}") from e
         finally:
-            # Always clean up download context
             self._close_download_context(download_context)
 
     async def music_with_retry(

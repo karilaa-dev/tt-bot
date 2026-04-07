@@ -76,6 +76,7 @@ class ApiConfig(TypedDict):
 
     botstat: str
     monetag_url: str
+    scraper_url: str
 
 
 class LogsConfig(TypedDict):
@@ -165,6 +166,7 @@ config: Config = {
     "api": {
         "botstat": os.getenv("BOTSTAT", ""),
         "monetag_url": os.getenv("MONETAG_URL", ""),
+        "scraper_url": os.getenv("SCRAPER_URL", "http://127.0.0.1:8000"),
     },
     "logs": {
         "join_logs": os.getenv("JOIN_LOGS", "0"),
@@ -201,6 +203,7 @@ admin_ids: list[int] = config["bot"]["admin_ids"]
 second_ids: list[int] = admin_ids + config["bot"]["second_ids"]
 stats_ids: list[int] = config["bot"]["stats_ids"]
 monetag_url: str = config["api"]["monetag_url"]
+scraper_url: str = config["api"]["scraper_url"].rstrip("/")
 
 # Locale dictionary: maps language codes to their translation dictionaries
 locale: dict[str, Any] = {}

@@ -8,6 +8,7 @@ dependencies = [
     # Base dependencies (shared by both bots)
     "aiogram==3.24.0",
     "aiohttp==3.13.3",
+    "httpx>=0.28.1",
     "SQLAlchemy==2.0.45",
     "asyncpg==0.31.0",
     "python-dotenv==1.2.1",
@@ -23,6 +24,10 @@ main = [
     "APScheduler==3.11.2",
     "Pillow==12.1.0",
     "pillow-heif==1.1.1",
+    "yt-dlp==2026.3.17",
+    # curl_cffi version must be compatible with yt-dlp's BROWSER_TARGETS
+    # Check yt_dlp/networking/_curlcffi.py for supported versions when updating yt-dlp
+    "curl_cffi>=0.10.0,<0.15.0",
 ]
 
 [tool.uv]
