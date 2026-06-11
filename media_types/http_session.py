@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Awaitable, Callable
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -40,10 +41,14 @@ _RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
 async def _download_url(
-    url: str, max_retries: int = 3, retry_delay: float = 1.0
+    url: str,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+    on_retry: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> bytes | None:
     session = _get_http_session()
     logger.debug(f"Starting download: {url} (max_retries={max_retries})")
+    retry_attempts = max(0, max_retries - 1)
     for attempt in range(1, max_retries + 1):
         try:
             logger.debug(f"Attempt {attempt}/{max_retries}: GET {url}")
@@ -72,6 +77,11 @@ async def _download_url(
                 f"Download exception (attempt {attempt}/{max_retries}): {url}: {type(e).__name__}: {e}"
             )
         if attempt < max_retries:
+            if on_retry:
+                try:
+                    await on_retry(attempt, retry_attempts)
+                except Exception as e:
+                    logger.debug(f"Retry callback failed for {url}: {e}")
             logger.debug(f"Retrying in {retry_delay}s...")
             await asyncio.sleep(retry_delay)
     logger.error(f"All {max_retries} attempts failed for {url}")

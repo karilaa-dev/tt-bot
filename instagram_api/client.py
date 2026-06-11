@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from typing import Awaitable, Callable
 
 from aiohttp import ClientTimeout
 
@@ -28,12 +29,17 @@ _RAPIDAPI_HOST = (
 )
 
 _MAX_ATTEMPTS = 3
-_RETRY_DELAYS = (3, 5)
-_REQUEST_TIMEOUT = ClientTimeout(total=10, connect=3)
+_REQUEST_TIMEOUT = ClientTimeout(total=2, connect=2)
 
 
 class InstagramClient:
-    async def get_media(self, url: str) -> InstagramMediaInfo:
+    async def get_media(
+        self,
+        url: str,
+        max_attempts: int = _MAX_ATTEMPTS,
+        retry_delay: float = 0.5,
+        on_retry: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> InstagramMediaInfo:
         session = _get_http_session()
         api_key = config["instagram"]["rapidapi_key"]
 
@@ -44,7 +50,8 @@ class InstagramClient:
         api_url = f"https://{_RAPIDAPI_HOST}/convert"
 
         last_exc: Exception | None = None
-        for attempt in range(1, _MAX_ATTEMPTS + 1):
+        retry_attempts = max(0, max_attempts - 1)
+        for attempt in range(1, max_attempts + 1):
             try:
                 async with session.get(
                     api_url,
@@ -90,21 +97,25 @@ class InstagramClient:
                 last_exc = InstagramNetworkError(f"Request failed: {e}")
                 last_exc.__cause__ = e
 
-            if attempt < _MAX_ATTEMPTS:
-                delay = _RETRY_DELAYS[attempt - 1]
+            if attempt < max_attempts:
                 logger.warning(
-                    "Instagram API attempt %d/%d failed: %s — retrying in %ds",
+                    "Instagram API attempt %d/%d failed: %s — retrying in %.1fs",
                     attempt,
-                    _MAX_ATTEMPTS,
+                    max_attempts,
                     last_exc,
-                    delay,
+                    retry_delay,
                 )
-                await asyncio.sleep(delay)
+                if on_retry:
+                    try:
+                        await on_retry(attempt, retry_attempts)
+                    except Exception as e:
+                        logger.debug(f"Instagram retry callback failed: {e}")
+                await asyncio.sleep(retry_delay)
             else:
                 logger.error(
                     "Instagram API attempt %d/%d failed: %s — giving up",
                     attempt,
-                    _MAX_ATTEMPTS,
+                    max_attempts,
                     last_exc,
                 )
                 raise last_exc  # type: ignore[misc]

@@ -1667,22 +1667,23 @@ class TikTokClient:
         max_attempts: int = 3,
         request_timeout: float = 10.0,
         base_delay: float = 1.0,
-        on_retry: Callable[[int], Awaitable[None]] | None = None,
+        on_retry: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> VideoInfo:
         """
         Extract video info with retry logic and per-request timeout.
 
         Each request times out after `request_timeout` seconds. On timeout or
-        transient errors (network, rate limit, extraction), retries with exponential
-        backoff. Does NOT retry on permanent errors (deleted, private, region).
+        transient errors (network, rate limit, extraction), retries after a fixed
+        delay. Does NOT retry on permanent errors (deleted, private, region).
 
         Args:
             video_link: TikTok video URL
             max_attempts: Maximum number of attempts (default: 3)
             request_timeout: Timeout per request in seconds (default: 10)
-            base_delay: Base delay for exponential backoff in seconds (default: 1.0)
-            on_retry: Optional async callback called with attempt number (1, 2, 3...)
-                     before each attempt. Use for updating status (e.g., emoji reactions).
+            base_delay: Delay between retries in seconds (default: 1.0)
+            on_retry: Optional async callback called with
+                     (retry_attempt, max_retries) before sleeping for the next
+                     attempt. Use for updating status (e.g., inline retry text).
 
         Returns:
             VideoInfo object containing video/slideshow data
@@ -1696,9 +1697,9 @@ class TikTokClient:
             TikTokExtractionError: Extraction error after all retries exhausted
 
         Example:
-            async def update_status(attempt: int):
+            async def update_status(retry_attempt: int, max_retries: int):
                 emojis = ["👀", "🔄", "⏳"]
-                await message.react([ReactionTypeEmoji(emoji=emojis[attempt - 1])])
+                await message.react([ReactionTypeEmoji(emoji=emojis[retry_attempt - 1])])
 
             video_info = await client.video_with_retry(
                 video_link,
@@ -1708,14 +1709,11 @@ class TikTokClient:
             )
         """
         last_error: Exception | None = None
+        retry_attempts = max(0, max_attempts - 1)
 
         for attempt in range(1, max_attempts + 1):
             logger.debug(f"Attempt {attempt}/{max_attempts} for video: {video_link}")
             try:
-                # Call status callback before each attempt
-                if on_retry:
-                    await on_retry(attempt)
-
                 async with asyncio.timeout(request_timeout):
                     return await self.video(video_link)
 
@@ -1744,13 +1742,12 @@ class TikTokClient:
                 # Any other TikTok error - don't retry
                 raise
 
-            # Exponential backoff with jitter (only if not last attempt)
+            # Retry after a fixed delay (only if not last attempt)
             if attempt < max_attempts:
-                # Calculate delay: base_delay * 2^(attempt-1) = 1s, 2s, 4s...
-                delay = base_delay * (2 ** (attempt - 1))
-                # Add jitter (±10%) to prevent thundering herd
-                jitter = delay * 0.1 * (2 * random.random() - 1)
-                delay = max(0.5, delay + jitter)  # Minimum 0.5s delay
+                if on_retry:
+                    await on_retry(attempt, retry_attempts)
+
+                delay = max(0.0, base_delay)
                 logger.debug(
                     f"Retry backoff: sleeping {delay:.2f}s before attempt {attempt + 1}"
                 )
