@@ -75,7 +75,6 @@ class ApiConfig(TypedDict):
     """Type definition for API configuration."""
 
     botstat: str
-    monetag_url: str
 
 
 class LogsConfig(TypedDict):
@@ -164,7 +163,6 @@ config: Config = {
     },
     "api": {
         "botstat": os.getenv("BOTSTAT", ""),
-        "monetag_url": os.getenv("MONETAG_URL", ""),
     },
     "logs": {
         "join_logs": os.getenv("JOIN_LOGS", "0"),
@@ -200,7 +198,6 @@ config: Config = {
 admin_ids: list[int] = config["bot"]["admin_ids"]
 second_ids: list[int] = admin_ids + config["bot"]["second_ids"]
 stats_ids: list[int] = config["bot"]["stats_ids"]
-monetag_url: str = config["api"]["monetag_url"]
 
 # Locale dictionary: maps language codes to their translation dictionaries
 locale: dict[str, Any] = {}

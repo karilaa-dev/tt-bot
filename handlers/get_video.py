@@ -3,15 +3,11 @@ import logging
 from aiogram import Router, F
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message, ReactionTypeEmoji, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from data.config import locale, second_ids, monetag_url, config
+from data.config import locale, second_ids, config
 from data.db_service import (
     get_user_settings,
     add_video,
-    should_show_ad,
-    record_ad_show,
-    increase_ad_count,
 )
 from data.loader import bot
 from tiktok_api import TikTokClient, TikTokError, ProxyManager
@@ -254,25 +250,6 @@ async def send_tiktok_video(message: Message):
                             except TelegramBadRequest:
                                 pass
                 was_processed = False  # Videos are not processed
-
-            # Show ad if applicable (only in private chats)
-            if not group_chat:
-                try:
-                    if await should_show_ad(message.chat.id):
-                        await record_ad_show(message.chat.id)
-                        ad_button = InlineKeyboardBuilder()
-                        ad_button.button(
-                            text=locale[lang]["ad_support_button"], url=monetag_url
-                        )
-                        await message.answer(
-                            locale[lang]["ad_support"],
-                            reply_markup=ad_button.as_markup(),
-                        )
-                    else:
-                        await increase_ad_count(message.chat.id)
-                except Exception as e:
-                    logging.error("Can't show ad")
-                    logging.error(e)
 
             # Clean up status
             if status_message:

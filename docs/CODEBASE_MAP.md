@@ -369,13 +369,13 @@ user_router → lang_router → admin_router → advert_router
 | db_utils.py | Database URL utilities | 379 |
 
 **Models:**
-- `Users`: user_id, lang, file_mode, ad tracking
+- `Users`: user_id, lang, file_mode
 - `Video`: download history with timestamps
 - `Music`: music download history
 
 **Configuration Sections:**
 - `bot`: Tokens, DB URL, Telegram server
-- `api`: BotSafe, Monetag
+- `api`: BotSafe
 - `logs`: Join logs, stats chat
 - `queue`: Max queue size
 - `retry`: URL/info/download retry counts

@@ -36,8 +36,6 @@
   "inline_download_video_description": "Tải video TikTok không có watermark.",
   "inline_download_video_text": "🎬 <b>Đang tải video...</b>\n\nVui lòng chờ trong khi chúng tôi xử lý yêu cầu của bạn.",
   "inline_download_video_wait": "⏳ Vui lòng chờ...",
-  "ad_support": "Để chạy bot này cần rất nhiều tài nguyên! ⚡ Nếu bạn có 10 giây, hãy bấm bên dưới để xem một quảng cáo. Đây là cách miễn phí để ủng hộ chúng tôi và giúp bot luôn hoạt động.",
-  "ad_support_button": "Giữ miễn phí 🚀",
   "error_deleted": "<b>Video này đã bị người tạo xóa.</b>",
   "error_private": "<b>Video này ở chế độ riêng tư và không thể truy cập.</b>",
   "error_region": "<b>Video này không khả dụng ở khu vực của bạn.</b>",
