@@ -10,7 +10,7 @@ dependencies = [
     "aiohttp==3.13.3",
     "SQLAlchemy==2.0.45",
     "asyncpg==0.31.0",
-    "python-dotenv==1.2.1",
+    "python-dotenv==1.2.2",
 ]
 
 [project.optional-dependencies]
