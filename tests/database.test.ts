@@ -11,6 +11,18 @@ import { testConfig } from "./helpers.ts";
 
 const adminUrl = Bun.env.TEST_DB_URL || Bun.env.TEST_DB_ADMIN_URL;
 const integration = adminUrl ? describe : describe.skip;
+
+test("user exports include private and group chat IDs by default", async () => {
+  let query = "";
+  const db = { sql: async (strings: TemplateStringsArray) => {
+    query = strings.join("?").replace(/\s+/gu, " ").trim();
+    return [{ user_id: "-100500" }, { user_id: "101" }];
+  } } as unknown as Database;
+
+  expect(await getUserIds(db)).toEqual([-100500, 101]);
+  expect(query).toBe("SELECT user_id FROM users ORDER BY user_id");
+});
+
 integration("PostgreSQL repositories", () => {
   let db: Database;
   let admin: SQL;

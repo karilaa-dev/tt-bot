@@ -33,16 +33,33 @@ export async function registerChat(ctx: BotContext, lang: Language, referral: st
 }
 
 export async function ensurePrivateRegistration(ctx: BotContext): Promise<void> {
-  if (!ctx.message || ctx.chat?.type !== "private" || await ctx.getUserRecord(ctx.chat.id)) return;
-  const lang = languageFromTelegram(ctx.from?.language_code);
-  const registration = await registerChat(ctx, lang, startReferral(ctx.message.text));
-  if (registration?.created) {
-    await sendWelcome(ctx, lang);
-    ctx.onboardingSent = true;
+  if (!ctx.message || ctx.chat?.type !== "private") return;
+  try {
+    if (await ctx.getUserRecord(ctx.chat.id)) return;
+    const lang = languageFromTelegram(ctx.from?.language_code);
+    const registration = await registerChat(ctx, lang, startReferral(ctx.message.text));
+    if (registration?.created) {
+      await sendWelcome(ctx, lang);
+      ctx.onboardingSent = true;
+    }
+  } catch (error) {
+    logger.error(`Failed to register private chat ${ctx.chat.id}; continuing without database preferences`, error);
   }
 }
 
-export async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
+export async function resolveDownloadPreferences(ctx: BotContext): Promise<{ lang: Language; fileMode: boolean }> {
+  const fallback = { lang: languageFromTelegram(ctx.from?.language_code), fileMode: false };
+  try {
+    const user = await ctx.getUserRecord();
+    if (user) return { lang: user.lang, fileMode: user.fileMode };
+    await registerAndWelcome(ctx, fallback.lang);
+  } catch (error) {
+    logger.error(`Failed to load download preferences for chat ${ctx.chat?.id ?? "unknown"}; using defaults`, error);
+  }
+  return fallback;
+}
+
+async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
   const registration = await registerChat(ctx, lang, referral);
   if (!registration?.created || !ctx.chat) return;
   await sendWelcome(ctx, lang);

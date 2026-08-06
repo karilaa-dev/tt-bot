@@ -2,10 +2,10 @@ import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, InputMediaVideo, MessageEntity } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
 import { addVideo } from "../db/videos.ts";
-import { type Language, text } from "../locales.ts";
+import { text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
-import { registerAndWelcome, resolveLanguage } from "../services/registration.ts";
+import { resolveDownloadPreferences } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { retryKeyboard } from "../ui/keyboards.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
@@ -31,11 +31,7 @@ export function registerLinkHandlers(bot: Bot<BotContext>): void {
     const link = findInstagramUrl(ctx.message.text, ctx.message.entities);
     if (!link) return next();
     const group = ctx.chat.type !== "private";
-    const user = await ctx.getUserRecord();
-    let lang: Language;
-    let fileMode: boolean;
-    if (!user) { lang = await resolveLanguage(ctx, true); fileMode = false; await registerAndWelcome(ctx, lang); }
-    else { lang = user.lang; fileMode = user.fileMode; }
+    const { lang, fileMode } = await resolveDownloadPreferences(ctx);
     const status = await beginStatus(ctx, ctx.message);
     try {
       const queued = await ctx.queue.withSlot(ctx.chat.id, async () => {

@@ -59,7 +59,7 @@ export async function updateUserLanguage(db: Database, userId: number, lang: Lan
   return mapUser(user);
 }
 
-export async function getUserIds(db: Database, onlyPositive = true): Promise<number[]> {
+export async function getUserIds(db: Database, onlyPositive = false): Promise<number[]> {
   const rows = onlyPositive
     ? await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users WHERE user_id > 0 ORDER BY user_id`
     : await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users ORDER BY user_id`;

@@ -5,8 +5,9 @@ import { PartialDeliveryError, TtScrapError } from "../bot/errors.ts";
 import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
+import { sendAdminDiagnostic } from "../services/admin-diagnostics.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
-import { registerAndWelcome, resolveLanguage } from "../services/registration.ts";
+import { resolveDownloadPreferences, resolveLanguage } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { musicKeyboard, retryKeyboard } from "../ui/keyboards.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
@@ -71,14 +72,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
       }
       return;
     }
-    const user = await ctx.getUserRecord();
-    let lang: Language;
-    let fileMode: boolean;
-    if (!user) {
-      lang = await resolveLanguage(ctx, true);
-      fileMode = false;
-      await registerAndWelcome(ctx, lang);
-    } else { lang = user.lang; fileMode = user.fileMode; }
+    const { lang, fileMode } = await resolveDownloadPreferences(ctx);
 
     const status = await beginStatus(ctx, message);
     try {
@@ -128,7 +122,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
       await clearStatus(ctx, message, status);
       if (!status) await setReaction(ctx, message, "😢");
       if (!group) await ctx.reply(errorText(error, lang), { parse_mode: "HTML", reply_parameters: { message_id: message.message_id } });
-      if (ctx.config.adminIds.has(ctx.chat.id) && error instanceof Error) await ctx.reply(`<code>${escapeCode(adminDiagnostic(error))}</code>`, { parse_mode: "HTML" });
+      await sendAdminDiagnostic(ctx, error);
     }
   });
 
@@ -179,11 +173,4 @@ export function errorText(error: unknown, lang: Language, instagram = false): st
 export function shouldOfferRetry(error: unknown): boolean {
   return !(error instanceof PartialDeliveryError)
     && !(error instanceof TtScrapError && error.code === "telegram_delivery_ambiguous");
-}
-function escapeCode(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"); }
-function adminDiagnostic(error: Error): string {
-  const summary = `${error.name}: ${error.message}`;
-  const request = error instanceof TtScrapError ? `\ncode=${error.code}\nrequest_id=${error.requestId}` : "";
-  const stack = error.stack && !error.stack.startsWith(summary) ? `\n${error.stack}` : "";
-  return `${summary}${request}${stack}`;
 }

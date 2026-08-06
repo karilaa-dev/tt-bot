@@ -27,6 +27,9 @@ export class BotContext extends Context {
     if (cached) return cached;
     const loaded = getUser(this.db, userId);
     this.userRecords.set(userId, loaded);
+    void loaded.catch(() => {
+      if (this.userRecords.get(userId) === loaded) this.userRecords.delete(userId);
+    });
     return loaded;
   }
 
