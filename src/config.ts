@@ -61,6 +61,14 @@ function parsePositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
+function parseQueueInteger(name: string, fallback: number): number {
+  const value = parseInteger(name, fallback);
+  if (value < 0) throw new Error(`${name} must be zero or greater`);
+  // Pre-v6 installations used zero for an unlimited queue. Preserve startup
+  // compatibility while applying the bounded v6 defaults requested here.
+  return value === 0 ? fallback : value;
+}
+
 function parseChat(name: string): number | string | null {
   const raw = Bun.env[name]?.trim();
   if (!raw || raw === "0") return null;
@@ -116,9 +124,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     ttScrapRequestTimeoutMs: parsePositiveInteger("TT_SCRAP_REQUEST_TIMEOUT_SECONDS", 90) * 1000,
     ttScrapDeliveryTimeoutMs: parsePositiveInteger("TT_SCRAP_DELIVERY_TIMEOUT_SECONDS", 620) * 1000,
     ttScrapInstagramDeliveryPath: instagramPath,
-    maxUserQueueSize: parsePositiveInteger("MAX_USER_QUEUE_SIZE", 3),
-    maxGroupQueueSize: parsePositiveInteger("MAX_GROUP_QUEUE_SIZE", 10),
-    maxActiveJobs: parsePositiveInteger("MAX_ACTIVE_JOBS", 25),
+    maxUserQueueSize: parseQueueInteger("MAX_USER_QUEUE_SIZE", 3),
+    maxGroupQueueSize: parseQueueInteger("MAX_GROUP_QUEUE_SIZE", 10),
+    maxActiveJobs: parseQueueInteger("MAX_ACTIVE_JOBS", 25),
     databasePoolSize: parsePositiveInteger("DB_POOL_SIZE", 10),
     logLevel: level,
   };

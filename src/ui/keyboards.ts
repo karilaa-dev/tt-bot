@@ -7,7 +7,7 @@ export function languageKeyboard(): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   languages.forEach((lang, index) => {
     keyboard.text(locales[lang].lang_name, `lang/${lang}`);
-    if (index % 2 === 1) keyboard.row();
+    if (index % 2 === 1 && index < languages.length - 1) keyboard.row();
   });
   return keyboard;
 }

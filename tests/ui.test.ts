@@ -3,6 +3,7 @@ import { formatStat, statsRow } from "../src/ui/stats.ts";
 import { resultCaption } from "../src/ui/captions.ts";
 import { PartialDeliveryError, TtScrapError } from "../src/bot/errors.ts";
 import { errorText, shouldOfferRetry } from "../src/handlers/tiktok.ts";
+import { languageKeyboard } from "../src/ui/keyboards.ts";
 
 describe("UI compatibility", () => {
   test("formats engagement counts at the existing thresholds", () => {
@@ -12,6 +13,11 @@ describe("UI compatibility", () => {
   test("retains source and group warning captions", () => {
     const caption = resultCaption("en", "https://www.tiktok.com/@a/video/1", true);
     expect(caption).toContain("Source"); expect(caption).toContain("first ten images");
+  });
+  test("builds language rows without an empty trailing row", () => {
+    const rows = languageKeyboard().inline_keyboard;
+    expect(rows).toHaveLength(4);
+    expect(rows.every((row) => row.length === 2)).toBe(true);
   });
   test("escapes source links and distinguishes unsafe delivery retries", () => {
     expect(resultCaption("en", "https://example.test/a'b")).toContain("a&#39;b");

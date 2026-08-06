@@ -26,12 +26,18 @@ function matchTikTok(value: string): string | null {
   const url = parsePublicUrl(value);
   if (!url) return null;
   if (!isTikTokHost(url.hostname)) return null;
-  // TikTok has used several post, mobile, embed, player, share, and short-link
-  // paths. Keep the security boundary at the owned domain and let tt-scrap
-  // perform semantic post validation so new official paths are not ignored.
-  if (url.pathname !== "/") return canonicalHttpsUrl(url);
+  const host = normalizedTikTokHost(url.hostname);
+  const path = url.pathname.replace(/\/+$/u, "") || "/";
+  const isShortLink = (host === "vm.tiktok.com" || host === "vt.tiktok.com") && /^\/[A-Za-z0-9_-]+$/u.test(path);
+  const isPostLink = /^\/@[A-Za-z0-9._-]+\/(?:video|photo)\/[0-9]+$/u.test(path)
+    || /^\/t\/[A-Za-z0-9_-]+$/u.test(path)
+    || /^\/v\/[0-9]+(?:\.html)?$/u.test(path)
+    || /^\/embed(?:\/v2)?\/[0-9]+$/u.test(path)
+    || /^\/player\/v1\/[0-9]+$/u.test(path)
+    || /^\/share\/(?:video|item)\/[0-9]+$/u.test(path);
+  if (isShortLink || isPostLink) return canonicalHttpsUrl(url);
   const itemId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
-  return itemId && /^[0-9]+$/u.test(itemId) ? `https://www.tiktok.com/@_/video/${itemId}` : null;
+  return path === "/" && itemId && /^[0-9]+$/u.test(itemId) ? `https://www.tiktok.com/@_/video/${itemId}` : null;
 }
 
 export function tikTokExtractionUrl(link: string): string {
@@ -44,8 +50,12 @@ export function tikTokExtractionUrl(link: string): string {
 }
 
 function isTikTokHost(hostname: string): boolean {
-  const host = hostname.replace(/\.$/u, "").toLowerCase();
+  const host = normalizedTikTokHost(hostname);
   return host === "tiktok.com" || host.endsWith(".tiktok.com");
+}
+
+function normalizedTikTokHost(hostname: string): string {
+  return hostname.replace(/\.$/u, "").toLowerCase();
 }
 
 export function registerTikTokHandlers(bot: Bot<BotContext>): void {
@@ -125,6 +135,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery("retry_video", async (ctx) => {
     const original = ctx.callbackQuery.message?.reply_to_message;
     if (!original?.text) return ctx.answerCallbackQuery({ text: "Original message not found", show_alert: true });
+    if (!original.from || ctx.from.id !== original.from.id) return ctx.answerCallbackQuery();
     const retryKey = `${original.chat.id}:${original.message_id}`;
     if (retryingVideos.has(retryKey)) return ctx.answerCallbackQuery({ text: "Already retrying…" });
     retryingVideos.add(retryKey);

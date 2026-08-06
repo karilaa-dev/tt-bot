@@ -46,6 +46,15 @@ describe("TtScrapClient", () => {
     await expect(client.deliverTikTok({ source: { url: "https://www.tiktok.com/@a/photo/1" }, delivery: "media", telegram: { chat_id: 7 } })).rejects.toBeInstanceOf(PartialDeliveryError);
   });
 
+  test("preserves partial delivery details on an HTTP error status", async () => {
+    const client = start(() => Response.json({ ok: false, partial: true, deliveries: [
+      { method: "sendMediaGroup", status_code: 200, response: { ok: true, result: [message] } },
+      { method: "sendMediaGroup", status_code: 500, response: { ok: false, error_code: 500, description: "failed" } },
+    ] }, { status: 500 }));
+    await expect(client.deliverTikTok({ source: { url: "https://www.tiktok.com/@a/photo/1" }, delivery: "media", telegram: { chat_id: 7 } }))
+      .rejects.toMatchObject({ name: "PartialDeliveryError", successfulCalls: 1 });
+  });
+
   test("preserves stable API errors and request IDs", async () => {
     const client = start(() => Response.json({ error: { code: "content_private", message: "private", request_id: "request-1" } }, { status: 403 }));
     try { await client.extractTikTok("https://www.tiktok.com/@a/video/1"); throw new Error("expected failure"); }
@@ -72,11 +81,12 @@ describe("TtScrapClient", () => {
     expect(result.calls[0]?.method).toBe("sendVideo");
   });
 
-  test("sends 19-digit IDs as exact decimal strings", async () => {
-    let payload: unknown;
-    const client = start(async (request) => { payload = await request.json(); return Response.json({ ok: true, result: message }); });
+  test("sends 19-digit IDs as exact JSON integer tokens", async () => {
+    let payload = "";
+    const client = start(async (request) => { payload = await request.text(); return Response.json({ ok: true, result: message }); });
     await client.deliverTikTok({ source: { video_id: 7669880788879543583n }, delivery: "audio", telegram: { chat_id: 7 } });
-    expect(payload).toMatchObject({ source: { video_id: "7669880788879543583" } });
+    expect(payload).toContain('"video_id":7669880788879543583');
+    expect(payload).not.toContain('"video_id":"7669880788879543583"');
   });
 
   test("treats a transport failure during delivery as ambiguous and never retries it", async () => {

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import type { Database } from "../src/db/client.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
+import { cleanupInlineSlideshows } from "../src/handlers/inline-slideshow.ts";
+import { inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { QueueManager } from "../src/services/queue.ts";
 import { testConfig } from "./helpers.ts";
 
@@ -29,7 +31,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
     telegramCalls.push({ method, payload });
     if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
-    if (["answerInlineQuery", "sendChatAction", "setMessageReaction"].includes(method)) return Response.json({ ok: true, result: true });
+    if (["answerCallbackQuery", "answerInlineQuery", "editMessageMedia", "sendChatAction", "setMessageReaction"].includes(method)) return Response.json({ ok: true, result: true });
     const chatId = Number(payload.chat_id ?? 0);
     const chat = chatId < 0
       ? { id: chatId, type: "supergroup", title: "Test Group" }
@@ -156,7 +158,51 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(sendMessagesFor(telegramCalls, instagramGroup.id)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === instagramGroup.id)).toBe(true);
     expect(scrapCalls.some((call) => call.path === "/v1/instagram/telegram-deliveries")).toBe(true);
+
+    const callsBeforeUnauthorizedRetries = scrapCalls.length;
+    const originalGroupMessage = {
+      message_id: 8,
+      date: 1,
+      chat: groupChat,
+      from: groupUser,
+      text: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      reply_to_message: undefined,
+    };
+    await bot.handleUpdate({ update_id: 8, callback_query: {
+      id: "unauthorized-chat-retry",
+      chat_instance: "group-instance",
+      from: firstLinkUser,
+      data: "retry_video",
+      message: { message_id: 108, date: 1, chat: groupChat, from: { id: 999, is_bot: true, first_name: "Test Bot" }, text: "Retry", reply_to_message: originalGroupMessage },
+    } });
+    const inlineRetry = inlineRetryCallbackData("https://www.tiktok.com/@creator/video/7669880788879543583", false, groupUser.id)!;
+    await bot.handleUpdate({ update_id: 9, callback_query: {
+      id: "unauthorized-inline-retry",
+      chat_instance: "inline-instance",
+      from: firstLinkUser,
+      data: inlineRetry,
+      inline_message_id: "inline-retry-message",
+    } });
+    await bot.handleUpdate({ update_id: 10, callback_query: {
+      id: "legacy-inline-retry",
+      chat_instance: "inline-instance",
+      from: groupUser,
+      data: "ir:tt:www.tiktok.com/@user/video/7669880788879543583",
+      inline_message_id: "legacy-inline-retry-message",
+    } });
+    expect(scrapCalls).toHaveLength(callsBeforeUnauthorizedRetries);
+
+    await bot.handleUpdate({ update_id: 11, callback_query: {
+      id: "slideshow-refresh",
+      chat_instance: "inline-instance",
+      from: groupUser,
+      data: "sr:103:0:m.tiktok.com/v/7669880788879543583.html",
+      inline_message_id: "inline-slideshow-message",
+    } });
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").at(-1)?.payload.url)
+      .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
   } finally {
+    cleanupInlineSlideshows();
     telegram.stop(true);
     scrap.stop(true);
   }

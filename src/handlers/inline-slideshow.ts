@@ -7,6 +7,7 @@ import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayloa
 import { resolveLanguage } from "../services/registration.ts";
 import { statsRow } from "../ui/stats.ts";
 import { findInstagramUrl } from "./links.ts";
+import { tikTokExtractionUrl } from "./tiktok.ts";
 
 interface SlideshowSession {
   media: InlineMediaReference[];
@@ -86,7 +87,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
           const extraction = await ctx.scrap.extractInstagram(link, { attempts: 4 });
           media = inlineMedia(await service.stageInstagram(extraction, link, identity));
         } else {
-          const extraction = await ctx.scrap.extractTikTok(link, { attempts: 4 });
+          const extraction = await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4 });
           media = inlineMedia(await service.stageTikTok(extraction, link, identity));
           likes = extraction.likes; views = extraction.views;
         }

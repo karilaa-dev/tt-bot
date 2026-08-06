@@ -41,6 +41,7 @@ integration("PostgreSQL repositories", () => {
   test("handles start, mode, and TikTok media without a live Telegram request", async () => {
     const telegramCalls: Array<{ method: string; payload: Record<string, unknown> }> = [];
     const deliveries: Array<Record<string, unknown>> = [];
+    const deliveryBodies: string[] = [];
     let nextMessageId = 100;
     const telegram = Bun.serve({ port: 0, async fetch(request) {
       const method = new URL(request.url).pathname.split("/").at(-1) || "";
@@ -53,13 +54,15 @@ integration("PostgreSQL repositories", () => {
     } });
     const scrapServer = Bun.serve({ port: 0, async fetch(request) {
       const path = new URL(request.url).pathname;
-      const payload = await request.json() as Record<string, unknown>;
+      const rawPayload = await request.text();
+      const payload = JSON.parse(rawPayload) as Record<string, unknown>;
       if (path.endsWith("/extractions")) return Response.json({
         extraction_id: `extract-${deliveries.length + 1}`, platform: "tiktok", source_id: "7669880788879543583",
         source_url: "https://www.tiktok.com/@creator/video/7669880788879543583", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583",
         content_type: "video", media: [], expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 12, views: 34,
       });
       deliveries.push(payload);
+      deliveryBodies.push(rawPayload);
       if (payload.delivery === "audio") return Response.json({ ok: true, result: {
         message_id: 800, date: 1, chat: { id: 501, type: "private", first_name: "Test" },
         audio: { file_id: "audio-id", file_unique_id: "au", duration: 1 },
@@ -99,7 +102,8 @@ integration("PostgreSQL repositories", () => {
       expect(deliveries[0]?.telegram).not.toHaveProperty("disable_content_type_detection");
       expect(deliveries[1]?.telegram).toMatchObject({ disable_content_type_detection: true });
       expect(deliveries[1]?.telegram).not.toHaveProperty("supports_streaming");
-      expect(deliveries[2]).toMatchObject({ source: { video_id: "7669880788879543583" }, delivery: "audio", telegram: { chat_id: 501, reply_parameters: { message_id: 701 } } });
+      expect(deliveries[2]).toMatchObject({ delivery: "audio", telegram: { chat_id: 501, reply_parameters: { message_id: 701 } } });
+      expect(deliveryBodies[2]).toContain('"video_id":7669880788879543583');
       expect(telegramCalls.some((call) => call.method === "sendMessage")).toBe(true);
       const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 501`;
       expect(Number(rows[0]?.count)).toBe(2);

@@ -39,18 +39,22 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
     await processInline(ctx, id, ctx.chosenInlineResult.query, user.lang, resultId === "ig_download");
   });
 
-  bot.callbackQuery(/^ir:(tt|ig):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^ir:(tt|ig):([0-9a-z]+):(.+)$/, async (ctx) => {
     const id = ctx.callbackQuery.inline_message_id;
     if (!id) return ctx.answerCallbackQuery();
+    if (ctx.from.id.toString(36) !== ctx.match[2]) return ctx.answerCallbackQuery();
     if (retrying.has(id)) return ctx.answerCallbackQuery({ text: "Retrying..." });
     retrying.add(id);
     try {
       const lang = await languageForInline(ctx, ctx.from.id);
       await ctx.answerCallbackQuery();
       await editText(ctx, id, text(lang, "inline_download_video_text"), { inline_keyboard: loadingKeyboard.inline_keyboard });
-      await processInline(ctx, id, `https://${ctx.match[2]}`, lang, ctx.match[1] === "ig");
+      await processInline(ctx, id, `https://${ctx.match[3]}`, lang, ctx.match[1] === "ig");
     } finally { retrying.delete(id); }
   });
+
+  // Buttons created before ownership was encoded cannot be authorized safely.
+  bot.callbackQuery(/^ir:(?:tt|ig):[^:]+$/, (ctx) => ctx.answerCallbackQuery({ text: "Retry button expired.", show_alert: true }));
 }
 
 async function processInline(ctx: BotContext, id: string, rawLink: string, lang: Language, instagram: boolean): Promise<void> {
@@ -74,7 +78,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
       return extraction;
     });
     if (!queued.acquired) {
-      if (queued.reason === "capacity") await editText(ctx, id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.from!.id))), retryKeyboard(lang, link, instagram));
+      if (queued.reason === "capacity") await editText(ctx, id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.from!.id))), retryKeyboard(lang, link, instagram, ctx.from!.id));
       return;
     }
     const extraction = queued.value;
@@ -85,7 +89,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
     } catch (error) { logger.error("Can't write inline download into database", error); }
   } catch (error) {
     logger.error(`Inline delivery failed for ${link}`, error);
-    const markup = shouldOfferRetry(error) ? retryKeyboard(lang, link, instagram) : { inline_keyboard: [] };
+    const markup = shouldOfferRetry(error) ? retryKeyboard(lang, link, instagram, ctx.from!.id) : { inline_keyboard: [] };
     await editText(ctx, id, errorText(error, lang, instagram), markup);
   }
 }
@@ -101,9 +105,9 @@ async function editText(ctx: BotContext, id: string, value: string, markup?: Inl
   try { await ctx.api.raw.editMessageText({ inline_message_id: id, text: value, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) }); }
   catch (error) { logger.warn("Inline text edit failed", error); }
 }
-function retryKeyboard(lang: Language, link: string, instagram: boolean): InlineKeyboardMarkup {
-  const data = `ir:${instagram ? "ig" : "tt"}:${compressInlineRetryLink(link, instagram)}`;
-  return { inline_keyboard: data.length <= 64 ? [[{ text: text(lang, "try_again_button"), callback_data: data }]] : [] };
+function retryKeyboard(lang: Language, link: string, instagram: boolean, ownerId: number): InlineKeyboardMarkup {
+  const data = inlineRetryCallbackData(link, instagram, ownerId);
+  return { inline_keyboard: data ? [[{ text: text(lang, "try_again_button"), callback_data: data }]] : [] };
 }
 function normalize(value: string, instagram: boolean): string {
   const link = (instagram ? findInstagramUrl(value) : findTikTokUrl(value)) ?? value.trim(); return link.replace(/[.,)]+$/, "");
@@ -112,4 +116,9 @@ export function compressInlineRetryLink(link: string, instagram: boolean): strin
   let value = normalize(link, instagram).split("?")[0]!.replace(/^https?:\/\//, "");
   if (!instagram) value = value.replace(/@[\w.]+/, "@user");
   return value;
+}
+
+export function inlineRetryCallbackData(link: string, instagram: boolean, ownerId: number): string | null {
+  const data = `ir:${instagram ? "ig" : "tt"}:${ownerId.toString(36)}:${compressInlineRetryLink(link, instagram)}`;
+  return data.length <= 64 ? data : null;
 }

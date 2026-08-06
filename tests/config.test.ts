@@ -15,6 +15,15 @@ describe("loadConfig", () => {
     expect([config.maxUserQueueSize, config.maxGroupQueueSize, config.maxActiveJobs, config.databasePoolSize]).toEqual([3, 10, 25, 10]);
   });
   test("requires secrets", () => { delete Bun.env.TT_SCRAP_API_KEY; expect(() => loadConfig()).toThrow("TT_SCRAP_API_KEY is required"); });
+  test("maps legacy zero queue values to the bounded defaults", () => {
+    Bun.env.MAX_USER_QUEUE_SIZE = "0";
+    Bun.env.MAX_GROUP_QUEUE_SIZE = "0";
+    Bun.env.MAX_ACTIVE_JOBS = "0";
+    const config = loadConfig();
+    expect([config.maxUserQueueSize, config.maxGroupQueueSize, config.maxActiveJobs]).toEqual([3, 10, 25]);
+    Bun.env.MAX_USER_QUEUE_SIZE = "-1";
+    expect(() => loadConfig()).toThrow("zero or greater");
+  });
   test("rejects invalid timeout and endpoint values", () => {
     Bun.env.TT_SCRAP_REQUEST_TIMEOUT_SECONDS = "0";
     expect(() => loadConfig()).toThrow("greater than zero");

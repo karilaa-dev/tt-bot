@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { MessageEntity } from "grammy/types";
-import { compressInlineRetryLink } from "../src/handlers/inline.ts";
+import { compressInlineRetryLink, inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { findInstagramUrl } from "../src/handlers/links.ts";
 import { findTikTokUrl, tikTokExtractionUrl } from "../src/handlers/tiktok.ts";
 
@@ -17,7 +17,6 @@ test("routes all TikTok-owned link formats", () => {
     ["https://www.tiktok.com/?item_id=7669880788879543583", "https://www.tiktok.com/@_/video/7669880788879543583"],
     ["https://vm.tiktok.com/ZTest/", "https://vm.tiktok.com/ZTest"],
     ["https://vt.tiktok.com/ZTest/", "https://vt.tiktok.com/ZTest"],
-    ["https://newsroom.tiktok.com/example", "https://newsroom.tiktok.com/example"],
   ] as const;
   for (const [input, expected] of supported) expect(findTikTokUrl(`watch ${input}).`)).toBe(expected);
 
@@ -29,12 +28,22 @@ test("routes all TikTok-owned link formats", () => {
   expect(findTikTokUrl("https://evil-tiktok.com/video/1")).toBeNull();
   expect(findTikTokUrl("https://tiktok.com.evil.example/video/1")).toBeNull();
   expect(findTikTokUrl("https://user:password@www.tiktok.com/@creator/video/1")).toBeNull();
+  for (const nonPost of [
+    "https://www.tiktok.com/@creator",
+    "https://www.tiktok.com/legal/privacy-policy",
+    "https://www.tiktok.com/discover/example",
+    "https://www.tiktok.com/music/example-123",
+    "https://newsroom.tiktok.com/example",
+  ]) expect(findTikTokUrl(nonPost)).toBeNull();
 });
 
 test("inline TikTok retries retain a valid placeholder username", () => {
   const compressed = compressInlineRetryLink("https://www.tiktok.com/@creator/video/7669880788879543583", false);
   expect(compressed).toBe("www.tiktok.com/@user/video/7669880788879543583");
   expect(findTikTokUrl(`https://${compressed}`)).toBe("https://www.tiktok.com/@user/video/7669880788879543583");
+  const callback = inlineRetryCallbackData(`https://${compressed}`, false, 123456789);
+  expect(callback).toBe(`ir:tt:${(123456789).toString(36)}:${compressed}`);
+  expect(callback!.length).toBeLessThanOrEqual(64);
 });
 
 test("normalizes ID-bearing legacy and embed routes for extraction", () => {

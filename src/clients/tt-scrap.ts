@@ -72,10 +72,6 @@ export class TtScrapClient {
     logger.debug("tt-scrap delivery response", { path, status: response.status, request_id: requestId });
     const value: unknown = await parseJson(response);
     if (isErrorEnvelope(value)) throw toTtScrapError(value, response.status);
-    if (!response.ok) {
-      if (isTelegramEnvelope(value) && !value.ok) throw telegramError(value, expectedMethod, body, requestId);
-      throw new TtScrapError("http_error", `tt-scrap returned HTTP ${response.status}`, requestId, response.status);
-    }
     if (isMultiEnvelope(value)) {
       const calls: TelegramDeliveryCall[] = [];
       for (const delivery of value.deliveries) {
@@ -86,8 +82,12 @@ export class TtScrapClient {
         }
         calls.push({ method: delivery.method, statusCode: delivery.status_code, result: telegramResult(envelope.result) });
       }
-      if (response.status === 207 || value.partial || !value.ok) throw new PartialDeliveryError(calls.length, requestId);
+      if (!response.ok || response.status === 207 || value.partial || !value.ok) throw new PartialDeliveryError(calls.length, requestId);
       return { calls };
+    }
+    if (!response.ok) {
+      if (isTelegramEnvelope(value) && !value.ok) throw telegramError(value, expectedMethod, body, requestId);
+      throw new TtScrapError("http_error", `tt-scrap returned HTTP ${response.status}`, requestId, response.status);
     }
     if (!isTelegramEnvelope(value)) throw new TtScrapError("invalid_response", "tt-scrap returned an invalid Telegram response", "unknown", response.status);
     if (!value.ok) throw telegramError(value, expectedMethod, body, requestId);
@@ -183,9 +183,10 @@ function isRetryableExtractionError(error: unknown): boolean {
   );
 }
 function stringifyJson(value: unknown): string {
-  // TikTok IDs exceed JavaScript's safe integer range. tt-scrap's Pydantic
-  // input models coerce decimal strings to integers without losing precision.
-  return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? item.toString() : item);
+  const rawJson = (JSON as typeof JSON & { rawJSON(value: string): unknown }).rawJSON;
+  // Emit bigint values as exact JSON integer tokens. Converting them to Number
+  // would lose precision, while quoting them would violate the OpenAPI schema.
+  return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? rawJson(item.toString()) : item);
 }
 
 function isTikTokExtraction(value: unknown): value is TikTokExtraction {
