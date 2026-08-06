@@ -52,11 +52,12 @@ describe("TtScrapClient", () => {
     catch (error) { expect(error).toBeInstanceOf(TtScrapError); expect((error as TtScrapError).requestId).toBe("request-1"); }
   });
 
-  test("uses the future Instagram delivery endpoint", async () => {
+  test("uses the Instagram delivery endpoint and retains its Telegram method", async () => {
     let path = "";
     const client = start((request) => { path = new URL(request.url).pathname; return Response.json({ ok: true, result: message }); });
-    await client.deliverInstagram({ source: { extraction_id: "ig-1" }, delivery: "media", telegram: { chat_id: 7 } });
+    const result = await client.deliverInstagram({ source: { extraction_id: "ig-1" }, delivery: "media", telegram: { chat_id: 7 } }, "sendVideo");
     expect(path).toBe("/v1/instagram/telegram-deliveries");
+    expect(result.calls[0]?.method).toBe("sendVideo");
   });
 
   test("sends 19-digit IDs as exact decimal strings", async () => {

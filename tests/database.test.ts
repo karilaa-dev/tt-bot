@@ -106,4 +106,43 @@ integration("PostgreSQL repositories", () => {
       scrapServer.stop(true);
     }
   });
+
+  test("routes Instagram extraction and delivery through tt-scrap", async () => {
+    await createUser(db, 601, "en");
+    const scrapCalls: Array<{ path: string; payload: Record<string, unknown> }> = [];
+    const telegram = Bun.serve({ port: 0, async fetch(request) {
+      const method = new URL(request.url).pathname.split("/").at(-1) || "";
+      const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
+      if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+      if (["setMessageReaction", "sendChatAction"].includes(method)) return Response.json({ ok: true, result: true });
+      return Response.json({ ok: true, result: { message_id: 901, date: 1, chat: { id: Number(payload.chat_id ?? 601), type: "private", first_name: "Test" }, text: String(payload.text ?? "") } });
+    } });
+    const scrapServer = Bun.serve({ port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const payload = await request.json() as Record<string, unknown>;
+      scrapCalls.push({ path, payload });
+      if (path === "/v1/instagram/extractions") return Response.json({
+        extraction_id: "instagram-e2e", platform: "instagram", source_url: "https://www.instagram.com/reel/ABC123", content_type: "video",
+        media: [{ position: 0, media_type: "video", asset: { asset_id: "asset-1", kind: "video", position: 0, download_url: "/v1/assets/asset-1", filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() } }],
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+      return Response.json({ ok: true, result: { message_id: 902, date: 1, chat: { id: 601, type: "private", first_name: "Test" }, video: { file_id: "instagram-video", file_unique_id: "ig-vu", width: 1, height: 1, duration: 1 } } });
+    } });
+    try {
+      const config = { ...testConfig(`http://127.0.0.1:${scrapServer.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
+      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(0) });
+      await bot.init();
+      const from = { id: 601, is_bot: false, first_name: "Instagram Tester", language_code: "en" };
+      const chat = { id: 601, type: "private" as const, first_name: "Instagram Tester" };
+      await bot.handleUpdate({ update_id: 10, message: { message_id: 10, date: 1, chat, from, text: "https://www.instagram.com/reel/ABC123" } });
+
+      expect(scrapCalls.map((call) => call.path)).toEqual(["/v1/instagram/extractions", "/v1/instagram/telegram-deliveries"]);
+      expect(scrapCalls[1]?.payload).toMatchObject({ source: { extraction_id: "instagram-e2e" }, delivery: "media", telegram: { chat_id: 601, supports_streaming: true, reply_parameters: { message_id: 10 } } });
+      const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 601 AND video_link LIKE '%instagram.com%'`;
+      expect(Number(rows[0]?.count)).toBe(1);
+    } finally {
+      telegram.stop(true);
+      scrapServer.stop(true);
+    }
+  });
 });

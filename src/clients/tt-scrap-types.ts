@@ -8,19 +8,9 @@ export type TikTokExtraction = ApiSchemas["TikTokExtractionResponse"];
 export type TikTokMusicExtraction = ApiSchemas["TikTokMusicResponse"];
 export type InstagramMediaItem = ApiSchemas["InstagramMediaItem"];
 export type InstagramExtraction = ApiSchemas["InstagramExtractionResponse"];
+export type TelegramParameters = ApiSchemas["TelegramParameters"];
 
-export interface TelegramParameters {
-  chat_id: number | string;
-  caption?: string;
-  parse_mode?: "HTML" | "MarkdownV2";
-  disable_notification?: boolean;
-  reply_parameters?: { message_id: number; chat_id?: number | string; allow_sending_without_reply?: boolean };
-  reply_markup?: unknown;
-  message_thread_id?: number;
-  supports_streaming?: boolean;
-  disable_content_type_detection?: boolean;
-  [key: string]: unknown;
-}
+type InstagramDeliverySchema = ApiSchemas["InstagramTelegramDeliveryRequest"];
 
 export interface TikTokDeliveryRequest {
   source: { url: string } | { extraction_id: string } | { video_id: bigint };
@@ -29,12 +19,13 @@ export interface TikTokDeliveryRequest {
   telegram: TelegramParameters;
 }
 
-export interface InstagramDeliveryRequest {
-  source: { url: string } | { extraction_id: string };
-  delivery: "media" | "document";
+export interface InstagramDeliveryRequest extends Pick<InstagramDeliverySchema, "telegram"> {
+  source: { url: string; extraction_id?: never } | { extraction_id: string; url?: never };
+  delivery: InstagramDeliverySchema["delivery"];
   refresh?: boolean;
-  telegram: TelegramParameters;
 }
+
+export type InstagramTelegramMethod = "sendPhoto" | "sendVideo" | "sendDocument" | "sendMediaGroup";
 
 export interface TelegramDeliveryCall<T extends Message | Message[] = Message | Message[]> {
   method: string;

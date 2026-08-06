@@ -131,6 +131,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/instagram/telegram-deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver Instagram To Telegram
+         * @description Resolve, prepare, and upload Instagram media using the server's Telegram bot.
+         *
+         *     A single image uses `sendPhoto`, a single video uses `sendVideo`, and a carousel
+         *     uses mixed `sendMediaGroup` batches. Document mode sends all items as files.
+         *     Unsupported image formats and video thumbnails are converted asynchronously.
+         *
+         *     One Telegram call is returned verbatim. Multiple batches return
+         *     `TelegramMultiDeliveryResponse`; do not retry an ambiguous or partial upload
+         *     automatically because that can duplicate messages.
+         */
+        post: operations["deliverInstagramToTelegram"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/assets/{token}": {
         parameters: {
             query?: never;
@@ -244,10 +272,12 @@ export interface components {
             /**
              * Url
              * Format: uri
+             * @description Public Instagram post, reel, TV, or story URL
              */
             url: string;
             /**
              * Refresh
+             * @description Bypass cached extraction and create a new extraction_id
              * @default false
              */
             refresh: boolean;
@@ -257,7 +287,10 @@ export interface components {
          * @description Normalized Instagram post information and temporary asset references.
          */
         InstagramExtractionResponse: {
-            /** Extraction Id */
+            /**
+             * Extraction Id
+             * @description Cached extraction reference reusable by Instagram Telegram delivery
+             */
             extraction_id: string;
             /**
              * Platform
@@ -269,14 +302,19 @@ export interface components {
             source_url: string;
             /**
              * Content Type
+             * @description Single media kind or an ordered mixed carousel
              * @enum {string}
              */
             content_type: "video" | "image" | "carousel";
-            /** Media */
+            /**
+             * Media
+             * @description Ordered extracted media items
+             */
             media: components["schemas"]["InstagramMediaItem"][];
             /**
              * Expires At
              * Format: date-time
+             * @description Expiry time for the associated asset references
              */
             expires_at: string;
         };
@@ -285,17 +323,87 @@ export interface components {
          * @description One ordered Instagram media item with an optional thumbnail.
          */
         InstagramMediaItem: {
-            /** Position */
+            /**
+             * Position
+             * @description Zero-based source carousel order
+             */
             position: number;
             /**
              * Media Type
+             * @description Telegram media type selected for this item
              * @enum {string}
              */
             media_type: "video" | "image";
-            /** Quality */
+            /**
+             * Quality
+             * @description Upstream quality label when supplied
+             */
             quality?: string | null;
+            /** @description Temporary image or video asset */
             asset: components["schemas"]["AssetDescriptor"];
+            /** @description Optional video thumbnail prepared for Telegram media mode */
             thumbnail?: components["schemas"]["AssetDescriptor"] | null;
+        };
+        /**
+         * InstagramTelegramDeliveryRequest
+         * @description Request direct Telegram delivery of an Instagram post.
+         *
+         *     `media` sends photos, videos, or mixed media groups. `document` sends every
+         *     item as a file and preserves original image bytes. The Telegram bot token is
+         *     configured on tt-scrap and is not part of this request.
+         * @example {
+         *       "delivery": "media",
+         *       "refresh": false,
+         *       "source": {
+         *         "url": "https://www.instagram.com/reel/SHORTCODE/"
+         *       },
+         *       "telegram": {
+         *         "caption": "Optional caption",
+         *         "chat_id": 123456789
+         *       }
+         *     }
+         * @example {
+         *       "delivery": "document",
+         *       "source": {
+         *         "extraction_id": "recent-extraction-id"
+         *       },
+         *       "telegram": {
+         *         "chat_id": 123456789
+         *       }
+         *     }
+         */
+        InstagramTelegramDeliveryRequest: {
+            source: components["schemas"]["InstagramTelegramSource"];
+            /**
+             * Delivery
+             * @description media sends displayable media; document sends original/file media
+             * @default media
+             * @enum {string}
+             */
+            delivery: "media" | "document";
+            /**
+             * Refresh
+             * @description Bypass cached URL extraction; invalid with source.extraction_id
+             * @default false
+             */
+            refresh: boolean;
+            telegram: components["schemas"]["TelegramParameters"];
+        };
+        /**
+         * InstagramTelegramSource
+         * @description Exactly one Instagram source selector for Telegram delivery.
+         */
+        InstagramTelegramSource: {
+            /**
+             * Url
+             * @description Instagram post or reel URL
+             */
+            url?: string | null;
+            /**
+             * Extraction Id
+             * @description Recent Instagram extraction_id; avoids another upstream request
+             */
+            extraction_id?: string | null;
         };
         /** LiveResponse */
         LiveResponse: {
@@ -396,7 +504,7 @@ export interface components {
             start_timestamp?: number | null;
             /**
              * Caption
-             * @description Caption for video/document/audio calls; not slideshow deliveries
+             * @description Caption for single calls; Instagram carousels use the first item; TikTok slideshows reject it
              */
             caption?: string | null;
             /** Parse Mode */
@@ -916,6 +1024,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    deliverInstagramToTelegram: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstagramTelegramDeliveryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramAPIResponse"] | components["schemas"]["TelegramMultiDeliveryResponse"];
+                };
+            };
+            /** @description Some earlier Telegram album batches succeeded before a failure */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramMultiDeliveryResponse"];
+                };
+            };
+            /** @description Missing or invalid tt-scrap bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation or delivery-parameter error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A raw Telegram Bot API failure or a stable tt-scrap error envelope. Do not automatically retry an ambiguous upload response. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelegramAPIResponse"] | components["schemas"]["ErrorResponse"];
                 };
             };
         };

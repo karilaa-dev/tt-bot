@@ -2,7 +2,7 @@
 
 Telegram bot for TikTok and Instagram links, implemented in strict TypeScript with [Bun](https://bun.sh/) and [grammY](https://grammy.dev/).
 
-TikTok extraction, media preparation, and Telegram upload are delegated to `tt-scrap`. The service must use the same Telegram bot token as this bot so returned file IDs and callback buttons belong to the polling bot.
+TikTok and Instagram extraction, media preparation, and Telegram upload are delegated to `tt-scrap`. The service must use the same Telegram bot token as this bot so returned file IDs and callback buttons belong to the polling bot.
 
 ## Configuration
 
@@ -55,4 +55,4 @@ TT_SCRAP_BASE_URL=http://127.0.0.1:8000 bun run api:generate
 
 ## Instagram delivery
 
-The bot preserves Instagram routing and calls `POST /v1/instagram/telegram-deliveries`. The currently installed `tt-scrap` exposes Instagram extraction but not this direct-delivery route yet, so Instagram requests use the existing localized error UI until that route is added.
+The bot extracts Instagram posts and reels with `POST /v1/instagram/extractions`, then sends the returned `extraction_id` to `POST /v1/instagram/telegram-deliveries`. Single photos, videos, mixed carousels, document mode, group limits, multi-batch results, and inline carousel navigation are supported. The bot never downloads Instagram media bytes itself.

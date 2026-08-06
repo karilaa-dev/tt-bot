@@ -5,9 +5,8 @@ import { getUser } from "../db/users.ts";
 import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
-import { DeliveryService, allMessages, fileIdFromMessage } from "../services/delivery.ts";
+import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayload, type InlineMediaReference } from "../services/delivery.ts";
 import { resolveLanguage } from "../services/registration.ts";
-import { resultCaption } from "../ui/captions.ts";
 import { loadingKeyboard, statsKeyboard } from "../ui/keyboards.ts";
 import { createInlineSlideshow } from "./inline-slideshow.ts";
 import { findInstagramUrl } from "./links.ts";
@@ -65,19 +64,15 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
     const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
     const service = new DeliveryService(ctx.scrap, ctx.api, ctx.config);
     const result = extraction.platform === "instagram" ? await service.stageInstagram(extraction, link, identity) : await service.stageTikTok(extraction, link, identity);
-    const messages = allMessages(result);
-    const files = messages.map(fileIdFromMessage).filter((value): value is string => !!value);
-    if (!files.length) throw new Error("Storage delivery returned no Telegram file IDs");
+    const media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
+    if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
     const isVideo = extraction.content_type === "video";
-    if (isVideo) {
+    if (media.length === 1) {
       const markup = extraction.platform === "tiktok" ? statsKeyboard(extraction.likes, extraction.views) : undefined;
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: { type: "video", media: files[0]!, caption: resultCaption(lang, link), parse_mode: "HTML", supports_streaming: true }, ...(markup ? { reply_markup: markup } : {}) });
-    } else if (files.length === 1) {
-      const markup = extraction.platform === "tiktok" ? statsKeyboard(extraction.likes, extraction.views) : undefined;
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: { type: "photo", media: files[0]!, caption: resultCaption(lang, link), parse_mode: "HTML" }, ...(markup ? { reply_markup: markup } : {}) });
+      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
     } else {
-      const keyboard = createInlineSlideshow(ctx.api, id, files, lang, link, identity, extraction.platform === "tiktok" ? extraction.likes : undefined, extraction.platform === "tiktok" ? extraction.views : undefined);
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: { type: "photo", media: files[0]!, caption: resultCaption(lang, link), parse_mode: "HTML" }, reply_markup: keyboard });
+      const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity, extraction.platform === "tiktok" ? extraction.likes : undefined, extraction.platform === "tiktok" ? extraction.views : undefined);
+      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
     }
     try {
       await addVideo(ctx.db, ctx.from!.id, link, !isVideo, false, true);
@@ -88,6 +83,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
     await editText(ctx, id, errorText(error, lang, instagram), retryKeyboard(lang, link, instagram));
   }
 }
+
 
 async function languageForInline(ctx: BotContext, userId: number): Promise<Language> {
   const user = await getUser(ctx.db, userId); return user?.lang ?? await resolveLanguage(ctx, true);

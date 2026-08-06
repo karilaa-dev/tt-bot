@@ -6,6 +6,7 @@ import { logger } from "../logging.ts";
 import type {
   InstagramDeliveryRequest,
   InstagramExtraction,
+  InstagramTelegramMethod,
   TelegramDeliveryCall,
   TelegramDeliveryResult,
   TikTokDeliveryRequest,
@@ -50,8 +51,8 @@ export class TtScrapClient {
     return this.deliver("/v1/tiktok/telegram-deliveries", request, inferTikTokMethod(request));
   }
 
-  deliverInstagram(request: InstagramDeliveryRequest): Promise<TelegramDeliveryResult> {
-    return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, request.delivery === "document" ? "sendDocument" : "sendMediaGroup");
+  deliverInstagram(request: InstagramDeliveryRequest, expectedMethod: InstagramTelegramMethod): Promise<TelegramDeliveryResult> {
+    return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, expectedMethod);
   }
 
   private async extractWithRetry<T>(path: string, body: unknown, options: RetryOptions): Promise<T> {

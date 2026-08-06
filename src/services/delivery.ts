@@ -1,13 +1,14 @@
 import type { Api, InlineKeyboard } from "grammy";
-import type { Message } from "grammy/types";
+import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
-import type { InstagramExtraction, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
+import type { InstagramExtraction, InstagramTelegramMethod, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
 import { text, type Language } from "../locales.ts";
 import { resultCaption, storageCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 
 export interface DeliveryIdentity { userId?: number; username?: string; fullName?: string }
+export interface InlineMediaReference { type: "photo" | "video"; fileId: string }
 
 export class DeliveryService {
   constructor(private readonly scrap: TtScrapClient, private readonly api: Api, private readonly config: AppConfig) {}
@@ -21,7 +22,7 @@ export class DeliveryService {
         ...(extraction.content_type === "video" ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
         reply_parameters: { message_id: replyTo },
         disable_notification: extraction.content_type === "slideshow" || disableNotification,
-        reply_markup: extraction.content_type === "video" ? musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views) : undefined,
+        reply_markup: extraction.content_type === "video" ? { inline_keyboard: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views).inline_keyboard } : undefined,
         ...technicalParameters(extraction.content_type, fileMode),
       },
     });
@@ -50,7 +51,7 @@ export class DeliveryService {
       reply_parameters: { message_id: replyTo },
       disable_notification: extraction.content_type !== "video",
       ...technicalParameters(extraction.content_type, fileMode),
-    } });
+    } }, instagramMethod(extraction, fileMode));
   }
 
   stageInstagram(extraction: InstagramExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
@@ -58,13 +59,19 @@ export class DeliveryService {
       chat_id: this.requireStorage(),
       ...(extraction.content_type === "video" ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true, ...technicalParameters(extraction.content_type, fileMode),
-    } });
+    } }, instagramMethod(extraction, fileMode));
   }
 
   private requireStorage(): number {
     if (this.config.storageChannelId === null) throw new Error("STORAGE_CHANNEL_ID is required for inline and staged delivery");
     return this.config.storageChannelId;
   }
+}
+
+function instagramMethod(extraction: InstagramExtraction, fileMode: boolean): InstagramTelegramMethod {
+  if (extraction.media.length > 1) return "sendMediaGroup";
+  if (fileMode) return "sendDocument";
+  return extraction.media[0]?.media_type === "video" ? "sendVideo" : "sendPhoto";
 }
 
 function technicalParameters(contentType: TikTokExtraction["content_type"] | InstagramExtraction["content_type"], fileMode: boolean): { supports_streaming?: true; disable_content_type_detection?: true } {
@@ -85,4 +92,13 @@ export function fileIdFromMessage(message: Message): string | null {
   if (message.audio) return message.audio.file_id;
   if (message.photo?.length) return message.photo.at(-1)?.file_id ?? null;
   return null;
+}
+export function inlineMediaFromMessage(message: Message): InlineMediaReference | null {
+  if (message.video) return { type: "video", fileId: message.video.file_id };
+  const photo = message.photo?.at(-1);
+  return photo ? { type: "photo", fileId: photo.file_id } : null;
+}
+export function inlineMediaPayload(media: InlineMediaReference, lang: Language, link: string): InputMediaPhoto | InputMediaVideo {
+  const common = { media: media.fileId, caption: resultCaption(lang, link), parse_mode: "HTML" as const };
+  return media.type === "video" ? { type: "video", supports_streaming: true, ...common } : { type: "photo", ...common };
 }
