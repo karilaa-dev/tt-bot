@@ -13,7 +13,7 @@ Copy `.env.example` to `.env` and configure:
 - Compose uses `http://host.docker.internal:8000` so its container can reach that host service.
 - `TG_SERVER` defaults to `https://api.telegram.org`. It may be changed to a compatible custom Telegram Bot API root, but no local server is bundled.
 - `STORAGE_CHANNEL_ID` is required for inline delivery and group slideshows containing more than ten items.
-- Private chats have a three-item FIFO extraction queue; groups have ten. One extraction runs at a time per queue, and full-queue replies include a retry button.
+- Private chats have a three-item FIFO media queue; groups have ten. A slot remains occupied until delivery completes, one job runs at a time per chat, and at most 25 jobs run globally. The global waiting queue is unlimited.
 - `DB_POOL_SIZE` defaults to 10 PostgreSQL connections.
 
 `tt-scrap` itself must set `TELEGRAM_BOT_TOKEN` to the same value as `BOT_TOKEN` and normally `TELEGRAM_API_BASE_URL=https://api.telegram.org`.

@@ -1,4 +1,4 @@
-import type { Api, InlineKeyboard } from "grammy";
+import type { InlineKeyboard } from "grammy";
 import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
@@ -11,7 +11,7 @@ export interface DeliveryIdentity { userId?: number; username?: string; fullName
 export interface InlineMediaReference { type: "photo" | "video"; fileId: string }
 
 export class DeliveryService {
-  constructor(private readonly scrap: TtScrapClient, private readonly api: Api, private readonly config: AppConfig) {}
+  constructor(private readonly scrap: TtScrapClient, private readonly config: AppConfig) {}
 
   deliverTikTokToChat(extraction: TikTokExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean, disableNotification = false): Promise<TelegramDeliveryResult> {
     return this.scrap.deliverTikTok({

@@ -11,11 +11,10 @@ import type {
   TelegramDeliveryResult,
   TikTokDeliveryRequest,
   TikTokExtraction,
-  TikTokMusicExtraction,
 } from "./tt-scrap-types.ts";
 
 interface ErrorEnvelope { error: { code: string; message: string; request_id: string } }
-interface TelegramEnvelope { ok: boolean; result?: unknown; error_code?: number; description?: string; parameters?: Record<string, unknown> }
+interface TelegramEnvelope { ok: boolean; result?: unknown; error_code?: number; description?: string; parameters?: Record<string, unknown> | null }
 interface MultiEnvelope { ok: boolean; partial: boolean; deliveries: Array<{ method: string; status_code: number; response: unknown }> }
 
 export interface RetryOptions {
@@ -36,15 +35,11 @@ export class TtScrapClient {
   }
 
   extractTikTok(url: string, options: RetryOptions = {}): Promise<TikTokExtraction> {
-    return this.extractWithRetry<TikTokExtraction>("/v1/tiktok/extractions", { url, refresh: false }, options);
-  }
-
-  extractTikTokMusic(videoId: bigint, options: RetryOptions = {}): Promise<TikTokMusicExtraction> {
-    return this.extractWithRetry<TikTokMusicExtraction>("/v1/tiktok/music", { video_id: videoId }, options);
+    return this.extractWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
   }
 
   extractInstagram(url: string, options: RetryOptions = {}): Promise<InstagramExtraction> {
-    return this.extractWithRetry<InstagramExtraction>("/v1/instagram/extractions", { url, refresh: false }, options);
+    return this.extractWithRetry("/v1/instagram/extractions", { url, refresh: false }, isInstagramExtraction, options);
   }
 
   deliverTikTok(request: TikTokDeliveryRequest): Promise<TelegramDeliveryResult> {
@@ -55,17 +50,17 @@ export class TtScrapClient {
     return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, expectedMethod);
   }
 
-  private async extractWithRetry<T>(path: string, body: unknown, options: RetryOptions): Promise<T> {
+  private async extractWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {
     const attempts = Math.max(1, options.attempts ?? 1);
     let last: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        return await this.post<T>(path, body, this.config.ttScrapRequestTimeoutMs);
+        return await this.post(path, body, this.config.ttScrapRequestTimeoutMs, validate);
       } catch (error) {
         last = error;
         if (attempt >= attempts || !isRetryableExtractionError(error)) throw error;
         await options.onRetry?.(attempt, attempts - 1);
-        await Bun.sleep(500);
+        await Bun.sleep(Math.min(4_000, 500 * 2 ** (attempt - 1)));
       }
     }
     throw last;
@@ -77,6 +72,10 @@ export class TtScrapClient {
     logger.debug("tt-scrap delivery response", { path, status: response.status, request_id: requestId });
     const value: unknown = await parseJson(response);
     if (isErrorEnvelope(value)) throw toTtScrapError(value, response.status);
+    if (!response.ok) {
+      if (isTelegramEnvelope(value) && !value.ok) throw telegramError(value, expectedMethod, body, requestId);
+      throw new TtScrapError("http_error", `tt-scrap returned HTTP ${response.status}`, requestId, response.status);
+    }
     if (isMultiEnvelope(value)) {
       const calls: TelegramDeliveryCall[] = [];
       for (const delivery of value.deliveries) {
@@ -95,13 +94,14 @@ export class TtScrapClient {
     return { calls: [{ method: expectedMethod, statusCode: response.status, result: telegramResult(value.result) }] };
   }
 
-  private async post<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
+  private async post<T>(path: string, body: unknown, timeoutMs: number, validate: (value: unknown) => value is T): Promise<T> {
     const response = await this.fetch(path, body, timeoutMs);
     logger.debug("tt-scrap extraction response", { path, status: response.status, request_id: response.headers.get("x-request-id") || "unknown" });
     const value: unknown = await parseJson(response);
     if (isErrorEnvelope(value)) throw toTtScrapError(value, response.status);
     if (!response.ok) throw new TtScrapError("http_error", `tt-scrap returned HTTP ${response.status}`, response.headers.get("x-request-id") || "unknown", response.status);
-    return value as T;
+    if (!validate(value)) throw new TtScrapError("invalid_response", "tt-scrap returned an invalid extraction response", response.headers.get("x-request-id") || "unknown", response.status);
+    return value;
   }
 
   private async fetch(path: string, body: unknown, timeoutMs: number, delivery = false): Promise<Response> {
@@ -138,15 +138,25 @@ function isMessage(value: unknown): value is Message {
   return typeof value === "object" && value !== null && typeof (value as { message_id?: unknown }).message_id === "number" && typeof (value as { chat?: unknown }).chat === "object";
 }
 function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
-  if (typeof value !== "object" || value === null || !("error" in value)) return false;
-  const error = (value as { error?: unknown }).error;
-  return typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string";
+  if (!isRecord(value) || !("error" in value)) return false;
+  const error = value.error;
+  return isRecord(error) && typeof error.code === "string" && typeof error.message === "string" && typeof error.request_id === "string";
 }
 function isTelegramEnvelope(value: unknown): value is TelegramEnvelope {
-  return typeof value === "object" && value !== null && typeof (value as { ok?: unknown }).ok === "boolean";
+  if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+  if (value.error_code !== undefined && value.error_code !== null && typeof value.error_code !== "number") return false;
+  if (value.description !== undefined && value.description !== null && typeof value.description !== "string") return false;
+  return value.parameters === undefined || value.parameters === null || isRecord(value.parameters);
 }
 function isMultiEnvelope(value: unknown): value is MultiEnvelope {
-  return typeof value === "object" && value !== null && Array.isArray((value as { deliveries?: unknown }).deliveries) && typeof (value as { partial?: unknown }).partial === "boolean";
+  return isRecord(value)
+    && typeof value.ok === "boolean"
+    && typeof value.partial === "boolean"
+    && Array.isArray(value.deliveries)
+    && value.deliveries.every((delivery) => isRecord(delivery)
+      && typeof delivery.method === "string"
+      && typeof delivery.status_code === "number"
+      && "response" in delivery);
 }
 function toTtScrapError(value: ErrorEnvelope, status: number): TtScrapError {
   return new TtScrapError(value.error.code, value.error.message, value.error.request_id, status);
@@ -167,8 +177,42 @@ async function parseJson(response: Response): Promise<unknown> {
   catch { throw new TtScrapError("invalid_response", "tt-scrap returned invalid JSON", response.headers.get("x-request-id") || "unknown", response.status); }
 }
 function isRetryableExtractionError(error: unknown): boolean {
-  return error instanceof TtScrapError && ["upstream_network_error", "upstream_extraction_error", "upstream_timeout", "upstream_rate_limited"].includes(error.code);
+  return error instanceof TtScrapError && (
+    ["upstream_network_error", "upstream_extraction_error", "upstream_timeout", "upstream_rate_limited"].includes(error.code)
+    || [429, 502, 503, 504].includes(error.status)
+  );
 }
 function stringifyJson(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? item.toString() : item);
+}
+
+function isTikTokExtraction(value: unknown): value is TikTokExtraction {
+  if (!isRecord(value)) return false;
+  return value.platform === "tiktok"
+    && typeof value.extraction_id === "string"
+    && typeof value.source_id === "string"
+    && typeof value.source_url === "string"
+    && typeof value.resolved_url === "string"
+    && (value.content_type === "video" || value.content_type === "slideshow")
+    && Array.isArray(value.media)
+    && value.media.every(isRecord)
+    && typeof value.expires_at === "string";
+}
+
+function isInstagramExtraction(value: unknown): value is InstagramExtraction {
+  if (!isRecord(value)) return false;
+  return value.platform === "instagram"
+    && typeof value.extraction_id === "string"
+    && typeof value.source_url === "string"
+    && ["video", "image", "carousel"].includes(String(value.content_type))
+    && Array.isArray(value.media)
+    && value.media.every((media) => isRecord(media)
+      && typeof media.position === "number"
+      && (media.media_type === "video" || media.media_type === "image")
+      && isRecord(media.asset))
+    && typeof value.expires_at === "string";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

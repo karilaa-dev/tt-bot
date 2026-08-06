@@ -1,19 +1,13 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../bot/context.ts";
-import { updateUserMode } from "../db/users.ts";
-import { resolveLanguage, registerAndWelcome } from "../services/registration.ts";
+import { toggleUserMode } from "../db/users.ts";
+import { resolveLanguage, registerChat } from "../services/registration.ts";
 import { text } from "../locales.ts";
 
 export function registerUserHandlers(bot: Bot<BotContext>): void {
   bot.command("start", async (ctx, next) => {
     if (ctx.chat.type !== "private") return next();
     const lang = await resolveLanguage(ctx);
-    const user = await ctx.getUserRecord();
-    if (!user) {
-      const referral = typeof ctx.match === "string" && ctx.match.trim() ? ctx.match.trim().toLowerCase() : null;
-      await registerAndWelcome(ctx, lang, referral);
-      return;
-    }
     await ctx.reply(text(lang, "start") + text(lang, "group_info"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     await ctx.reply(text(lang, "lang_start"), { parse_mode: "HTML" });
   });
@@ -28,10 +22,9 @@ export function registerUserHandlers(bot: Bot<BotContext>): void {
         return;
       }
     }
-    const user = await ctx.getUserRecord();
-    const oldMode = user?.fileMode ?? false;
-    await updateUserMode(ctx.db, ctx.chat.id, !oldMode);
-    if (user) ctx.cacheUserRecord({ ...user, fileMode: !oldMode });
-    await ctx.reply(text(lang, oldMode ? "file_mode_off" : "file_mode_on"), { parse_mode: "HTML" });
+    if (!await ctx.getUserRecord()) await registerChat(ctx, lang);
+    const user = await toggleUserMode(ctx.db, ctx.chat.id);
+    ctx.cacheUserRecord(user);
+    await ctx.reply(text(lang, user.fileMode ? "file_mode_on" : "file_mode_off"), { parse_mode: "HTML" });
   });
 }

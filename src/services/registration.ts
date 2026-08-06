@@ -1,5 +1,5 @@
 import type { BotContext } from "../bot/context.ts";
-import { createUser } from "../db/users.ts";
+import { registerUser, type UserRegistration } from "../db/users.ts";
 import { languageFromTelegram, type Language, text } from "../locales.ts";
 import { escapeHtml } from "../ui/captions.ts";
 import { logger } from "../logging.ts";
@@ -15,10 +15,12 @@ export async function resolveLanguage(ctx: BotContext, noDatabase = false): Prom
   return languageFromTelegram(ctx.from?.language_code);
 }
 
-export async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
-  if (!ctx.chat) return;
-  const user = await createUser(ctx.db, ctx.chat.id, lang, referral);
+export async function registerChat(ctx: BotContext, lang: Language, referral: string | null = null): Promise<UserRegistration | null> {
+  if (!ctx.chat) return null;
+  const registration = await registerUser(ctx.db, ctx.chat.id, lang, referral);
+  const { user, created } = registration;
   ctx.cacheUserRecord(user);
+  if (!created) return registration;
   const fullName = (ctx.from ? [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") : ("title" in ctx.chat ? ctx.chat.title : "Chat")) || "Chat";
   const username = ctx.from?.username ? `@${ctx.from.username}\n` : "";
   if (ctx.config.joinLogs !== null) {
@@ -27,6 +29,24 @@ export async function registerAndWelcome(ctx: BotContext, lang: Language, referr
     catch (error) { logger.warn("Failed to send join log", error); }
   }
   logger.info(`New User: ${fullName} ${ctx.chat.id} ${referral || ""}`);
+  return registration;
+}
+
+export async function ensurePrivateRegistration(ctx: BotContext): Promise<void> {
+  if (!ctx.message || ctx.chat?.type !== "private" || await ctx.getUserRecord(ctx.chat.id)) return;
+  const lang = languageFromTelegram(ctx.from?.language_code);
+  await registerChat(ctx, lang, startReferral(ctx.message.text));
+}
+
+export async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
+  const registration = await registerChat(ctx, lang, referral);
+  if (!registration?.created || !ctx.chat) return;
   await ctx.reply(text(lang, "start") + (ctx.chat.type === "private" ? text(lang, "group_info") : ""), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   await ctx.reply(text(lang, "lang_start"), { parse_mode: "HTML" });
+}
+
+function startReferral(messageText: string | undefined): string | null {
+  if (!messageText) return null;
+  const match = messageText.match(/^\/start(?:@[A-Za-z0-9_]+)?(?:\s+(.+))?$/i);
+  return match?.[1]?.trim().toLowerCase() || null;
 }

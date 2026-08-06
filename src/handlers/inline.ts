@@ -9,7 +9,7 @@ import { resolveLanguage } from "../services/registration.ts";
 import { loadingKeyboard, statsKeyboard } from "../ui/keyboards.ts";
 import { createInlineSlideshow } from "./inline-slideshow.ts";
 import { findInstagramUrl } from "./links.ts";
-import { errorText, findTikTokUrl } from "./tiktok.ts";
+import { errorText, findTikTokUrl, shouldOfferRetry } from "./tiktok.ts";
 
 const retrying = new Set<string>();
 
@@ -33,8 +33,10 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
   bot.on("chosen_inline_result", async (ctx) => {
     const id = ctx.chosenInlineResult.inline_message_id;
     if (!id) return;
+    const resultId = ctx.chosenInlineResult.result_id;
+    if (resultId !== "tt_download" && resultId !== "ig_download") return;
     const user = await ctx.getUserRecord(ctx.from.id); if (!user) return;
-    await processInline(ctx, id, ctx.chosenInlineResult.query, user.lang, ctx.chosenInlineResult.result_id === "ig_download");
+    await processInline(ctx, id, ctx.chosenInlineResult.query, user.lang, resultId === "ig_download");
   });
 
   bot.callbackQuery(/^ir:(tt|ig):(.+)$/, async (ctx) => {
@@ -56,30 +58,35 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
   try {
     const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
       const onRetry = async (attempt: number, max: number) => editText(ctx, id, `${text(lang, "inline_download_video_text")}\n${text(lang, "inline_retry_attempt").replace("{0}", String(attempt)).replace("{1}", String(max))}`, { inline_keyboard: loadingKeyboard.inline_keyboard });
-      return instagram ? ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : ctx.scrap.extractTikTok(link, { attempts: 4, onRetry });
-    }, { bypassLimit: true });
-    if (!queued.acquired) throw new Error("Inline queue rejected unexpectedly");
-    const extraction = queued.value;
-    const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
-    const service = new DeliveryService(ctx.scrap, ctx.api, ctx.config);
-    const result = extraction.platform === "instagram" ? await service.stageInstagram(extraction, link, identity) : await service.stageTikTok(extraction, link, identity);
-    const media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
-    if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
-    const isVideo = extraction.content_type === "video";
-    if (media.length === 1) {
-      const markup = extraction.platform === "tiktok" ? statsKeyboard(extraction.likes, extraction.views) : undefined;
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
-    } else {
-      const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity, extraction.platform === "tiktok" ? extraction.likes : undefined, extraction.platform === "tiktok" ? extraction.views : undefined);
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
+      const extraction = instagram ? await ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : await ctx.scrap.extractTikTok(link, { attempts: 4, onRetry });
+      const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
+      const service = new DeliveryService(ctx.scrap, ctx.config);
+      const result = extraction.platform === "instagram" ? await service.stageInstagram(extraction, link, identity) : await service.stageTikTok(extraction, link, identity);
+      const media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
+      if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
+      if (media.length === 1) {
+        const markup = extraction.platform === "tiktok" ? statsKeyboard(extraction.likes, extraction.views) : undefined;
+        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
+      } else {
+        const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity, extraction.platform === "tiktok" ? extraction.likes : undefined, extraction.platform === "tiktok" ? extraction.views : undefined);
+        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
+      }
+      return extraction;
+    });
+    if (!queued.acquired) {
+      if (queued.reason === "capacity") await editText(ctx, id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.from!.id))), retryKeyboard(lang, link, instagram));
+      return;
     }
+    const extraction = queued.value;
+    const isVideo = extraction.content_type === "video";
     try {
       await addVideo(ctx.db, ctx.from!.id, link, !isVideo, false, true);
       logger.info(`Inline Download: ${ctx.from!.id} - ${isVideo ? "VIDEO" : "IMAGES"} ${link}`);
     } catch (error) { logger.error("Can't write inline download into database", error); }
   } catch (error) {
     logger.error(`Inline delivery failed for ${link}`, error);
-    await editText(ctx, id, errorText(error, lang, instagram), retryKeyboard(lang, link, instagram));
+    const markup = shouldOfferRetry(error) ? retryKeyboard(lang, link, instagram) : { inline_keyboard: [] };
+    await editText(ctx, id, errorText(error, lang, instagram), markup);
   }
 }
 
@@ -91,7 +98,8 @@ function article(id: string, title: string, description: string, body: string, t
   return { type: "article", id, title, description, input_message_content: { message_text: body, parse_mode: "HTML" }, thumbnail_url: thumbnail, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) };
 }
 async function editText(ctx: BotContext, id: string, value: string, markup?: InlineKeyboardMarkup): Promise<void> {
-  try { await ctx.api.raw.editMessageText({ inline_message_id: id, text: value, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) }); } catch { /* message may already contain the same text */ }
+  try { await ctx.api.raw.editMessageText({ inline_message_id: id, text: value, parse_mode: "HTML", ...(markup ? { reply_markup: markup } : {}) }); }
+  catch (error) { logger.warn("Inline text edit failed", error); }
 }
 function retryKeyboard(lang: Language, link: string, instagram: boolean): InlineKeyboardMarkup {
   const data = `ir:${instagram ? "ig" : "tt"}:${compress(link, instagram)}`;

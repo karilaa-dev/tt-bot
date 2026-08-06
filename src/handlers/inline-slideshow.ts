@@ -54,47 +54,52 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
     if (session.loading.has(index)) return ctx.answerCallbackQuery({ text: "Loading…" });
     session.loading.add(index);
     try {
+      await ctx.answerCallbackQuery();
       await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(session.media[index]!, session.lang, session.sourceLink), reply_markup: navigationKeyboard(index, session.media.length, session.likes, session.views) });
       session.currentIndex = index;
       resetTimer(ctx.api, id, session);
-      await ctx.answerCallbackQuery();
-    } catch (error) { logger.warn("Inline slideshow edit failed", error); await ctx.answerCallbackQuery(); }
+    } catch (error) { logger.warn("Inline slideshow edit failed", error); }
     finally { session.loading.delete(index); }
   });
 
-  bot.callbackQuery(/^sr:(\d+):(.+)$/, async (ctx) => {
+  bot.callbackQuery(/^sr:(\d+):(\d+):(.+)$/, async (ctx) => {
     const id = ctx.callbackQuery.inline_message_id;
     if (!id) return ctx.answerCallbackQuery();
+    const ownerId = Number(ctx.match[1]);
+    if (ctx.from.id !== ownerId) return ctx.answerCallbackQuery({ text: "Only the original requester can refresh this slideshow.", show_alert: true });
     if (refreshing.has(id)) return ctx.answerCallbackQuery({ text: "Refreshing…" });
+    if (!ctx.queue.hasCapacity(ctx.from.id)) return ctx.answerCallbackQuery({ text: "Your download queue is full.", show_alert: true });
     refreshing.add(id);
     try {
-      const saved = Number(ctx.match[1]);
-      const link = `https://${ctx.match[2]}`;
+      await ctx.answerCallbackQuery({ text: "Refreshing…" });
+      const saved = Number(ctx.match[2]);
+      const link = `https://${ctx.match[3]}`;
       const user = await ctx.getUserRecord(ctx.from.id);
       const lang = user?.lang ?? await resolveLanguage(ctx, true);
       const identity = { userId: ctx.from.id, fullName: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" "), ...(ctx.from.username ? { username: ctx.from.username } : {}) };
-      const service = new DeliveryService(ctx.scrap, ctx.api, ctx.config);
-      let media: InlineMediaReference[];
-      let likes: number | null | undefined;
-      let views: number | null | undefined;
-      if (findInstagramUrl(link)) {
-        const queued = await ctx.queue.withSlot(ctx.from.id, () => ctx.scrap.extractInstagram(link), { bypassLimit: true });
-        if (!queued.acquired) throw new Error("Inline Instagram refresh queue rejected unexpectedly");
-        const extraction = queued.value;
-        media = inlineMedia(await service.stageInstagram(extraction, link, identity));
-      } else {
-        const queued = await ctx.queue.withSlot(ctx.from.id, () => ctx.scrap.extractTikTok(link), { bypassLimit: true });
-        if (!queued.acquired) throw new Error("Inline TikTok refresh queue rejected unexpectedly");
-        const extraction = queued.value;
-        media = inlineMedia(await service.stageTikTok(extraction, link, identity));
-        likes = extraction.likes; views = extraction.views;
+      const service = new DeliveryService(ctx.scrap, ctx.config);
+      const queued = await ctx.queue.withSlot(ctx.from.id, async () => {
+        let media: InlineMediaReference[];
+        let likes: number | null | undefined;
+        let views: number | null | undefined;
+        if (findInstagramUrl(link)) {
+          const extraction = await ctx.scrap.extractInstagram(link, { attempts: 4 });
+          media = inlineMedia(await service.stageInstagram(extraction, link, identity));
+        } else {
+          const extraction = await ctx.scrap.extractTikTok(link, { attempts: 4 });
+          media = inlineMedia(await service.stageTikTok(extraction, link, identity));
+          likes = extraction.likes; views = extraction.views;
+        }
+        createInlineSlideshow(ctx.api, id, media, lang, link, identity, likes, views);
+        const session = sessions.get(id)!;
+        session.currentIndex = Math.max(0, Math.min(saved, media.length - 1));
+        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[session.currentIndex]!, lang, link), reply_markup: navigationKeyboard(session.currentIndex, media.length, likes, views) });
+      });
+      if (!queued.acquired) {
+        if (queued.reason === "capacity") logger.warn(`Inline refresh queue filled for user ${ctx.from.id}`);
+        return;
       }
-      const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity, likes, views);
-      const session = sessions.get(id)!;
-      session.currentIndex = Math.max(0, Math.min(saved, media.length - 1));
-      await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[session.currentIndex]!, lang, link), reply_markup: navigationKeyboard(session.currentIndex, media.length, likes, views) });
-      await ctx.answerCallbackQuery();
-    } catch (error) { logger.error("Inline slideshow refresh failed", error); await ctx.answerCallbackQuery({ text: "Failed to refresh.", show_alert: true }); }
+    } catch (error) { logger.error("Inline slideshow refresh failed", error); }
     finally { refreshing.delete(id); }
   });
 }
@@ -118,18 +123,21 @@ function navigationKeyboard(index: number, total: number, likes?: number | null,
   rows.push(nav);
   return { inline_keyboard: rows };
 }
-function expiredKeyboard(index: number, total: number, source: string, likes?: number | null, views?: number | null): InlineKeyboardMarkup {
-  const rows: InlineKeyboardMarkup["inline_keyboard"] = [];
-  const stats = statsRow(likes, views); if (stats.length) rows.push(stats);
-  rows.push([{ text: `📸 ${index + 1}/${total}`, callback_data: "slide:noop" }, { text: "🔄", callback_data: `sr:${index}:${compress(source)}` }]);
-  return { inline_keyboard: rows };
-}
 async function expire(api: Api, id: string): Promise<void> {
   const session = sessions.get(id); if (!session) return; sessions.delete(id);
-  try { await api.raw.editMessageReplyMarkup({ inline_message_id: id, reply_markup: expiredKeyboard(session.currentIndex, session.media.length, session.sourceLink, session.likes, session.views) }); } catch { /* inline message gone */ }
+  try { await api.raw.editMessageReplyMarkup({ inline_message_id: id, reply_markup: expiredKeyboardForSession(session) }); } catch { /* inline message gone */ }
 }
 function resetTimer(api: Api, id: string, session: SlideshowSession): void { clearTimeout(session.timer); session.timer = setTimeout(() => expire(api, id), TTL_MS); }
 function compress(source: string): string {
   const clean = source.split("?")[0]!.replace(/^https?:\/\//, "");
-  return clean.includes("tiktok.com") ? clean.replace(/@[\w.]+/, "@") : clean;
+  return clean.includes("tiktok.com") ? clean.replace(/@[\w.]+(?=\/(?:video|photo)\/)/, "@user") : clean;
+}
+function expiredKeyboardForSession(session: SlideshowSession): InlineKeyboardMarkup {
+  const rows: InlineKeyboardMarkup["inline_keyboard"] = [];
+  const stats = statsRow(session.likes, session.views); if (stats.length) rows.push(stats);
+  const callbackData = `sr:${session.userId}:${session.currentIndex}:${compress(session.sourceLink)}`;
+  const row = [{ text: `📸 ${session.currentIndex + 1}/${session.media.length}`, callback_data: "slide:noop" }];
+  if (callbackData.length <= 64) row.push({ text: "🔄", callback_data: callbackData });
+  rows.push(row);
+  return { inline_keyboard: rows };
 }

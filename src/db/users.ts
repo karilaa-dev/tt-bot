@@ -9,6 +9,11 @@ export interface UserRecord {
   fileMode: boolean;
 }
 
+export interface UserRegistration {
+  user: UserRecord;
+  created: boolean;
+}
+
 interface UserRow { user_id: bigint | number | string; registered_at: bigint | number | string | null; lang: string; link: string | null; file_mode: boolean }
 
 function mapUser(row: UserRow): UserRecord {
@@ -21,21 +26,37 @@ export async function getUser(db: Database, userId: number): Promise<UserRecord 
 }
 
 export async function createUser(db: Database, userId: number, lang: Language, link: string | null = null): Promise<UserRecord> {
+  return (await registerUser(db, userId, lang, link)).user;
+}
+
+export async function registerUser(db: Database, userId: number, lang: Language, link: string | null = null): Promise<UserRegistration> {
   const rows = await db.sql<Array<UserRow>>`INSERT INTO users (user_id, registered_at, lang, link, file_mode)
     VALUES (${userId}, ${Math.floor(Date.now() / 1000)}, ${lang}, ${link}, FALSE)
-    ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+    ON CONFLICT (user_id) DO NOTHING
+    RETURNING user_id, registered_at, lang, link, file_mode`;
+  const inserted = rows[0];
+  if (inserted) return { user: mapUser(inserted), created: true };
+  const existing = await getUser(db, userId);
+  if (!existing) throw new Error(`Failed to register user ${userId}`);
+  return { user: existing, created: false };
+}
+
+export async function toggleUserMode(db: Database, userId: number): Promise<UserRecord> {
+  const rows = await db.sql<Array<UserRow>>`UPDATE users SET file_mode = NOT file_mode
+    WHERE user_id = ${userId}
     RETURNING user_id, registered_at, lang, link, file_mode`;
   const user = rows[0];
-  if (!user) throw new Error(`Failed to create user ${userId}`);
+  if (!user) throw new Error(`Cannot toggle mode for unregistered chat ${userId}`);
   return mapUser(user);
 }
 
-export async function updateUserMode(db: Database, userId: number, fileMode: boolean): Promise<void> {
-  await db.sql`UPDATE users SET file_mode = ${fileMode} WHERE user_id = ${userId}`;
-}
-
-export async function updateUserLanguage(db: Database, userId: number, lang: Language): Promise<void> {
-  await db.sql`UPDATE users SET lang = ${lang} WHERE user_id = ${userId}`;
+export async function updateUserLanguage(db: Database, userId: number, lang: Language): Promise<UserRecord> {
+  const rows = await db.sql<Array<UserRow>>`UPDATE users SET lang = ${lang}
+    WHERE user_id = ${userId}
+    RETURNING user_id, registered_at, lang, link, file_mode`;
+  const user = rows[0];
+  if (!user) throw new Error(`Cannot update language for unregistered chat ${userId}`);
+  return mapUser(user);
 }
 
 export async function getUserIds(db: Database, onlyPositive = true): Promise<number[]> {
@@ -43,21 +64,4 @@ export async function getUserIds(db: Database, onlyPositive = true): Promise<num
     ? await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users WHERE user_id > 0 ORDER BY user_id`
     : await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users ORDER BY user_id`;
   return rows.map((row) => Number(row.user_id));
-}
-
-export async function* iteratePositiveUserIds(db: Database, batchSize = 1_000): AsyncGenerator<number> {
-  if (!Number.isSafeInteger(batchSize) || batchSize < 1) throw new Error("User batch size must be a positive integer");
-  let cursor = 0;
-  while (true) {
-    const rows = await db.sql<Array<{ user_id: bigint | number | string }>>`
-      SELECT user_id FROM users
-      WHERE user_id > ${cursor}
-      ORDER BY user_id
-      LIMIT ${batchSize}`;
-    if (rows.length === 0) return;
-    for (const row of rows) {
-      cursor = Number(row.user_id);
-      yield cursor;
-    }
-  }
 }

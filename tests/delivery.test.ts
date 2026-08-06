@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { Api } from "grammy";
 import type { Message } from "grammy/types";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
@@ -35,7 +34,7 @@ describe("DeliveryService", () => {
     let payload: Record<string, unknown> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, unknown>; return Response.json({ ok: true, result: [message] }); } });
     const config = testConfig(`http://127.0.0.1:${server.port}`);
-    const service = new DeliveryService(new TtScrapClient(config), {} as Api, config);
+    const service = new DeliveryService(new TtScrapClient(config), config);
     const result = await service.deliverTikTokToChat(extraction, extraction.source_url, 7, 9, "en", false);
     expect(result.calls[0]?.result).toEqual([message]);
     expect(payload).toMatchObject({ source: { extraction_id: "extraction-1" }, delivery: "media", telegram: { chat_id: 7, disable_notification: true, reply_parameters: { message_id: 9 } } });
@@ -47,7 +46,7 @@ describe("DeliveryService", () => {
     let payload: Record<string, unknown> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, unknown>; return Response.json({ ok: true, result: message }); } });
     const config = testConfig(`http://127.0.0.1:${server.port}`);
-    const service = new DeliveryService(new TtScrapClient(config), {} as Api, config);
+    const service = new DeliveryService(new TtScrapClient(config), config);
     await service.stageTikTok(extraction, extraction.source_url, { userId: 7, fullName: "Test" }, true);
     expect(payload).toMatchObject({ source: { extraction_id: "extraction-1" }, delivery: "document", telegram: { chat_id: -100123, disable_notification: true } });
     expect(payload.telegram).not.toHaveProperty("disable_content_type_detection");
@@ -58,7 +57,7 @@ describe("DeliveryService", () => {
     let payload: Record<string, any> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: videoMessage }); } });
     const config = testConfig(`http://127.0.0.1:${server.port}`);
-    const service = new DeliveryService(new TtScrapClient(config), {} as Api, config);
+    const service = new DeliveryService(new TtScrapClient(config), config);
     const result = await service.deliverInstagram(instagramExtraction("video", ["video"]), "https://www.instagram.com/reel/ABC123", 7, 9, "en", false);
     expect(result.calls[0]?.method).toBe("sendVideo");
     expect(payload).toMatchObject({ source: { extraction_id: "instagram-1" }, delivery: "media", telegram: { chat_id: 7, parse_mode: "HTML", supports_streaming: true, reply_parameters: { message_id: 9 } } });
@@ -74,7 +73,7 @@ describe("DeliveryService", () => {
         : Response.json({ ok: true, result: [message, videoMessage] });
     } });
     const config = testConfig(`http://127.0.0.1:${server.port}`);
-    const service = new DeliveryService(new TtScrapClient(config), {} as Api, config);
+    const service = new DeliveryService(new TtScrapClient(config), config);
     const image = await service.deliverInstagram(instagramExtraction("image", ["image"]), "https://www.instagram.com/p/ABC123", 7, 9, "en", false);
     const carousel = await service.deliverInstagram(instagramExtraction("carousel", ["image", "video"]), "https://www.instagram.com/p/ABC123", 7, 9, "en", false);
     expect(image.calls[0]?.method).toBe("sendPhoto");

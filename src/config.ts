@@ -3,7 +3,6 @@ export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 export interface AppConfig {
   botToken: string;
   adminIds: Set<number>;
-  secondAdminIds: Set<number>;
   joinLogs: number | string | null;
   storageChannelId: number | null;
   telegramApiRoot: string;
@@ -15,6 +14,7 @@ export interface AppConfig {
   ttScrapInstagramDeliveryPath: string;
   maxUserQueueSize: number;
   maxGroupQueueSize: number;
+  maxActiveJobs: number;
   databasePoolSize: number;
   logLevel: LogLevel;
 }
@@ -93,8 +93,7 @@ function normalizeUrl(name: string, value: string): string {
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const requireDatabase = options.requireDatabase ?? true;
   const requireTtScrap = options.requireTtScrap ?? true;
-  const admins = parseIds("ADMIN_IDS");
-  const secondAdmins = new Set([...admins, ...parseIds("SECOND_IDS")]);
+  const admins = new Set([...parseIds("ADMIN_IDS"), ...parseIds("SECOND_IDS")]);
   const storage = parseChat("STORAGE_CHANNEL_ID");
   if (typeof storage === "string") throw new Error("STORAGE_CHANNEL_ID must be numeric");
   const level = (Bun.env.LOG_LEVEL?.trim().toUpperCase() || "INFO") as LogLevel;
@@ -108,7 +107,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   return {
     botToken: required("BOT_TOKEN"),
     adminIds: admins,
-    secondAdminIds: secondAdmins,
     joinLogs: parseChat("JOIN_LOGS"),
     storageChannelId: storage,
     telegramApiRoot: normalizeUrl("TG_SERVER", Bun.env.TG_SERVER?.trim() || "https://api.telegram.org"),
@@ -120,6 +118,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     ttScrapInstagramDeliveryPath: instagramPath,
     maxUserQueueSize: parsePositiveInteger("MAX_USER_QUEUE_SIZE", 3),
     maxGroupQueueSize: parsePositiveInteger("MAX_GROUP_QUEUE_SIZE", 10),
+    maxActiveJobs: parsePositiveInteger("MAX_ACTIVE_JOBS", 25),
     databasePoolSize: parsePositiveInteger("DB_POOL_SIZE", 10),
     logLevel: level,
   };

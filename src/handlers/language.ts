@@ -2,7 +2,7 @@ import type { Bot } from "grammy";
 import type { BotContext } from "../bot/context.ts";
 import { updateUserLanguage } from "../db/users.ts";
 import { isLanguage, text } from "../locales.ts";
-import { resolveLanguage } from "../services/registration.ts";
+import { registerChat, resolveLanguage } from "../services/registration.ts";
 import { languageKeyboard } from "../ui/keyboards.ts";
 
 export function registerLanguageHandlers(bot: Bot<BotContext>): void {
@@ -29,9 +29,9 @@ export function registerLanguageHandlers(bot: Bot<BotContext>): void {
         return ctx.answerCallbackQuery({ text: text(lang, "not_admin") });
       }
     }
-    await updateUserLanguage(ctx.db, ctx.chat.id, value);
-    const user = await ctx.getUserRecord();
-    if (user) ctx.cacheUserRecord({ ...user, lang: value });
+    if (!await ctx.getUserRecord()) await registerChat(ctx, value);
+    const user = await updateUserLanguage(ctx.db, ctx.chat.id, value);
+    ctx.cacheUserRecord(user);
     try { await ctx.editMessageText(text(value, "lang"), { parse_mode: "HTML" }); } catch { /* unchanged message */ }
     await ctx.answerCallbackQuery();
   });

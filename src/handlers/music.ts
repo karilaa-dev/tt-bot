@@ -8,7 +8,9 @@ import { resolveLanguage } from "../services/registration.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 import { STATS_CALLBACK_PREFIX } from "../ui/stats.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
-import { errorText } from "./tiktok.ts";
+import { errorText, shouldOfferRetry } from "./tiktok.ts";
+
+const activeMusicDeliveries = new Set<string>();
 
 export function registerMusicHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery(STATS_CALLBACK_PREFIX, (ctx) => ctx.answerCallbackQuery());
@@ -20,18 +22,31 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
     const message = ctx.callbackQuery.message;
     if (!/^\d+$/.test(videoIdText)) return ctx.answerCallbackQuery({ text: "Invalid TikTok sound ID", show_alert: true });
     if (!message) return ctx.answerCallbackQuery({ text: "This sound button is no longer available", show_alert: true });
+    const deliveryKey = `${message.chat.id}:${message.message_id}`;
+    if (activeMusicDeliveries.has(deliveryKey)) return ctx.answerCallbackQuery({ text: "Sound delivery is already in progress…" });
+    activeMusicDeliveries.add(deliveryKey);
     logger.debug(`Music callback received for ${videoIdText} in chat ${message.chat.id}`);
     const videoId = BigInt(videoIdText);
-    await ctx.answerCallbackQuery();
+    try { await ctx.answerCallbackQuery(); }
+    catch (error) { activeMusicDeliveries.delete(deliveryKey); throw error; }
     const group = message.chat.type !== "private";
     const lang = await resolveLanguage(ctx);
-    try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch { /* double click */ }
-    const status = await beginStatus(ctx, message);
+    let status: Awaited<ReturnType<typeof beginStatus>> = null;
     try {
-      await ctx.api.sendChatAction(message.chat.id, "upload_document");
-      if (!group) await setReaction(ctx, message, "👨‍💻");
-      await new DeliveryService(ctx.scrap, ctx.api, ctx.config).deliverAudio(videoId, message.chat.id, message.message_id, lang, group);
-      await clearStatus(ctx, message, status);
+      try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch { /* already changed */ }
+      status = await beginStatus(ctx, message);
+      const queued = await ctx.queue.withSlot(message.chat.id, async () => {
+        await ctx.api.sendChatAction(message.chat.id, "upload_document");
+        if (!group) await setReaction(ctx, message, "👨‍💻");
+        await new DeliveryService(ctx.scrap, ctx.config).deliverAudio(videoId, message.chat.id, message.message_id, lang, group);
+        await clearStatus(ctx, message, status);
+      }, { group });
+      if (!queued.acquired) {
+        await clearStatus(ctx, message, status);
+        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
+        if (queued.reason === "capacity" && !group) await ctx.api.sendMessage(message.chat.id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(message.chat.id))), { parse_mode: "HTML", reply_parameters: { message_id: message.message_id } });
+        return;
+      }
       try {
         await addMusic(ctx.db, message.chat.id, videoId);
         logger.info(`Music Download: CHAT ${message.chat.id} - MUSIC ${videoIdText}`);
@@ -40,8 +55,12 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
       logger.error(`Music handler failed for ${videoIdText}`, error);
       await clearStatus(ctx, message, status);
       if (!status) await setReaction(ctx, message, group ? null : "😢");
-      try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
+      if (shouldOfferRetry(error)) {
+        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
+      }
       if (!group) await ctx.api.sendMessage(message.chat.id, errorText(error, lang), { parse_mode: "HTML", reply_parameters: { message_id: message.message_id } });
+    } finally {
+      activeMusicDeliveries.delete(deliveryKey);
     }
   });
 }

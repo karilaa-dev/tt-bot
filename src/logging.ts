@@ -20,8 +20,20 @@ function safeDetails(details: unknown): string {
   if (details instanceof Error) {
     const diagnostic = details as Error & { requestId?: unknown; ttScrapRequestId?: unknown };
     const requestId = typeof diagnostic.requestId === "string" ? diagnostic.requestId : typeof diagnostic.ttScrapRequestId === "string" ? diagnostic.ttScrapRequestId : null;
-    raw = `${details.name}: ${details.message}${requestId ? ` request_id=${requestId}` : ""}`;
-  } else raw = JSON.stringify(details);
+    raw = `${details.name}: ${details.message}${requestId ? ` request_id=${requestId}` : ""}${details.stack ? `\n${details.stack}` : ""}`;
+  } else {
+    try {
+      const seen = new WeakSet<object>();
+      raw = JSON.stringify(details, (_key, value: unknown) => {
+        if (typeof value === "bigint") return value.toString();
+        if (typeof value === "object" && value !== null) {
+          if (seen.has(value)) return "[Circular]";
+          seen.add(value);
+        }
+        return value;
+      });
+    } catch { raw = String(details); }
+  }
   return (raw || String(details))
     .replace(/Bearer\s+[A-Za-z0-9._~-]+/gi, "Bearer [REDACTED]")
     .replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, "[BOT_TOKEN_REDACTED]");

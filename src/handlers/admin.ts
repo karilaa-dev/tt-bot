@@ -6,7 +6,7 @@ import { logger } from "../logging.ts";
 export function registerAdminHandlers(bot: Bot<BotContext>): void {
   bot.command(["msg", "tell", "say", "send"], async (ctx, next) => {
     if (!ctx.from || !ctx.message) return next();
-    if (ctx.chat.type !== "private" || !ctx.config.secondAdminIds.has(ctx.from.id)) return next();
+    if (ctx.chat.type !== "private" || !ctx.config.adminIds.has(ctx.from.id)) return next();
     const parts = ctx.message.text.split(" ");
     const target = parts[1];
     const message = parts.slice(2).join(" ");
@@ -24,7 +24,7 @@ export function registerAdminHandlers(bot: Bot<BotContext>): void {
 
   bot.command("export", async (ctx, next) => {
     if (!ctx.from) return next();
-    if (ctx.chat.type !== "private" || !ctx.config.secondAdminIds.has(ctx.from.id)) return next();
+    if (ctx.chat.type !== "private" || !ctx.config.adminIds.has(ctx.from.id)) return next();
     const users = await getUserIds(ctx.db, true);
     await ctx.replyWithDocument(new InputFile(Buffer.from(users.join("\n")), "users.txt"), { caption: "User list" });
   });

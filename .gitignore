@@ -8,8 +8,6 @@ dist/
 !.env.example
 
 *.log
-cookies.txt
-proxies.txt
 .idea/
 .vscode/
 .DS_Store

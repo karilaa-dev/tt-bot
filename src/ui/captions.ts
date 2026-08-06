@@ -2,7 +2,7 @@ import type { Language } from "../locales.ts";
 import { text } from "../locales.ts";
 
 export function resultCaption(lang: Language, link: string, groupWarning = false): string {
-  let result = text(lang, "result").replace("{0}", text(lang, "bot_tag")).replace("{1}", link);
+  let result = text(lang, "result").replace("{0}", text(lang, "bot_tag")).replace("{1}", escapeAttribute(link));
   if (groupWarning) result += text(lang, "group_warning");
   return result;
 }

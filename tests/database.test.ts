@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { Database } from "../src/db/client.ts";
 import { addMusic } from "../src/db/music.ts";
-import { createUser, getUser, getUserIds, updateUserLanguage, updateUserMode } from "../src/db/users.ts";
+import { createUser, getUser, getUserIds, toggleUserMode, updateUserLanguage } from "../src/db/users.ts";
 import { addVideo } from "../src/db/videos.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
@@ -30,7 +30,7 @@ integration("PostgreSQL repositories", () => {
   });
   test("retains the legacy schema and full-width IDs", async () => {
     await Promise.all([createUser(db, 123, "en", "ref"), createUser(db, 123, "en", "ref")]);
-    await updateUserMode(db, 123, true); await updateUserLanguage(db, 123, "uk");
+    await toggleUserMode(db, 123); await updateUserLanguage(db, 123, "uk");
     await addVideo(db, 123, "https://tiktok.test/1", false); await addMusic(db, 123, 7669880788879543583n);
     expect(await getUser(db, 123)).toMatchObject({ userId: 123, lang: "uk", link: "ref", fileMode: true });
     expect(await getUserIds(db)).toEqual([123]);
@@ -86,9 +86,13 @@ integration("PostgreSQL repositories", () => {
         id: "callback-1", chat_instance: "test-instance", from, data: "id/7669880788879543583",
         message: { message_id: 701, date: 1, chat, from: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" }, video: { file_id: "video-id", file_unique_id: "vu", width: 1, height: 1, duration: 1 } },
       } });
+      const otherFrom = { id: 502, is_bot: false, first_name: "First Message", language_code: "uk" };
+      const otherChat = { id: 502, type: "private" as const, first_name: "First Message" };
+      await bot.handleUpdate({ update_id: 6, message: { message_id: 6, date: 1, chat: otherChat, from: otherFrom, text: "hello" } });
 
       expect((await getUser(db, 501))?.link).toBe("referral");
       expect((await getUser(db, 501))?.fileMode).toBe(true);
+      expect(await getUser(db, 502)).toMatchObject({ userId: 502, lang: "uk" });
       expect(deliveries.map((item) => item.delivery)).toEqual(["media", "document", "audio"]);
       expect(deliveries[0]).toMatchObject({ source: { extraction_id: "extract-1" }, telegram: { chat_id: 501, reply_parameters: { message_id: 2 } } });
       expect(deliveries[0]?.telegram).toMatchObject({ supports_streaming: true });

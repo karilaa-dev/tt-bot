@@ -52,6 +52,18 @@ describe("TtScrapClient", () => {
     catch (error) { expect(error).toBeInstanceOf(TtScrapError); expect((error as TtScrapError).requestId).toBe("request-1"); }
   });
 
+  test("rejects a successful Telegram envelope carried by HTTP 500", async () => {
+    const client = start(() => Response.json({ ok: true, result: message }, { status: 500 }));
+    await expect(client.deliverTikTok({ source: { url: "https://www.tiktok.com/@a/video/1" }, delivery: "media", telegram: { chat_id: 7 } }))
+      .rejects.toMatchObject({ code: "http_error", status: 500 });
+  });
+
+  test("rejects malformed successful extraction responses", async () => {
+    const client = start(() => Response.json({ platform: "tiktok", extraction_id: "missing-fields" }));
+    await expect(client.extractTikTok("https://www.tiktok.com/@a/video/1"))
+      .rejects.toMatchObject({ code: "invalid_response" });
+  });
+
   test("uses the Instagram delivery endpoint and retains its Telegram method", async () => {
     let path = "";
     const client = start((request) => { path = new URL(request.url).pathname; return Response.json({ ok: true, result: message }); });

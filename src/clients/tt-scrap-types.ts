@@ -2,13 +2,9 @@ import type { Message } from "grammy/types";
 import type { components } from "./tt-scrap.generated.ts";
 
 type ApiSchemas = components["schemas"];
-export type AssetDescriptor = ApiSchemas["AssetDescriptor"];
-export type TikTokMusicMetadata = ApiSchemas["TikTokMusicMetadata"];
 export type TikTokExtraction = ApiSchemas["TikTokExtractionResponse"];
-export type TikTokMusicExtraction = ApiSchemas["TikTokMusicResponse"];
-export type InstagramMediaItem = ApiSchemas["InstagramMediaItem"];
 export type InstagramExtraction = ApiSchemas["InstagramExtractionResponse"];
-export type TelegramParameters = ApiSchemas["TelegramParameters"];
+type TelegramParameters = ApiSchemas["TelegramParameters"];
 
 type InstagramDeliverySchema = ApiSchemas["InstagramTelegramDeliveryRequest"];
 
