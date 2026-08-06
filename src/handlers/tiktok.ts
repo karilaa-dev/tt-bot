@@ -9,7 +9,8 @@ import { sendAdminDiagnostic } from "../services/admin-diagnostics.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
 import { resolveDownloadPreferences, resolveLanguage } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
-import { musicKeyboard, retryKeyboard } from "../ui/keyboards.ts";
+import { musicKeyboard } from "../ui/keyboards.ts";
+import { replyForQueueRejection } from "./queue-rejection.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { canonicalHttpsUrl, parsePublicUrl, urlCandidates } from "./urls.ts";
 
@@ -109,7 +110,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
       }, { group });
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
-        if (queued.reason === "capacity") await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: message.message_id } });
+        await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group);
         return;
       }
       const extraction = queued.value;

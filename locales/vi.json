@@ -1,6 +1,7 @@
 {
   "lang_name": "Tiếng Việt🇻🇳",
   "error": "<b>Ôi! Có lỗi xảy ra 😅</b>\nVui lòng thử lại sau một chút.",
+  "error_shutdown": "<b>Bot đang khởi động lại.</b>\nVui lòng thử lại sau một phút.",
   "link_error": "Hmm, tôi không thể nhận diện liên kết này 🤔\nHãy chắc chắn đây là liên kết video TikTok hợp lệ!",
   "video_upload_hint": "Tôi chỉ có thể tải xuống từ liên kết TikTok và Instagram, không phải từ video đã tải lên 🎬\n\nVui lòng gửi cho tôi một liên kết!",
   "non_tiktok_link": "Bot này chỉ hoạt động với liên kết TikTok và Instagram 🔗\n\nVui lòng gửi liên kết từ TikTok hoặc Instagram",

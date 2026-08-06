@@ -1,6 +1,7 @@
 {
   "lang_name": "English🇺🇸",
   "error": "<b>Oops! Something went wrong 😅</b>\nPlease try again in a moment.",
+  "error_shutdown": "<b>The bot is restarting.</b>\nPlease try again in one minute.",
   "link_error": "Hmm, I couldn't recognize this link 🤔\nMake sure it's a valid TikTok video link!",
   "video_upload_hint": "I can only download from TikTok and Instagram links, not from uploaded videos 🎬\n\nPlease send me a link instead!",
   "non_tiktok_link": "This bot only works with TikTok and Instagram links 🔗\n\nPlease send a link from TikTok or Instagram",

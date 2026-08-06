@@ -11,7 +11,28 @@ export async function runMigrations(sql: SQL): Promise<void> {
     version VARCHAR PRIMARY KEY,
     applied_at BIGINT NOT NULL
   )`;
-  await sql.file(new URL("../../migrations/001_existing_schema.sql", import.meta.url).pathname);
+  await sql`CREATE TABLE IF NOT EXISTS users (
+    user_id BIGINT PRIMARY KEY,
+    registered_at BIGINT,
+    lang VARCHAR NOT NULL DEFAULT 'en',
+    link VARCHAR,
+    file_mode BOOLEAN NOT NULL DEFAULT FALSE
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS videos (
+    pk_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    downloaded_at BIGINT,
+    video_link VARCHAR NOT NULL,
+    is_images BOOLEAN NOT NULL DEFAULT FALSE,
+    is_processed BOOLEAN NOT NULL DEFAULT FALSE,
+    is_inline BOOLEAN NOT NULL DEFAULT FALSE
+  )`;
+  await sql`CREATE TABLE IF NOT EXISTS music (
+    pk_id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id),
+    downloaded_at BIGINT,
+    video_id BIGINT NOT NULL
+  )`;
 
   const rows = await sql<Array<{ table_name: string; column_name: string; data_type: string }>>`
     SELECT table_name, column_name, data_type

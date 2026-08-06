@@ -1,12 +1,12 @@
 import type { Bot } from "grammy";
 import type { BotContext } from "../bot/context.ts";
 import { addMusic } from "../db/music.ts";
-import { text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService } from "../services/delivery.ts";
 import { resolveLanguage } from "../services/registration.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 import { STATS_CALLBACK_PREFIX } from "../ui/stats.ts";
+import { replyForQueueRejection } from "./queue-rejection.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { errorText, shouldOfferRetry } from "./tiktok.ts";
 
@@ -44,7 +44,7 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
         try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
-        if (queued.reason === "capacity" && !group) await ctx.api.sendMessage(message.chat.id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(message.chat.id))), { parse_mode: "HTML", reply_parameters: { message_id: message.message_id } });
+        await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group);
         return;
       }
       try {

@@ -1,6 +1,7 @@
 {
   "lang_name": "Bahasa Indonesia🇮🇩",
   "error": "<b>Ups! Terjadi kesalahan 😅</b>\nSilakan coba lagi sebentar.",
+  "error_shutdown": "<b>Bot sedang dimulai ulang.</b>\nSilakan coba lagi dalam satu menit.",
   "link_error": "Hmm, saya tidak bisa mengenali tautan ini 🤔\nPastikan ini adalah tautan video TikTok yang valid!",
   "video_upload_hint": "Saya hanya bisa mengunduh dari tautan TikTok dan Instagram, bukan dari video yang diunggah 🎬\n\nSilakan kirim tautan!",
   "non_tiktok_link": "Bot ini hanya bekerja dengan tautan TikTok dan Instagram 🔗\n\nSilakan kirim tautan dari TikTok atau Instagram",

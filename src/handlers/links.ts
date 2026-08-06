@@ -2,12 +2,11 @@ import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, InputMediaVideo, MessageEntity } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
 import { addVideo } from "../db/videos.ts";
-import { text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
 import { resolveDownloadPreferences } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
-import { retryKeyboard } from "../ui/keyboards.ts";
+import { replyForQueueRejection } from "./queue-rejection.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { errorText } from "./tiktok.ts";
 import { canonicalHttpsUrl, parsePublicUrl, urlCandidates } from "./urls.ts";
@@ -61,7 +60,7 @@ export function registerLinkHandlers(bot: Bot<BotContext>): void {
       }, { group });
       if (!queued.acquired) {
         await clearStatus(ctx, ctx.message, status);
-        if (queued.reason === "capacity") await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: ctx.message.message_id } });
+        await replyForQueueRejection(ctx, queued.reason, lang, ctx.message.message_id, group);
         return;
       }
       const extraction = queued.value;

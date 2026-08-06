@@ -13,9 +13,11 @@ export interface QueueOptions {
   group?: boolean;
 }
 
+export type QueueRejectionReason = "capacity" | "shutdown";
+
 export type QueueResult<T> =
   | { acquired: true; value: T }
-  | { acquired: false; reason: "capacity" | "shutdown" };
+  | { acquired: false; reason: QueueRejectionReason };
 
 export class QueueManager {
   private readonly queues = new Map<number, QueueState>();

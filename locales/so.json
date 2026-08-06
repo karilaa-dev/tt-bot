@@ -1,6 +1,7 @@
 {
   "lang_name": "Soomaali🇸🇴",
   "error": "<b>Waxyaabaa qaldamay 😅</b>\nFadlan isku day mar kale.",
+  "error_shutdown": "<b>Bot-ka dib ayaa loo bilaabayaa.</b>\nFadlan isku day mar kale hal daqiiqo kadib.",
   "link_error": "Hmm, ma garan karo link-kan 🤔\nHubi in ay tahay link fiidiyow TikTok oo sax ah!",
   "video_upload_hint": "Waxaan kaliya ka soo dejin karaa link-yada TikTok iyo Instagram, ma aha fiidiyowyada la soo dhigay 🎬\n\nFadlan ii soo dir link!",
   "non_tiktok_link": "Bot-kan waxa uu la shaqeeyaa oo keliya link-yada TikTok iyo Instagram 🔗\n\nFadlan soo dir link ka TikTok ama Instagram",
