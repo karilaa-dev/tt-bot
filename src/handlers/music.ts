@@ -29,11 +29,11 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
     const videoId = BigInt(videoIdText);
     const group = message.chat.type !== "private";
     const lang = await resolveLanguage(ctx);
+    const originalKeyboard = message.reply_markup ?? musicKeyboard(videoIdText, lang);
     let status: Awaited<ReturnType<typeof beginStatus>> = null;
     try {
       const rejection = ctx.queue.rejectionReason(message.chat.id, group);
       if (rejection) {
-        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* already restored */ }
         await ctx.answerCallbackQuery({ text: queueRejectionAlert(ctx, rejection, lang), show_alert: true });
         return;
       }
@@ -48,7 +48,7 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
       }, { group });
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
-        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
+        try { await ctx.editMessageReplyMarkup({ reply_markup: originalKeyboard }); } catch { /* inaccessible */ }
         await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group, false);
         return;
       }
@@ -61,7 +61,7 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
       await clearStatus(ctx, message, status);
       if (!status) await setReaction(ctx, message, group ? null : "😢");
       if (shouldOfferRetry(error)) {
-        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
+        try { await ctx.editMessageReplyMarkup({ reply_markup: originalKeyboard }); } catch { /* inaccessible */ }
       }
       if (!group) await ctx.api.sendMessage(message.chat.id, errorText(error, lang), { parse_mode: "HTML", reply_parameters: { message_id: message.message_id } });
     } finally {

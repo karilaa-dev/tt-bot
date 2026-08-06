@@ -10,7 +10,7 @@ import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../s
 import { resolveDownloadPreferences, resolveLanguage } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
-import { replyForQueueRejection } from "./queue-rejection.ts";
+import { queueRejectionAlert, replyForQueueRejection } from "./queue-rejection.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { canonicalHttpsUrl, parsePublicUrl, urlCandidates } from "./urls.ts";
 
@@ -136,10 +136,10 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
     retryingVideos.add(retryKey);
     try {
       const group = original.chat.type !== "private";
-      if (!ctx.queue.hasCapacity(original.chat.id, group)) {
+      const rejection = ctx.queue.rejectionReason(original.chat.id, group);
+      if (rejection) {
         const lang = await resolveLanguage(ctx);
-        const message = text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(original.chat.id))).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-        return ctx.answerCallbackQuery({ text: message, show_alert: true });
+        return ctx.answerCallbackQuery({ text: queueRejectionAlert(ctx, rejection, lang), show_alert: true });
       }
       try { if (ctx.callbackQuery.message) await ctx.api.deleteMessage(ctx.callbackQuery.message.chat.id, ctx.callbackQuery.message.message_id); } catch { /* already deleted */ }
       await ctx.answerCallbackQuery();
