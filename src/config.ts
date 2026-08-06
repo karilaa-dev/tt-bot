@@ -61,14 +61,6 @@ function parsePositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
-function parseQueueInteger(name: string, fallback: number): number {
-  const value = parseInteger(name, fallback);
-  if (value < 0) throw new Error(`${name} must be zero or greater`);
-  // Pre-v6 installations used zero for an unlimited queue. Preserve startup
-  // compatibility while applying the bounded v6 defaults requested here.
-  return value === 0 ? fallback : value;
-}
-
 function parseChat(name: string): number | string | null {
   const raw = Bun.env[name]?.trim();
   if (!raw || raw === "0") return null;
@@ -78,13 +70,12 @@ function parseChat(name: string): number | string | null {
   return value;
 }
 
-function normalizeDatabaseUrl(url: string): string {
-  const normalized = url.replace(/^postgresql\+asyncpg:\/\//, "postgresql://");
+function validateDatabaseUrl(url: string): string {
   let parsed: URL;
-  try { parsed = new URL(normalized); }
+  try { parsed = new URL(url); }
   catch { throw new Error("DB_URL must be a valid PostgreSQL URL"); }
   if (!["postgresql:", "postgres:"].includes(parsed.protocol)) throw new Error("DB_URL must use PostgreSQL");
-  return normalized;
+  return url;
 }
 
 function normalizeUrl(name: string, value: string): string {
@@ -101,7 +92,7 @@ function normalizeUrl(name: string, value: string): string {
 export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const requireDatabase = options.requireDatabase ?? true;
   const requireTtScrap = options.requireTtScrap ?? true;
-  const admins = new Set([...parseIds("ADMIN_IDS"), ...parseIds("SECOND_IDS")]);
+  const admins = parseIds("ADMIN_IDS");
   const storage = parseChat("STORAGE_CHANNEL_ID");
   if (typeof storage === "string") throw new Error("STORAGE_CHANNEL_ID must be numeric");
   const level = (Bun.env.LOG_LEVEL?.trim().toUpperCase() || "INFO") as LogLevel;
@@ -110,7 +101,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   }
   const instagramPath = Bun.env.TT_SCRAP_INSTAGRAM_DELIVERY_PATH?.trim() || "/v1/instagram/telegram-deliveries";
   if (!instagramPath.startsWith("/") || instagramPath.includes("://")) throw new Error("TT_SCRAP_INSTAGRAM_DELIVERY_PATH must be an absolute API path");
-  const databaseUrl = requireDatabase ? normalizeDatabaseUrl(required("DB_URL")) : Bun.env.DB_URL?.trim() ? normalizeDatabaseUrl(Bun.env.DB_URL.trim()) : "";
+  const databaseUrl = requireDatabase ? validateDatabaseUrl(required("DB_URL")) : Bun.env.DB_URL?.trim() ? validateDatabaseUrl(Bun.env.DB_URL.trim()) : "";
 
   return {
     botToken: required("BOT_TOKEN"),
@@ -124,9 +115,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     ttScrapRequestTimeoutMs: parsePositiveInteger("TT_SCRAP_REQUEST_TIMEOUT_SECONDS", 90) * 1000,
     ttScrapDeliveryTimeoutMs: parsePositiveInteger("TT_SCRAP_DELIVERY_TIMEOUT_SECONDS", 620) * 1000,
     ttScrapInstagramDeliveryPath: instagramPath,
-    maxUserQueueSize: parseQueueInteger("MAX_USER_QUEUE_SIZE", 3),
-    maxGroupQueueSize: parseQueueInteger("MAX_GROUP_QUEUE_SIZE", 10),
-    maxActiveJobs: parseQueueInteger("MAX_ACTIVE_JOBS", 25),
+    maxUserQueueSize: parsePositiveInteger("MAX_USER_QUEUE_SIZE", 3),
+    maxGroupQueueSize: parsePositiveInteger("MAX_GROUP_QUEUE_SIZE", 10),
+    maxActiveJobs: parsePositiveInteger("MAX_ACTIVE_JOBS", 25),
     databasePoolSize: parsePositiveInteger("DB_POOL_SIZE", 10),
     logLevel: level,
   };
