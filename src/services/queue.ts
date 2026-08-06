@@ -39,7 +39,11 @@ export class QueueManager {
 
   activeCount(): number { return this.activeJobs; }
   capacity(group = false): number { return group ? this.groupCapacity : this.privateCapacity; }
-  hasCapacity(key: number, group = false): boolean { return this.accepting && this.count(key) < this.capacity(group); }
+  rejectionReason(key: number, group = false): QueueRejectionReason | null {
+    if (!this.accepting) return "shutdown";
+    return this.count(key) >= this.capacity(group) ? "capacity" : null;
+  }
+  hasCapacity(key: number, group = false): boolean { return this.rejectionReason(key, group) === null; }
 
   withSlot<T>(key: number, operation: () => Promise<T>, options: QueueOptions = {}): Promise<QueueResult<T>> {
     if (!this.accepting) return Promise.resolve({ acquired: false, reason: "shutdown" });

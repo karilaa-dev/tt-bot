@@ -6,7 +6,7 @@ import { DeliveryService } from "../services/delivery.ts";
 import { resolveLanguage } from "../services/registration.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 import { STATS_CALLBACK_PREFIX } from "../ui/stats.ts";
-import { replyForQueueRejection } from "./queue-rejection.ts";
+import { queueRejectionAlert, replyForQueueRejection } from "./queue-rejection.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { errorText, shouldOfferRetry } from "./tiktok.ts";
 
@@ -27,12 +27,17 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
     activeMusicDeliveries.add(deliveryKey);
     logger.debug(`Music callback received for ${videoIdText} in chat ${message.chat.id}`);
     const videoId = BigInt(videoIdText);
-    try { await ctx.answerCallbackQuery(); }
-    catch (error) { activeMusicDeliveries.delete(deliveryKey); throw error; }
     const group = message.chat.type !== "private";
     const lang = await resolveLanguage(ctx);
     let status: Awaited<ReturnType<typeof beginStatus>> = null;
     try {
+      const rejection = ctx.queue.rejectionReason(message.chat.id, group);
+      if (rejection) {
+        try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* already restored */ }
+        await ctx.answerCallbackQuery({ text: queueRejectionAlert(ctx, rejection, lang), show_alert: true });
+        return;
+      }
+      await ctx.answerCallbackQuery();
       try { await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }); } catch { /* already changed */ }
       status = await beginStatus(ctx, message);
       const queued = await ctx.queue.withSlot(message.chat.id, async () => {
@@ -44,7 +49,7 @@ export function registerMusicHandlers(bot: Bot<BotContext>): void {
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
         try { await ctx.editMessageReplyMarkup({ reply_markup: musicKeyboard(videoIdText, lang) }); } catch { /* inaccessible */ }
-        await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group);
+        await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group, false);
         return;
       }
       try {

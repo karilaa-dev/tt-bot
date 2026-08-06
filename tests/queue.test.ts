@@ -13,6 +13,7 @@ describe("QueueManager", () => {
     await Bun.sleep(0);
     expect(queue.count(7)).toBe(3);
     expect(started).toEqual([1]);
+    expect(queue.rejectionReason(7)).toBe("capacity");
     expect(await queue.withSlot(7, async () => 4)).toEqual({ acquired: false, reason: "capacity" });
     release();
     expect((await Promise.all([first, second, third])).map((result) => result.acquired ? result.value : null)).toEqual([1, 2, 3]);
@@ -52,6 +53,7 @@ describe("QueueManager", () => {
     await Bun.sleep(0);
     queue.shutdown();
     expect(await queued).toEqual({ acquired: false, reason: "shutdown" });
+    expect(queue.rejectionReason(10)).toBe("shutdown");
     expect(await queue.withSlot(10, async () => "new")).toEqual({ acquired: false, reason: "shutdown" });
     expect(queue.activeCount()).toBe(1);
     release();
