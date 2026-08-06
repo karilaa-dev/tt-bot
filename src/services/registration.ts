@@ -1,5 +1,5 @@
 import type { BotContext } from "../bot/context.ts";
-import { createUser, getUser } from "../db/users.ts";
+import { createUser } from "../db/users.ts";
 import { languageFromTelegram, type Language, text } from "../locales.ts";
 import { escapeHtml } from "../ui/captions.ts";
 import { logger } from "../logging.ts";
@@ -8,7 +8,7 @@ export async function resolveLanguage(ctx: BotContext, noDatabase = false): Prom
   const chatId = ctx.chat?.id;
   if (!noDatabase && chatId !== undefined) {
     try {
-      const user = await getUser(ctx.db, chatId);
+      const user = await ctx.getUserRecord(chatId);
       if (user) return user.lang;
     } catch { /* locale fallback intentionally survives DB lookup errors */ }
   }
@@ -17,7 +17,8 @@ export async function resolveLanguage(ctx: BotContext, noDatabase = false): Prom
 
 export async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
   if (!ctx.chat) return;
-  await createUser(ctx.db, ctx.chat.id, lang, referral);
+  const user = await createUser(ctx.db, ctx.chat.id, lang, referral);
+  ctx.cacheUserRecord(user);
   const fullName = (ctx.from ? [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") : ("title" in ctx.chat ? ctx.chat.title : "Chat")) || "Chat";
   const username = ctx.from?.username ? `@${ctx.from.username}\n` : "";
   if (ctx.config.joinLogs !== null) {

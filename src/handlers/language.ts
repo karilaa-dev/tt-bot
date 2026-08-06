@@ -30,6 +30,8 @@ export function registerLanguageHandlers(bot: Bot<BotContext>): void {
       }
     }
     await updateUserLanguage(ctx.db, ctx.chat.id, value);
+    const user = await ctx.getUserRecord();
+    if (user) ctx.cacheUserRecord({ ...user, lang: value });
     try { await ctx.editMessageText(text(value, "lang"), { parse_mode: "HTML" }); } catch { /* unchanged message */ }
     await ctx.answerCallbackQuery();
   });

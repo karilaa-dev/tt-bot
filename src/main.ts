@@ -9,11 +9,11 @@ import { QueueManager } from "./services/queue.ts";
 
 const config = loadConfig();
 configureLogging(config.logLevel);
-const db = new Database(config.databaseUrl);
+const db = new Database(config.databaseUrl, config.databasePoolSize);
 await db.initialize();
 const scrap = new TtScrapClient(config);
 if (!await scrap.healthReady()) logger.warn(`tt-scrap is not ready at ${config.ttScrapBaseUrl}; media requests will fail until it recovers`);
-const bot = createBot({ config, db, scrap, queue: new QueueManager(config.maxUserQueueSize) });
+const bot = createBot({ config, db, scrap, queue: new QueueManager(config.maxUserQueueSize, config.maxGroupQueueSize) });
 await bot.init();
 logger.info(`${bot.botInfo.first_name} [@${bot.botInfo.username}, id:${bot.botInfo.id}]`);
 const runner = run(bot, {

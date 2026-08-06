@@ -1,13 +1,13 @@
 import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, InputMediaVideo, MessageEntity } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { getUser } from "../db/users.ts";
 import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
 import { registerAndWelcome, resolveLanguage } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
+import { retryKeyboard } from "../ui/keyboards.ts";
 import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { errorText } from "./tiktok.ts";
 
@@ -31,21 +31,17 @@ export function registerLinkHandlers(bot: Bot<BotContext>): void {
     const link = findInstagramUrl(ctx.message.text, ctx.message.entities);
     if (!link) return next();
     const group = ctx.chat.type !== "private";
-    let user = await getUser(ctx.db, ctx.chat.id);
+    const user = await ctx.getUserRecord();
     let lang: Language;
     let fileMode: boolean;
-    if (!user) { lang = await resolveLanguage(ctx, true); fileMode = false; await registerAndWelcome(ctx, lang); user = await getUser(ctx.db, ctx.chat.id); }
+    if (!user) { lang = await resolveLanguage(ctx, true); fileMode = false; await registerAndWelcome(ctx, lang); }
     else { lang = user.lang; fileMode = user.fileMode; }
-    if (ctx.config.maxUserQueueSize > 0 && ctx.queue.count(ctx.chat.id) >= ctx.config.maxUserQueueSize) {
-      if (!group) await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML" });
-      return;
-    }
     const status = await beginStatus(ctx, ctx.message);
     try {
-      const queued = await ctx.queue.withSlot(ctx.chat.id, () => ctx.scrap.extractInstagram(link));
+      const queued = await ctx.queue.withSlot(ctx.chat.id, () => ctx.scrap.extractInstagram(link), { group });
       if (!queued.acquired) {
         await clearStatus(ctx, ctx.message, status);
-        if (!group) await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_parameters: { message_id: ctx.message.message_id } });
+        await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: ctx.message.message_id } });
         return;
       }
       const extraction = queued.value;

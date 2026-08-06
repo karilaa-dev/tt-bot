@@ -2,7 +2,6 @@ import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, Message } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
 import { TtScrapError } from "../bot/errors.ts";
-import { getUser } from "../db/users.ts";
 import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
@@ -38,14 +37,13 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
   bot.on("message:text", async (ctx) => {
     const message = ctx.message;
     const group = ctx.chat.type !== "private";
-    let user = await getUser(ctx.db, ctx.chat.id);
+    const user = await ctx.getUserRecord();
     let lang: Language;
     let fileMode: boolean;
     if (!user) {
       lang = await resolveLanguage(ctx, true);
       fileMode = false;
       await registerAndWelcome(ctx, lang);
-      user = await getUser(ctx.db, ctx.chat.id);
     } else { lang = user.lang; fileMode = user.fileMode; }
 
     const link = findTikTokUrl(message.text, message.entities);
@@ -57,17 +55,12 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
       return;
     }
 
-    if (ctx.config.maxUserQueueSize > 0 && ctx.queue.count(ctx.chat.id) >= ctx.config.maxUserQueueSize) {
-      if (!group) await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: message.message_id } });
-      return;
-    }
-
     const status = await beginStatus(ctx, message);
     try {
-      const queued = await ctx.queue.withSlot(ctx.chat.id, () => ctx.scrap.extractTikTok(link));
+      const queued = await ctx.queue.withSlot(ctx.chat.id, () => ctx.scrap.extractTikTok(link), { group });
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
-        if (!group) await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: message.message_id } });
+        await ctx.reply(text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.chat.id))), { parse_mode: "HTML", reply_markup: retryKeyboard(lang), reply_parameters: { message_id: message.message_id } });
         return;
       }
       const extraction = queued.value;
@@ -114,6 +107,12 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
   bot.callbackQuery("retry_video", async (ctx) => {
     const original = ctx.callbackQuery.message?.reply_to_message;
     if (!original?.text) return ctx.answerCallbackQuery({ text: "Original message not found", show_alert: true });
+    const group = original.chat.type !== "private";
+    if (!ctx.queue.hasCapacity(original.chat.id, group)) {
+      const lang = await resolveLanguage(ctx);
+      const message = text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(original.chat.id))).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      return ctx.answerCallbackQuery({ text: message, show_alert: true });
+    }
     try { if (ctx.callbackQuery.message) await ctx.api.deleteMessage(ctx.callbackQuery.message.chat.id, ctx.callbackQuery.message.message_id); } catch { /* already deleted */ }
     await ctx.answerCallbackQuery();
     // Re-inject the original update through the bot so normal routing and context setup apply.

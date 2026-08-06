@@ -1,6 +1,6 @@
 import { Keyboard, type Bot } from "grammy";
 import type { BotContext } from "../bot/context.ts";
-import { getUserIds } from "../db/users.ts";
+import { iteratePositiveUserIds } from "../db/users.ts";
 import { logger } from "../logging.ts";
 
 interface StoredMessage { chatId: number; messageId: number }
@@ -8,6 +8,7 @@ let advertMessage: StoredMessage | null = null;
 const awaitingMessage = new Set<number>();
 const adminKeyboard = new Keyboard().text("👁‍🗨Check message").text("✏Edit message").row().text("📢Send message").row().text("🔽Hide keyboard").resized();
 const backKeyboard = new Keyboard().text("↩Return").resized();
+const BROADCAST_DELAY_MS = 40;
 
 export function registerAdvertHandlers(bot: Bot<BotContext>): void {
   bot.command(["stop", "cancel", "back"], cancel);
@@ -42,14 +43,15 @@ export function registerAdvertHandlers(bot: Bot<BotContext>): void {
     if (!advertMessage) return void await ctx.reply("⚠️You have not created a message yet");
     const status = await ctx.reply("<code>Announcement started</code>", { parse_mode: "HTML" });
     let delivered = 0, blocked = 0, errors = 0;
-    for (const userId of await getUserIds(ctx.db, true)) {
+    for await (const userId of iteratePositiveUserIds(ctx.db)) {
       try { await ctx.api.copyMessage(userId, advertMessage.chatId, advertMessage.messageId); delivered++; }
       catch (error) {
         const description = error instanceof Error ? error.message.toLowerCase() : "";
         if (description.includes("blocked") || description.includes("forbidden")) blocked++; else errors++;
         logger.debug(`Broadcast failed for ${userId}`, error);
       }
-      await Bun.sleep(40);
+      // Keep broadcasts below Telegram's approximate global bot limit.
+      await Bun.sleep(BROADCAST_DELAY_MS);
     }
     try { await ctx.api.deleteMessage(ctx.chat.id, status.message_id); } catch { /* best effort */ }
     await ctx.reply(`✅Message received by <b>${delivered}</b> users\n🚫Blocked: <b>${blocked}</b>\n❌Errors: <b>${errors}</b>`, { parse_mode: "HTML" });

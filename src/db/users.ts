@@ -21,12 +21,13 @@ export async function getUser(db: Database, userId: number): Promise<UserRecord 
 }
 
 export async function createUser(db: Database, userId: number, lang: Language, link: string | null = null): Promise<UserRecord> {
-  await db.sql`INSERT INTO users (user_id, registered_at, lang, link, file_mode)
+  const rows = await db.sql<Array<UserRow>>`INSERT INTO users (user_id, registered_at, lang, link, file_mode)
     VALUES (${userId}, ${Math.floor(Date.now() / 1000)}, ${lang}, ${link}, FALSE)
-    ON CONFLICT (user_id) DO NOTHING`;
-  const user = await getUser(db, userId);
+    ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
+    RETURNING user_id, registered_at, lang, link, file_mode`;
+  const user = rows[0];
   if (!user) throw new Error(`Failed to create user ${userId}`);
-  return user;
+  return mapUser(user);
 }
 
 export async function updateUserMode(db: Database, userId: number, fileMode: boolean): Promise<void> {
@@ -42,4 +43,21 @@ export async function getUserIds(db: Database, onlyPositive = true): Promise<num
     ? await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users WHERE user_id > 0 ORDER BY user_id`
     : await db.sql<Array<{ user_id: bigint | number | string }>>`SELECT user_id FROM users ORDER BY user_id`;
   return rows.map((row) => Number(row.user_id));
+}
+
+export async function* iteratePositiveUserIds(db: Database, batchSize = 1_000): AsyncGenerator<number> {
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1) throw new Error("User batch size must be a positive integer");
+  let cursor = 0;
+  while (true) {
+    const rows = await db.sql<Array<{ user_id: bigint | number | string }>>`
+      SELECT user_id FROM users
+      WHERE user_id > ${cursor}
+      ORDER BY user_id
+      LIMIT ${batchSize}`;
+    if (rows.length === 0) return;
+    for (const row of rows) {
+      cursor = Number(row.user_id);
+      yield cursor;
+    }
+  }
 }

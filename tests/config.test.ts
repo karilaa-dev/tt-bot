@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { loadConfig } from "../src/config.ts";
 
-const names = ["BOT_TOKEN", "DB_URL", "TT_SCRAP_API_KEY", "ADMIN_IDS", "SECOND_IDS", "TG_SERVER", "TT_SCRAP_BASE_URL", "TT_SCRAP_REQUEST_TIMEOUT_SECONDS", "TT_SCRAP_INSTAGRAM_DELIVERY_PATH"];
+const names = ["BOT_TOKEN", "DB_URL", "TT_SCRAP_API_KEY", "ADMIN_IDS", "SECOND_IDS", "TG_SERVER", "TT_SCRAP_BASE_URL", "TT_SCRAP_REQUEST_TIMEOUT_SECONDS", "TT_SCRAP_INSTAGRAM_DELIVERY_PATH", "MAX_USER_QUEUE_SIZE", "MAX_GROUP_QUEUE_SIZE", "DB_POOL_SIZE"];
 const saved = new Map<string, string | undefined>();
-beforeEach(() => { for (const name of names) saved.set(name, Bun.env[name]); Bun.env.BOT_TOKEN = "123:test"; Bun.env.DB_URL = "postgresql+asyncpg://u:p@db/x"; Bun.env.TT_SCRAP_API_KEY = "1234567890abcdef"; Bun.env.ADMIN_IDS = "[1]"; Bun.env.SECOND_IDS = "[2]"; Bun.env.TG_SERVER = "https://api.telegram.org"; Bun.env.TT_SCRAP_BASE_URL = "http://127.0.0.1:8000"; });
+beforeEach(() => { for (const name of names) saved.set(name, Bun.env[name]); Bun.env.BOT_TOKEN = "123:test"; Bun.env.DB_URL = "postgresql+asyncpg://u:p@db/x"; Bun.env.TT_SCRAP_API_KEY = "1234567890abcdef"; Bun.env.ADMIN_IDS = "[1]"; Bun.env.SECOND_IDS = "[2]"; Bun.env.TG_SERVER = "https://api.telegram.org"; Bun.env.TT_SCRAP_BASE_URL = "http://127.0.0.1:8000"; Bun.env.MAX_USER_QUEUE_SIZE = "3"; Bun.env.MAX_GROUP_QUEUE_SIZE = "10"; Bun.env.DB_POOL_SIZE = "10"; });
 afterEach(() => { for (const [name, value] of saved) { if (value === undefined) delete Bun.env[name]; else Bun.env[name] = value; } });
 
 describe("loadConfig", () => {
@@ -12,6 +12,7 @@ describe("loadConfig", () => {
     expect(config.databaseUrl).toBe("postgresql://u:p@db/x");
     expect(config.secondAdminIds).toEqual(new Set([1, 2]));
     expect(config.ttScrapBaseUrl).toBe("http://127.0.0.1:8000");
+    expect([config.maxUserQueueSize, config.maxGroupQueueSize, config.databasePoolSize]).toEqual([3, 10, 10]);
   });
   test("requires secrets", () => { delete Bun.env.TT_SCRAP_API_KEY; expect(() => loadConfig()).toThrow("TT_SCRAP_API_KEY is required"); });
   test("rejects invalid timeout and endpoint values", () => {

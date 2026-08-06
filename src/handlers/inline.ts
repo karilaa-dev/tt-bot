@@ -1,7 +1,6 @@
 import type { Bot } from "grammy";
 import type { InlineKeyboardMarkup, InlineQueryResultArticle } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { getUser } from "../db/users.ts";
 import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
@@ -18,7 +17,7 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
   bot.on("inline_query", async (ctx) => {
     const query = ctx.inlineQuery.query.trim();
     const lang = await languageForInline(ctx, ctx.from.id);
-    if (!await getUser(ctx.db, ctx.from.id)) {
+    if (!await ctx.getUserRecord(ctx.from.id)) {
       await ctx.answerInlineQuery([], { cache_time: 0, is_personal: true, button: { text: text(lang, "inline_start_bot"), start_parameter: "inline" } });
       return;
     }
@@ -34,7 +33,7 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
   bot.on("chosen_inline_result", async (ctx) => {
     const id = ctx.chosenInlineResult.inline_message_id;
     if (!id) return;
-    const user = await getUser(ctx.db, ctx.from.id); if (!user) return;
+    const user = await ctx.getUserRecord(ctx.from.id); if (!user) return;
     await processInline(ctx, id, ctx.chosenInlineResult.query, user.lang, ctx.chosenInlineResult.result_id === "ig_download");
   });
 
@@ -58,7 +57,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
     const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
       const onRetry = async (attempt: number, max: number) => editText(ctx, id, `${text(lang, "inline_download_video_text")}\n${text(lang, "inline_retry_attempt").replace("{0}", String(attempt)).replace("{1}", String(max))}`, { inline_keyboard: loadingKeyboard.inline_keyboard });
       return instagram ? ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : ctx.scrap.extractTikTok(link, { attempts: 4, onRetry });
-    }, true);
+    }, { bypassLimit: true });
     if (!queued.acquired) throw new Error("Inline queue rejected unexpectedly");
     const extraction = queued.value;
     const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
@@ -86,7 +85,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
 
 
 async function languageForInline(ctx: BotContext, userId: number): Promise<Language> {
-  const user = await getUser(ctx.db, userId); return user?.lang ?? await resolveLanguage(ctx, true);
+  const user = await ctx.getUserRecord(userId); return user?.lang ?? await resolveLanguage(ctx, true);
 }
 function article(id: string, title: string, description: string, body: string, thumbnail: string, keyboard?: InlineKeyboardMarkup["inline_keyboard"]): InlineQueryResultArticle {
   return { type: "article", id, title, description, input_message_content: { message_text: body, parse_mode: "HTML" }, thumbnail_url: thumbnail, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) };

@@ -74,7 +74,7 @@ integration("PostgreSQL repositories", () => {
     } });
     try {
       const config = { ...testConfig(`http://127.0.0.1:${scrapServer.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
-      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(0) });
+      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(config.maxUserQueueSize, config.maxGroupQueueSize) });
       await bot.init();
       const from = { id: 501, is_bot: false, first_name: "Tester", language_code: "en" };
       const chat = { id: 501, type: "private" as const, first_name: "Tester" };
@@ -130,7 +130,7 @@ integration("PostgreSQL repositories", () => {
     } });
     try {
       const config = { ...testConfig(`http://127.0.0.1:${scrapServer.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
-      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(0) });
+      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(config.maxUserQueueSize, config.maxGroupQueueSize) });
       await bot.init();
       const from = { id: 601, is_bot: false, first_name: "Instagram Tester", language_code: "en" };
       const chat = { id: 601, type: "private" as const, first_name: "Instagram Tester" };
@@ -141,6 +141,74 @@ integration("PostgreSQL repositories", () => {
       const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 601 AND video_link LIKE '%instagram.com%'`;
       expect(Number(rows[0]?.count)).toBe(1);
     } finally {
+      telegram.stop(true);
+      scrapServer.stop(true);
+    }
+  });
+
+  test("rejects a fourth private download and retries it after queue capacity returns", async () => {
+    await createUser(db, 701, "en");
+    const telegramCalls: Array<{ method: string; payload: Record<string, any> }> = [];
+    let nextTelegramMessage = 1_000;
+    const telegram = Bun.serve({ port: 0, async fetch(request) {
+      const method = new URL(request.url).pathname.split("/").at(-1) || "";
+      const payload = request.method === "POST" ? await request.json() as Record<string, any> : {};
+      telegramCalls.push({ method, payload });
+      if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+      if (["setMessageReaction", "sendChatAction", "deleteMessage", "answerCallbackQuery"].includes(method)) return Response.json({ ok: true, result: true });
+      return Response.json({ ok: true, result: { message_id: nextTelegramMessage++, date: 1, chat: { id: Number(payload.chat_id ?? 701), type: "private", first_name: "Queue Tester" }, text: String(payload.text ?? "") } });
+    } });
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let extractions = 0;
+    const scrapServer = Bun.serve({ port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const payload = await request.json() as Record<string, any>;
+      if (path === "/v1/tiktok/extractions") {
+        extractions++;
+        if (extractions === 1) await firstGate;
+        return Response.json({
+          extraction_id: `queue-${extractions}`, platform: "tiktok", source_id: String(7_000 + extractions),
+          source_url: String(payload.url), resolved_url: String(payload.url), content_type: "video", media: [],
+          expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 1, views: 1,
+        });
+      }
+      return Response.json({ ok: true, result: { message_id: 2_000 + extractions, date: 1, chat: { id: 701, type: "private", first_name: "Queue Tester" }, video: { file_id: `video-${extractions}`, file_unique_id: `vu-${extractions}`, width: 1, height: 1, duration: 1 } } });
+    } });
+    try {
+      const config = { ...testConfig(`http://127.0.0.1:${scrapServer.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
+      const queue = new QueueManager(3, 10);
+      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue });
+      await bot.init();
+      const from = { id: 701, is_bot: false, first_name: "Queue Tester", language_code: "en" };
+      const chat = { id: 701, type: "private" as const, first_name: "Queue Tester" };
+      const original = (messageId: number) => ({ message_id: messageId, date: 1, chat, from, text: `https://www.tiktok.com/@creator/video/${7_000 + messageId}`, reply_to_message: undefined });
+      const firstThree = [1, 2, 3].map((messageId) => bot.handleUpdate({ update_id: 20 + messageId, message: original(messageId) }));
+      await Bun.sleep(5);
+      expect(extractions).toBe(1);
+      expect(queue.count(701)).toBe(3);
+
+      await bot.handleUpdate({ update_id: 24, message: original(4) });
+      const fullReply = [...telegramCalls].reverse().find((call) => call.method === "sendMessage");
+      expect(fullReply?.payload.reply_markup).toMatchObject({ inline_keyboard: [[{ callback_data: "retry_video" }]] });
+      expect(fullReply?.payload.reply_parameters).toEqual({ message_id: 4 });
+
+      const fullMessage = { message_id: 1_100, date: 1, chat, from: { id: 999, is_bot: true, first_name: "Test Bot" }, text: "Queue full", reply_to_message: original(4) };
+      const callsBeforeFullRetry = telegramCalls.length;
+      await bot.handleUpdate({ update_id: 25, callback_query: { id: "retry-full", chat_instance: "queue", from, data: "retry_video", message: fullMessage } });
+      expect(telegramCalls.slice(callsBeforeFullRetry).some((call) => call.method === "deleteMessage")).toBe(false);
+      expect([...telegramCalls].reverse().find((call) => call.method === "answerCallbackQuery")?.payload.show_alert).toBe(true);
+
+      releaseFirst();
+      await Promise.all(firstThree);
+      expect(extractions).toBe(3);
+      expect(queue.count(701)).toBe(0);
+
+      await bot.handleUpdate({ update_id: 26, callback_query: { id: "retry-open", chat_instance: "queue", from, data: "retry_video", message: fullMessage } });
+      expect(extractions).toBe(4);
+      expect(telegramCalls.some((call) => call.method === "deleteMessage" && call.payload.message_id === 1_100)).toBe(true);
+    } finally {
+      releaseFirst();
       telegram.stop(true);
       scrapServer.stop(true);
     }

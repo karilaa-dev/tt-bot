@@ -19,6 +19,7 @@ export function createBot(deps: BotDependencies): Bot<BotContext> {
   });
   bot.use(async (ctx, next) => {
     ctx.config = deps.config; ctx.db = deps.db; ctx.scrap = deps.scrap; ctx.queue = deps.queue;
+    ctx.userRecords = new Map();
     await next();
   });
   registerUserHandlers(bot);

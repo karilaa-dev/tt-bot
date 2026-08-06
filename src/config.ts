@@ -14,6 +14,8 @@ export interface AppConfig {
   ttScrapDeliveryTimeoutMs: number;
   ttScrapInstagramDeliveryPath: string;
   maxUserQueueSize: number;
+  maxGroupQueueSize: number;
+  databasePoolSize: number;
   logLevel: LogLevel;
 }
 
@@ -116,7 +118,9 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     ttScrapRequestTimeoutMs: parsePositiveInteger("TT_SCRAP_REQUEST_TIMEOUT_SECONDS", 90) * 1000,
     ttScrapDeliveryTimeoutMs: parsePositiveInteger("TT_SCRAP_DELIVERY_TIMEOUT_SECONDS", 620) * 1000,
     ttScrapInstagramDeliveryPath: instagramPath,
-    maxUserQueueSize: Math.max(0, parseInteger("MAX_USER_QUEUE_SIZE", 0)),
+    maxUserQueueSize: parsePositiveInteger("MAX_USER_QUEUE_SIZE", 3),
+    maxGroupQueueSize: parsePositiveInteger("MAX_GROUP_QUEUE_SIZE", 10),
+    databasePoolSize: parsePositiveInteger("DB_POOL_SIZE", 10),
     logLevel: level,
   };
 }

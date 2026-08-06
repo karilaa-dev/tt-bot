@@ -1,7 +1,6 @@
 import type { Api, Bot } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { getUser } from "../db/users.ts";
 import type { Language } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayload, type InlineMediaReference } from "../services/delivery.ts";
@@ -71,7 +70,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
     try {
       const saved = Number(ctx.match[1]);
       const link = `https://${ctx.match[2]}`;
-      const user = await getUser(ctx.db, ctx.from.id);
+      const user = await ctx.getUserRecord(ctx.from.id);
       const lang = user?.lang ?? await resolveLanguage(ctx, true);
       const identity = { userId: ctx.from.id, fullName: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" "), ...(ctx.from.username ? { username: ctx.from.username } : {}) };
       const service = new DeliveryService(ctx.scrap, ctx.api, ctx.config);
@@ -79,10 +78,14 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       let likes: number | null | undefined;
       let views: number | null | undefined;
       if (findInstagramUrl(link)) {
-        const extraction = await ctx.scrap.extractInstagram(link);
+        const queued = await ctx.queue.withSlot(ctx.from.id, () => ctx.scrap.extractInstagram(link), { bypassLimit: true });
+        if (!queued.acquired) throw new Error("Inline Instagram refresh queue rejected unexpectedly");
+        const extraction = queued.value;
         media = inlineMedia(await service.stageInstagram(extraction, link, identity));
       } else {
-        const extraction = await ctx.scrap.extractTikTok(link);
+        const queued = await ctx.queue.withSlot(ctx.from.id, () => ctx.scrap.extractTikTok(link), { bypassLimit: true });
+        if (!queued.acquired) throw new Error("Inline TikTok refresh queue rejected unexpectedly");
+        const extraction = queued.value;
         media = inlineMedia(await service.stageTikTok(extraction, link, identity));
         likes = extraction.likes; views = extraction.views;
       }
