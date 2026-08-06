@@ -1,0 +1,24 @@
+CREATE TABLE IF NOT EXISTS users (
+  user_id BIGINT PRIMARY KEY,
+  registered_at BIGINT,
+  lang VARCHAR NOT NULL DEFAULT 'en',
+  link VARCHAR,
+  file_mode BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS videos (
+  pk_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(user_id),
+  downloaded_at BIGINT,
+  video_link VARCHAR NOT NULL,
+  is_images BOOLEAN NOT NULL DEFAULT FALSE,
+  is_processed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_inline BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS music (
+  pk_id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(user_id),
+  downloaded_at BIGINT,
+  video_id BIGINT NOT NULL
+);

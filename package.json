@@ -1,0 +1,26 @@
+{
+  "name": "tt-bot",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": "1.3.13"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "maintenance": "bun run src/maintenance.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "api:generate": "bun run scripts/generate-tt-scrap-types.ts"
+  },
+  "dependencies": {
+    "@grammyjs/runner": "2.0.3",
+    "grammy": "1.45.1"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "openapi-typescript": "7.13.0",
+    "typescript-openapi": "npm:typescript@5.9.3",
+    "typescript": "7.0.2"
+  }
+}

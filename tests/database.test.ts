@@ -1,0 +1,109 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SQL } from "bun";
+import { Database } from "../src/db/client.ts";
+import { addMusic } from "../src/db/music.ts";
+import { createUser, getUser, getUserIds, updateUserLanguage, updateUserMode } from "../src/db/users.ts";
+import { addVideo } from "../src/db/videos.ts";
+import { createBot } from "../src/bot/create-bot.ts";
+import { TtScrapClient } from "../src/clients/tt-scrap.ts";
+import { QueueManager } from "../src/services/queue.ts";
+import { testConfig } from "./helpers.ts";
+
+const adminUrl = Bun.env.TEST_DB_URL || Bun.env.TEST_DB_ADMIN_URL;
+const integration = adminUrl ? describe : describe.skip;
+integration("PostgreSQL repositories", () => {
+  let db: Database;
+  let admin: SQL;
+  const databaseName = `ttbot_test_${process.pid}_${Date.now()}`;
+  beforeAll(async () => {
+    admin = new SQL(adminUrl!);
+    await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
+    const testUrl = new URL(adminUrl!);
+    testUrl.pathname = `/${databaseName}`;
+    db = new Database(testUrl.toString());
+    await db.initialize();
+  });
+  afterAll(async () => {
+    await db.close();
+    await admin.unsafe(`DROP DATABASE "${databaseName}"`);
+    await admin.close();
+  });
+  test("retains the legacy schema and full-width IDs", async () => {
+    await Promise.all([createUser(db, 123, "en", "ref"), createUser(db, 123, "en", "ref")]);
+    await updateUserMode(db, 123, true); await updateUserLanguage(db, 123, "uk");
+    await addVideo(db, 123, "https://tiktok.test/1", false); await addMusic(db, 123, 7669880788879543583n);
+    expect(await getUser(db, 123)).toMatchObject({ userId: 123, lang: "uk", link: "ref", fileMode: true });
+    expect(await getUserIds(db)).toEqual([123]);
+    const rows = await db.sql<Array<{ video_id: bigint | string }>>`SELECT video_id FROM music`;
+    expect(String(rows[0]?.video_id)).toBe("7669880788879543583");
+  });
+
+  test("handles start, mode, and TikTok media without a live Telegram request", async () => {
+    const telegramCalls: Array<{ method: string; payload: Record<string, unknown> }> = [];
+    const deliveries: Array<Record<string, unknown>> = [];
+    let nextMessageId = 100;
+    const telegram = Bun.serve({ port: 0, async fetch(request) {
+      const method = new URL(request.url).pathname.split("/").at(-1) || "";
+      const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
+      telegramCalls.push({ method, payload });
+      if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+      if (["setMessageReaction", "sendChatAction"].includes(method)) return Response.json({ ok: true, result: true });
+      const chatId = Number(payload.chat_id ?? 501);
+      return Response.json({ ok: true, result: { message_id: nextMessageId++, date: 1, chat: { id: chatId, type: "private", first_name: "Test" }, text: String(payload.text ?? "") } });
+    } });
+    const scrapServer = Bun.serve({ port: 0, async fetch(request) {
+      const path = new URL(request.url).pathname;
+      const payload = await request.json() as Record<string, unknown>;
+      if (path.endsWith("/extractions")) return Response.json({
+        extraction_id: `extract-${deliveries.length + 1}`, platform: "tiktok", source_id: "7669880788879543583",
+        source_url: "https://www.tiktok.com/@creator/video/7669880788879543583", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583",
+        content_type: "video", media: [], expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 12, views: 34,
+      });
+      deliveries.push(payload);
+      if (payload.delivery === "audio") return Response.json({ ok: true, result: {
+        message_id: 800, date: 1, chat: { id: 501, type: "private", first_name: "Test" },
+        audio: { file_id: "audio-id", file_unique_id: "au", duration: 1 },
+      } });
+      const document = payload.delivery === "document";
+      return Response.json({ ok: true, result: {
+        message_id: 700 + deliveries.length, date: 1, chat: { id: 501, type: "private", first_name: "Test" },
+        ...(document
+          ? { document: { file_id: "document-id", file_unique_id: "du", file_name: "video.mp4" } }
+          : { video: { file_id: "video-id", file_unique_id: "vu", width: 1, height: 1, duration: 1 } }),
+      } });
+    } });
+    try {
+      const config = { ...testConfig(`http://127.0.0.1:${scrapServer.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
+      const bot = createBot({ config, db, scrap: new TtScrapClient(config), queue: new QueueManager(0) });
+      await bot.init();
+      const from = { id: 501, is_bot: false, first_name: "Tester", language_code: "en" };
+      const chat = { id: 501, type: "private" as const, first_name: "Tester" };
+      await bot.handleUpdate({ update_id: 1, message: { message_id: 1, date: 1, chat, from, text: "/start referral", entities: [{ type: "bot_command", offset: 0, length: 6 }] } });
+      await bot.handleUpdate({ update_id: 2, message: { message_id: 2, date: 1, chat, from, text: "https://www.tiktok.com/@creator/video/7669880788879543583", entities: [{ type: "url", offset: 0, length: 62 }] } });
+      await bot.handleUpdate({ update_id: 3, message: { message_id: 3, date: 1, chat, from, text: "/mode", entities: [{ type: "bot_command", offset: 0, length: 5 }] } });
+      await bot.handleUpdate({ update_id: 4, message: { message_id: 4, date: 1, chat, from, text: "https://www.tiktok.com/@creator/video/7669880788879543583", entities: [{ type: "url", offset: 0, length: 62 }] } });
+      await bot.handleUpdate({ update_id: 5, callback_query: {
+        id: "callback-1", chat_instance: "test-instance", from, data: "id/7669880788879543583",
+        message: { message_id: 701, date: 1, chat, from: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" }, video: { file_id: "video-id", file_unique_id: "vu", width: 1, height: 1, duration: 1 } },
+      } });
+
+      expect((await getUser(db, 501))?.link).toBe("referral");
+      expect((await getUser(db, 501))?.fileMode).toBe(true);
+      expect(deliveries.map((item) => item.delivery)).toEqual(["media", "document", "audio"]);
+      expect(deliveries[0]).toMatchObject({ source: { extraction_id: "extract-1" }, telegram: { chat_id: 501, reply_parameters: { message_id: 2 } } });
+      expect(deliveries[0]?.telegram).toMatchObject({ supports_streaming: true });
+      expect(deliveries[0]?.telegram).not.toHaveProperty("disable_content_type_detection");
+      expect(deliveries[1]?.telegram).toMatchObject({ disable_content_type_detection: true });
+      expect(deliveries[1]?.telegram).not.toHaveProperty("supports_streaming");
+      expect(deliveries[2]).toMatchObject({ source: { video_id: "7669880788879543583" }, delivery: "audio", telegram: { chat_id: 501, reply_parameters: { message_id: 701 } } });
+      expect(telegramCalls.some((call) => call.method === "sendMessage")).toBe(true);
+      const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 501`;
+      expect(Number(rows[0]?.count)).toBe(2);
+      const musicRows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM music WHERE user_id = 501`;
+      expect(Number(musicRows[0]?.count)).toBe(1);
+    } finally {
+      telegram.stop(true);
+      scrapServer.stop(true);
+    }
+  });
+});

@@ -4,31 +4,14 @@ services:
     image: ghcr.io/karilaa-dev/tt-bot:latest
     env_file:
       - .env
-    # volumes:
-    # - ./cookies.txt:/app/cookies.txt
-    # - ./proxies.txt:/app/proxies.txt:ro
+    environment:
+      TEST_DB_ADMIN_URL: ${DB_URL:-postgresql://postgres:postgres@db:5432/ttbot-db}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     depends_on:
-      - db
-
-  stats-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile.stats
-    image: ghcr.io/karilaa-dev/tt-bot-stats:latest
-    env_file:
-      - .env
-    restart: unless-stopped
-    depends_on:
-      - db
-
-  telegram-bot-api:
-      image: aiogram/telegram-bot-api:latest
-      volumes:
-        - telegram-bot-api-data:/var/lib/telegram-bot-api
-      env_file:
-      - .env
-      restart: unless-stopped
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:18
@@ -36,10 +19,16 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-ttbot-db}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ttbot-db}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
     restart: unless-stopped
 
 volumes:
-  telegram-bot-api-data:
   pgdata:
