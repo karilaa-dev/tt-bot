@@ -35,12 +35,21 @@ export async function registerChat(ctx: BotContext, lang: Language, referral: st
 export async function ensurePrivateRegistration(ctx: BotContext): Promise<void> {
   if (!ctx.message || ctx.chat?.type !== "private" || await ctx.getUserRecord(ctx.chat.id)) return;
   const lang = languageFromTelegram(ctx.from?.language_code);
-  await registerChat(ctx, lang, startReferral(ctx.message.text));
+  const registration = await registerChat(ctx, lang, startReferral(ctx.message.text));
+  if (registration?.created) {
+    await sendWelcome(ctx, lang);
+    ctx.onboardingSent = true;
+  }
 }
 
 export async function registerAndWelcome(ctx: BotContext, lang: Language, referral: string | null = null): Promise<void> {
   const registration = await registerChat(ctx, lang, referral);
   if (!registration?.created || !ctx.chat) return;
+  await sendWelcome(ctx, lang);
+}
+
+async function sendWelcome(ctx: BotContext, lang: Language): Promise<void> {
+  if (!ctx.chat) return;
   await ctx.reply(text(lang, "start") + (ctx.chat.type === "private" ? text(lang, "group_info") : ""), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
   await ctx.reply(text(lang, "lang_start"), { parse_mode: "HTML" });
 }

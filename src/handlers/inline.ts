@@ -9,7 +9,7 @@ import { resolveLanguage } from "../services/registration.ts";
 import { loadingKeyboard, statsKeyboard } from "../ui/keyboards.ts";
 import { createInlineSlideshow } from "./inline-slideshow.ts";
 import { findInstagramUrl } from "./links.ts";
-import { errorText, findTikTokUrl, shouldOfferRetry } from "./tiktok.ts";
+import { errorText, findTikTokUrl, shouldOfferRetry, tikTokExtractionUrl } from "./tiktok.ts";
 
 const retrying = new Set<string>();
 
@@ -58,7 +58,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
   try {
     const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
       const onRetry = async (attempt: number, max: number) => editText(ctx, id, `${text(lang, "inline_download_video_text")}\n${text(lang, "inline_retry_attempt").replace("{0}", String(attempt)).replace("{1}", String(max))}`, { inline_keyboard: loadingKeyboard.inline_keyboard });
-      const extraction = instagram ? await ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : await ctx.scrap.extractTikTok(link, { attempts: 4, onRetry });
+      const extraction = instagram ? await ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4, onRetry });
       const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
       const service = new DeliveryService(ctx.scrap, ctx.config);
       const result = extraction.platform === "instagram" ? await service.stageInstagram(extraction, link, identity) : await service.stageTikTok(extraction, link, identity);
@@ -102,14 +102,14 @@ async function editText(ctx: BotContext, id: string, value: string, markup?: Inl
   catch (error) { logger.warn("Inline text edit failed", error); }
 }
 function retryKeyboard(lang: Language, link: string, instagram: boolean): InlineKeyboardMarkup {
-  const data = `ir:${instagram ? "ig" : "tt"}:${compress(link, instagram)}`;
+  const data = `ir:${instagram ? "ig" : "tt"}:${compressInlineRetryLink(link, instagram)}`;
   return { inline_keyboard: data.length <= 64 ? [[{ text: text(lang, "try_again_button"), callback_data: data }]] : [] };
 }
 function normalize(value: string, instagram: boolean): string {
   const link = (instagram ? findInstagramUrl(value) : findTikTokUrl(value)) ?? value.trim(); return link.replace(/[.,)]+$/, "");
 }
-function compress(link: string, instagram: boolean): string {
+export function compressInlineRetryLink(link: string, instagram: boolean): string {
   let value = normalize(link, instagram).split("?")[0]!.replace(/^https?:\/\//, "");
-  if (!instagram) value = value.replace(/@[\w.]+/, "@");
+  if (!instagram) value = value.replace(/@[\w.]+/, "@user");
   return value;
 }

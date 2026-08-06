@@ -7,6 +7,7 @@ import { text } from "../locales.ts";
 export function registerUserHandlers(bot: Bot<BotContext>): void {
   bot.command("start", async (ctx, next) => {
     if (ctx.chat.type !== "private") return next();
+    if (ctx.onboardingSent) return;
     const lang = await resolveLanguage(ctx);
     await ctx.reply(text(lang, "start") + text(lang, "group_info"), { parse_mode: "HTML", link_preview_options: { is_disabled: true } });
     await ctx.reply(text(lang, "lang_start"), { parse_mode: "HTML" });

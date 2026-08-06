@@ -13,8 +13,6 @@ import { beginStatus, clearStatus, setReaction } from "./status.ts";
 import { canonicalHttpsUrl, parsePublicUrl, urlCandidates } from "./urls.ts";
 
 const retryingVideos = new Set<string>();
-const standardTikTokHosts = new Set(["tiktok.com", "www.tiktok.com", "m.tiktok.com"]);
-const shortTikTokHosts = new Set(["vm.tiktok.com", "vt.tiktok.com"]);
 
 export function findTikTokUrl(value: string, entities: Message["entities"] = []): string | null {
   for (const candidate of urlCandidates(value, entities)) {
@@ -27,20 +25,42 @@ export function findTikTokUrl(value: string, entities: Message["entities"] = [])
 function matchTikTok(value: string): string | null {
   const url = parsePublicUrl(value);
   if (!url) return null;
-  const host = url.hostname.toLowerCase();
-  if (shortTikTokHosts.has(host)) {
-    return /^\/[A-Za-z0-9_-]+\/?$/u.test(url.pathname) ? canonicalHttpsUrl(url) : null;
-  }
-  if (!standardTikTokHosts.has(host)) return null;
-  const supportedPath = /^\/@[A-Za-z0-9._-]+\/(?:video|photo)\/[0-9]+\/?$/u.test(url.pathname)
-    || /^\/t\/[A-Za-z0-9_-]+\/?$/u.test(url.pathname);
-  return supportedPath ? canonicalHttpsUrl(url) : null;
+  if (!isTikTokHost(url.hostname)) return null;
+  // TikTok has used several post, mobile, embed, player, share, and short-link
+  // paths. Keep the security boundary at the owned domain and let tt-scrap
+  // perform semantic post validation so new official paths are not ignored.
+  if (url.pathname !== "/") return canonicalHttpsUrl(url);
+  const itemId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
+  return itemId && /^[0-9]+$/u.test(itemId) ? `https://www.tiktok.com/@_/video/${itemId}` : null;
+}
+
+export function tikTokExtractionUrl(link: string): string {
+  const url = parsePublicUrl(link);
+  if (!url || !isTikTokHost(url.hostname)) return link;
+  const pathMatch = url.pathname.match(/^\/(?:v|embed(?:\/v2)?|player\/v1|share\/(?:video|item))\/([0-9]+)(?:\.html)?\/?$/u);
+  const queryId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
+  const videoId = pathMatch?.[1] ?? (queryId && /^[0-9]+$/u.test(queryId) ? queryId : null);
+  return videoId ? `https://www.tiktok.com/@_/video/${videoId}` : link;
+}
+
+function isTikTokHost(hostname: string): boolean {
+  const host = hostname.replace(/\.$/u, "").toLowerCase();
+  return host === "tiktok.com" || host.endsWith(".tiktok.com");
 }
 
 export function registerTikTokHandlers(bot: Bot<BotContext>): void {
   bot.on("message:text", async (ctx) => {
     const message = ctx.message;
     const group = ctx.chat.type !== "private";
+    const link = findTikTokUrl(message.text, message.entities);
+    if (!link) {
+      if (!group) {
+        const lang = await resolveLanguage(ctx);
+        const hasUrl = message.entities?.some((entity) => entity.type === "url" || entity.type === "text_link") ?? false;
+        await ctx.reply(text(lang, hasUrl ? "non_tiktok_link" : "send_link_prompt"), { parse_mode: "HTML" });
+      }
+      return;
+    }
     const user = await ctx.getUserRecord();
     let lang: Language;
     let fileMode: boolean;
@@ -50,19 +70,10 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
       await registerAndWelcome(ctx, lang);
     } else { lang = user.lang; fileMode = user.fileMode; }
 
-    const link = findTikTokUrl(message.text, message.entities);
-    if (!link) {
-      if (!group) {
-        const hasUrl = message.entities?.some((entity) => entity.type === "url" || entity.type === "text_link") ?? false;
-        await ctx.reply(text(lang, hasUrl ? "non_tiktok_link" : "send_link_prompt"), { parse_mode: "HTML" });
-      }
-      return;
-    }
-
     const status = await beginStatus(ctx, message);
     try {
       const queued = await ctx.queue.withSlot(ctx.chat.id, async () => {
-        const extraction = await ctx.scrap.extractTikTok(link, { attempts: 4 });
+        const extraction = await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4 });
         if (!status) await setReaction(ctx, message, "👨‍💻");
         await ctx.api.sendChatAction(ctx.chat.id, extraction.content_type === "video" ? "upload_video" : "upload_photo");
         const delivery = new DeliveryService(ctx.scrap, ctx.config);

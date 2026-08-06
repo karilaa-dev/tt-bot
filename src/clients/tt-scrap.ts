@@ -183,6 +183,8 @@ function isRetryableExtractionError(error: unknown): boolean {
   );
 }
 function stringifyJson(value: unknown): string {
+  // TikTok IDs exceed JavaScript's safe integer range. tt-scrap's Pydantic
+  // input models coerce decimal strings to integers without losing precision.
   return JSON.stringify(value, (_key, item: unknown) => typeof item === "bigint" ? item.toString() : item);
 }
 

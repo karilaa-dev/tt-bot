@@ -27,7 +27,8 @@ export function parsePublicUrl(value: string): URL | null {
 
 export function canonicalHttpsUrl(url: URL): string {
   const path = url.pathname.replace(/\/+$/, "");
-  return `https://${url.hostname.toLowerCase()}${path}`;
+  const host = url.hostname.replace(/\.$/u, "").toLowerCase();
+  return `https://${host}${path}`;
 }
 
 function trimTrailingPunctuation(value: string): string {

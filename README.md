@@ -20,7 +20,7 @@ Copy `.env.example` to `.env` and configure:
 
 ## Run with Docker
 
-Start PostgreSQL for tests or host-side development:
+Start PostgreSQL for host-side development:
 
 ```bash
 docker compose up -d db
@@ -34,6 +34,9 @@ docker compose up --build
 
 The database migration is idempotent and retains the existing `users`, `videos`, and `music` schema.
 
+> [!WARNING]
+> The PostgreSQL 18 image stores its cluster below `/var/lib/postgresql`, so Compose now mounts `pgdata` there. Before upgrading an existing deployment that mounted the volume at `/var/lib/postgresql/data`, export the running database with `docker compose exec db sh -c 'pg_dumpall -U "$POSTGRES_USER"' > ttbot-backup.sql`. Recreate the database service with the new mount, then restore with `docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER"' < ttbot-backup.sql`. The old Postgres 18 mount did not include the image's active `PGDATA`, so recreating that old container without a dump can lose its database.
+
 ## Development
 
 ```bash
@@ -42,6 +45,8 @@ bun run typecheck
 bun test
 bun run start
 ```
+
+The default test suite does not start or require PostgreSQL. Database integration tests are optional and run only when `TEST_DB_URL` or `TEST_DB_ADMIN_URL` is set.
 
 Maintenance mode is available separately:
 

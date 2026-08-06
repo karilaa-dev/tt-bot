@@ -17,6 +17,7 @@ export class BotContext extends Context {
   declare db: Database;
   declare scrap: TtScrapClient;
   declare queue: QueueManager;
+  declare onboardingSent: boolean;
 
   declare userRecords: Map<number, Promise<UserRecord | null>>;
 
