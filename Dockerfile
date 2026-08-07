@@ -1,23 +1,12 @@
-# Base image with Python 3.13 and uv pre-installed on Debian Trixie slim
-FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim
+FROM oven/bun:1.3.14-alpine
 
 WORKDIR /app
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
 
-# Leverage build cache: copy project metadata and lockfile first
-COPY pyproject.toml uv.lock ./
+COPY tsconfig.json ./
+COPY locales ./locales
+COPY src ./src
 
-# Install only dependencies into a project-managed virtualenv (.venv)
-RUN uv sync --locked --no-install-project --extra main
-
-# Copy the rest of the application source
-COPY . .
-
-# Install the project itself
-RUN uv sync --locked --extra main
-
-# Ensure the project venv executables are on PATH and unbuffer Python output
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
-
-# Run the bot
-CMD ["uv", "run", "main.py"]
+USER bun
+CMD ["bun", "run", "src/main.ts"]

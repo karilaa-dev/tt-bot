@@ -1,17 +1,17 @@
-#folders
-venv/
-.idea/
-development/
+node_modules/
+coverage/
+dist/
+.cache/
 
-#files
-config.ini
-*.env
-sqlite*.db
-LICENSE.md
-cookies.txt
-proxies.txt
+.env
+.env.*
+!.env.example
 
-#extensions
 *.log
-*.pyc
+.idea/
+.vscode/
 .DS_Store
+
+backups/
+dumps/
+*.sql.dump
