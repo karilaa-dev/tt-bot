@@ -7,7 +7,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    stop_grace_period: 16s
+    stop_grace_period: 20m
     depends_on:
       db:
         condition: service_healthy

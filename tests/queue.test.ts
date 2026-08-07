@@ -52,12 +52,17 @@ describe("QueueManager", () => {
     const queued = queue.withSlot(9, async () => "should not run");
     await Bun.sleep(0);
     queue.shutdown();
+    let idle = false;
+    const drained = queue.waitForIdle().then(() => { idle = true; });
     expect(await queued).toEqual({ acquired: false, reason: "shutdown" });
     expect(queue.rejectionReason(10)).toBe("shutdown");
     expect(await queue.withSlot(10, async () => "new")).toEqual({ acquired: false, reason: "shutdown" });
     expect(queue.activeCount()).toBe(1);
+    expect(idle).toBe(false);
     release();
     expect(await active).toEqual({ acquired: true, value: "done" });
+    await drained;
+    expect(idle).toBe(true);
     expect(queue.activeCount()).toBe(0);
   });
 });

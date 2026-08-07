@@ -43,13 +43,16 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
     const id = ctx.callbackQuery.inline_message_id;
     if (!id) return ctx.answerCallbackQuery();
     if (ctx.from.id.toString(36) !== ctx.match[2]) return ctx.answerCallbackQuery();
+    const instagram = ctx.match[1] === "ig";
+    const link = normalize(`https://${ctx.match[3]}`, instagram);
+    if (!link) return ctx.answerCallbackQuery({ text: "Retry button expired.", show_alert: true });
     if (retrying.has(id)) return ctx.answerCallbackQuery({ text: "Retrying..." });
     retrying.add(id);
     try {
       const lang = await languageForInline(ctx, ctx.from.id);
       await ctx.answerCallbackQuery();
       await editText(ctx, id, text(lang, "inline_download_video_text"), { inline_keyboard: loadingKeyboard.inline_keyboard });
-      await processInline(ctx, id, `https://${ctx.match[3]}`, lang, ctx.match[1] === "ig");
+      await processInline(ctx, id, link, lang, instagram);
     } finally { retrying.delete(id); }
   });
 
@@ -59,6 +62,10 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
 
 async function processInline(ctx: BotContext, id: string, rawLink: string, lang: Language, instagram: boolean): Promise<void> {
   const link = normalize(rawLink, instagram);
+  if (!link) {
+    await editText(ctx, id, text(lang, "inline_wrong_link"), { inline_keyboard: [] });
+    return;
+  }
   try {
     const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
       const onRetry = async (attempt: number, max: number) => editText(ctx, id, `${text(lang, "inline_download_video_text")}\n${text(lang, "inline_retry_attempt").replace("{0}", String(attempt)).replace("{1}", String(max))}`, { inline_keyboard: loadingKeyboard.inline_keyboard });
@@ -109,16 +116,20 @@ function retryKeyboard(lang: Language, link: string, instagram: boolean, ownerId
   const data = inlineRetryCallbackData(link, instagram, ownerId);
   return { inline_keyboard: data ? [[{ text: text(lang, "try_again_button"), callback_data: data }]] : [] };
 }
-function normalize(value: string, instagram: boolean): string {
-  const link = (instagram ? findInstagramUrl(value) : findTikTokUrl(value)) ?? value.trim(); return link.replace(/[.,)]+$/, "");
+function normalize(value: string, instagram: boolean): string | null {
+  return instagram ? findInstagramUrl(value) : findTikTokUrl(value);
 }
 export function compressInlineRetryLink(link: string, instagram: boolean): string {
-  let value = normalize(link, instagram).split("?")[0]!.replace(/^https?:\/\//, "");
+  const normalized = normalize(link, instagram);
+  if (!normalized) return "";
+  let value = normalized.split("?")[0]!.replace(/^https?:\/\//, "");
   if (!instagram) value = value.replace(/@[\w.]+/, "@user");
   return value;
 }
 
 export function inlineRetryCallbackData(link: string, instagram: boolean, ownerId: number): string | null {
-  const data = `ir:${instagram ? "ig" : "tt"}:${ownerId.toString(36)}:${compressInlineRetryLink(link, instagram)}`;
+  const compressed = compressInlineRetryLink(link, instagram);
+  if (!compressed) return null;
+  const data = `ir:${instagram ? "ig" : "tt"}:${ownerId.toString(36)}:${compressed}`;
   return data.length <= 64 ? data : null;
 }

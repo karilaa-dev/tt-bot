@@ -23,6 +23,7 @@ export class QueueManager {
   private readonly queues = new Map<number, QueueState>();
   private readonly readyKeys: number[] = [];
   private readonly readySet = new Set<number>();
+  private readonly idleWaiters = new Set<() => void>();
   private accepting = true;
   private activeJobs = 0;
 
@@ -38,6 +39,10 @@ export class QueueManager {
   }
 
   activeCount(): number { return this.activeJobs; }
+  waitForIdle(): Promise<void> {
+    if (this.activeJobs === 0) return Promise.resolve();
+    return new Promise((resolve) => this.idleWaiters.add(resolve));
+  }
   capacity(group = false): number { return group ? this.groupCapacity : this.privateCapacity; }
   rejectionReason(key: number, group = false): QueueRejectionReason | null {
     if (!this.accepting) return "shutdown";
@@ -107,6 +112,10 @@ export class QueueManager {
       if (state.jobs.length === 0) this.queues.delete(key);
       else this.markReady(key, state);
       this.schedule();
+      if (this.activeJobs === 0) {
+        for (const resolve of this.idleWaiters) resolve();
+        this.idleWaiters.clear();
+      }
     }
   }
 }

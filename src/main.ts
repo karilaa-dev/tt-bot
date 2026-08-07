@@ -28,17 +28,9 @@ let shutdownPromise: Promise<void> | null = null;
 async function shutdown(signal: string): Promise<void> {
   logger.info(`Received ${signal}; stopping bot`);
   queue.shutdown();
-  const forceExit = setTimeout(() => {
-    logger.error("Graceful shutdown exceeded 15 seconds; forcing exit");
-    process.exit(0);
-  }, 15_000);
-  try {
-    await runner.stop();
-    cleanupInlineSlideshows();
-    await db.close();
-  } finally {
-    clearTimeout(forceExit);
-  }
+  await Promise.all([runner.stop(), queue.waitForIdle()]);
+  cleanupInlineSlideshows();
+  await db.close();
 }
 function requestShutdown(signal: string): void {
   shutdownPromise ??= shutdown(signal);

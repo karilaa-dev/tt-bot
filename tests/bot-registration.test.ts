@@ -193,6 +193,22 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(scrapCalls).toHaveLength(callsBeforeUnauthorizedRetries);
 
     await bot.handleUpdate({ update_id: 11, callback_query: {
+      id: "invalid-inline-retry-host",
+      chat_instance: "inline-instance",
+      from: groupUser,
+      data: `ir:tt:${groupUser.id.toString(36)}:example.com/video/7669880788879543583`,
+      inline_message_id: "invalid-inline-retry-message",
+    } });
+    await bot.handleUpdate({ update_id: 12, callback_query: {
+      id: "invalid-slideshow-refresh-host",
+      chat_instance: "inline-instance",
+      from: groupUser,
+      data: "sr:103:0:example.com/video/7669880788879543583",
+      inline_message_id: "invalid-slideshow-message",
+    } });
+    expect(scrapCalls).toHaveLength(callsBeforeUnauthorizedRetries);
+
+    await bot.handleUpdate({ update_id: 13, callback_query: {
       id: "slideshow-refresh",
       chat_instance: "inline-instance",
       from: groupUser,

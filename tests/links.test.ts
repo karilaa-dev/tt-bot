@@ -44,6 +44,8 @@ test("inline TikTok retries retain a valid placeholder username", () => {
   const callback = inlineRetryCallbackData(`https://${compressed}`, false, 123456789);
   expect(callback).toBe(`ir:tt:${(123456789).toString(36)}:${compressed}`);
   expect(callback!.length).toBeLessThanOrEqual(64);
+  expect(inlineRetryCallbackData("https://example.com/video/7669880788879543583", false, 123456789)).toBeNull();
+  expect(inlineRetryCallbackData("https://tiktok.com.evil.example/@user/video/7669880788879543583", false, 123456789)).toBeNull();
 });
 
 test("normalizes ID-bearing legacy and embed routes for extraction", () => {

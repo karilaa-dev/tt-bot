@@ -7,7 +7,7 @@ import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayloa
 import { resolveLanguage } from "../services/registration.ts";
 import { statsRow } from "../ui/stats.ts";
 import { findInstagramUrl } from "./links.ts";
-import { tikTokExtractionUrl } from "./tiktok.ts";
+import { findTikTokUrl, tikTokExtractionUrl } from "./tiktok.ts";
 
 interface SlideshowSession {
   media: InlineMediaReference[];
@@ -68,13 +68,17 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
     if (!id) return ctx.answerCallbackQuery();
     const ownerId = Number(ctx.match[1]);
     if (ctx.from.id !== ownerId) return ctx.answerCallbackQuery({ text: "Only the original requester can refresh this slideshow.", show_alert: true });
+    const callbackLink = `https://${ctx.match[3]}`;
+    const instagramLink = findInstagramUrl(callbackLink);
+    const tikTokLink = instagramLink ? null : findTikTokUrl(callbackLink);
+    const link = instagramLink ?? tikTokLink;
+    if (!link) return ctx.answerCallbackQuery({ text: "Refresh button expired.", show_alert: true });
     if (refreshing.has(id)) return ctx.answerCallbackQuery({ text: "Refreshing…" });
     if (!ctx.queue.hasCapacity(ctx.from.id)) return ctx.answerCallbackQuery({ text: "Your download queue is full.", show_alert: true });
     refreshing.add(id);
     try {
       await ctx.answerCallbackQuery({ text: "Refreshing…" });
       const saved = Number(ctx.match[2]);
-      const link = `https://${ctx.match[3]}`;
       const user = await ctx.getUserRecord(ctx.from.id);
       const lang = user?.lang ?? await resolveLanguage(ctx, true);
       const identity = { userId: ctx.from.id, fullName: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" "), ...(ctx.from.username ? { username: ctx.from.username } : {}) };
@@ -83,7 +87,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
         let media: InlineMediaReference[];
         let likes: number | null | undefined;
         let views: number | null | undefined;
-        if (findInstagramUrl(link)) {
+        if (instagramLink) {
           const extraction = await ctx.scrap.extractInstagram(link, { attempts: 4 });
           media = inlineMedia(await service.stageInstagram(extraction, link, identity));
         } else {
