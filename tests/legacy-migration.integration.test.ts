@@ -210,6 +210,34 @@ integration("PostgreSQL legacy rebuild", () => {
       expect(history[0]?.count).toBe("7");
     } finally { await sql.close(); }
   }, 30_000);
+
+  test("the offline command repairs legacy user columns left after a completed cutover", async () => {
+    const fixture = await createFixture(admin, databases, "post-cutover-users");
+    await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
+    const sql = new SQL(fixture.url);
+    try {
+      await sql`ALTER TABLE users ADD COLUMN ad_count INTEGER NOT NULL DEFAULT 0`;
+      await sql`ALTER TABLE users ADD COLUMN ad_cooldown BIGINT NOT NULL DEFAULT 0`;
+      await sql`UPDATE users SET ad_count = 4, ad_cooldown = 12 WHERE user_id = 1`;
+    } finally { await sql.close(); }
+
+    const repaired = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
+    expect(repaired.status).toBe("complete");
+    const check = new SQL(fixture.url);
+    try {
+      const columns = await check<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'users' AND column_name IN ('ad_count', 'ad_cooldown')`;
+      expect(columns).toHaveLength(0);
+      const audit = await check<Array<{ evidence: Record<string, any> }>>`SELECT evidence FROM migration_audit
+        WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
+      expect(audit[0]?.evidence.post_cutover_user_column_recovery).toMatchObject({
+        nonzero_ad_count: "1",
+        nonzero_ad_cooldown_count: "1",
+        ad_count_column_present: "true",
+        ad_cooldown_column_present: "true",
+      });
+    } finally { await check.close(); }
+  }, 30_000);
 });
 
 function migrationOptions(overrides: Record<string, unknown> = {}) {

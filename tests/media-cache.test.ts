@@ -265,20 +265,34 @@ describe("Telegram media cache", () => {
     expect(scrap.instagramExtractions).toBe(0);
   });
 
-  test("Instagram document mode preserves standard IDs when the extracted media shape changed", async () => {
+  test("Instagram document mode preserves changed standard IDs but makes the next media request validate them", async () => {
     const mixed: TelegramFileReference[] = [
       { position: 0, media_type: "photo", file_id: "p", file_unique_id: "pu" },
       { position: 1, media_type: "video", file_id: "v", file_unique_id: "vu" },
     ];
     const memory = fakeDatabase(detailsRow({ platform: "instagram", platform_video_id: "ABC123", content_type: "carousel", telegram_files: mixed }));
-    const scrap = fakeScrap();
+    const scrap = fakeScrap({ instagramMediaTypes: ["image", "video", "image"] });
     await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/", fileMode: true }, async (prepared) => {
       expect(prepared.cachedFiles).toBeNull();
-      expect(prepared.contentType).toBe("video");
+      expect(prepared.contentType).toBe("carousel");
       return { value: "document-sent" };
     });
     expect(memory.invalidations).toBe(0);
     expect(memory.row.telegram_files).toEqual(mixed);
+    expect(memory.row.metadata_refreshed_at).toBeNull();
+
+    const uploaded: TelegramFileReference[] = [
+      { position: 0, media_type: "photo", file_id: "new-p0", file_unique_id: "new-pu0" },
+      { position: 1, media_type: "video", file_id: "new-v1", file_unique_id: "new-vu1" },
+      { position: 2, media_type: "photo", file_id: "new-p2", file_unique_id: "new-pu2" },
+    ];
+    await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async (prepared) => {
+      expect(prepared.cachedFiles).toBeNull();
+      return { value: "media-sent", telegramFiles: uploaded };
+    });
+    expect(scrap.instagramExtractions).toBe(2);
+    expect(memory.invalidations).toBe(1);
+    expect(memory.row.telegram_files).toEqual(uploaded);
   });
 
   test("delivers a mismatched Instagram extraction ID without caching its metadata or Telegram file ID", async () => {
@@ -426,7 +440,7 @@ function photoFiles(count: number): TelegramFileReference[] {
   return Array.from({ length: count }, (_, position) => ({ position, media_type: "photo", file_id: `photo-${position}`, file_unique_id: `photo-unique-${position}` }));
 }
 
-function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; tiktokExtractionError?: unknown; tiktokSourceId?: string; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
+function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; tiktokExtractionError?: unknown; tiktokSourceId?: string; instagramSourceId?: string; instagramMediaTypes?: Array<"image" | "video"> } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
   const counts = { resolutions: 0, tiktokExtractions: 0, instagramExtractions: 0 };
   const tiktokContentType = options.tiktokContentType ?? "video";
   const extraction: TikTokExtraction = {
@@ -437,9 +451,23 @@ function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type
       : [0, 1].map((position) => ({ asset_id: `a-${position}`, kind: "image" as const, position, download_url: `/a-${position}`, filename: `a-${position}.jpg`, expires_at: new Date().toISOString() })),
     expires_at: new Date().toISOString(),
   };
+  const instagramMediaTypes = options.instagramMediaTypes ?? ["video"];
   const instagramExtraction: InstagramExtraction = {
     extraction_id: "ig", platform: "instagram", source_id: options.instagramSourceId ?? "ABC123", source_url: "https://www.instagram.com/p/ABC123/",
-    creator_username: "creator", content_type: "video", media: [{ position: 0, media_type: "video", asset: extraction.media[0]! }], expires_at: new Date().toISOString(),
+    creator_username: "creator", content_type: instagramMediaTypes.length === 1 ? instagramMediaTypes[0]! : "carousel",
+    media: instagramMediaTypes.map((mediaType, position) => ({
+      position,
+      media_type: mediaType,
+      asset: {
+        asset_id: `ig-${position}`,
+        kind: mediaType,
+        position,
+        download_url: `/ig-${position}`,
+        filename: `ig-${position}.${mediaType === "video" ? "mp4" : "jpg"}`,
+        expires_at: new Date().toISOString(),
+      },
+    })),
+    expires_at: new Date().toISOString(),
   };
   const client = {
     mediaRequestBudgetMs() { return 800_000; },
@@ -500,7 +528,7 @@ function fakeDatabase(initial: Record<string, unknown> | null): {
         likes_display: values[7] ?? existing?.likes_display ?? null,
         views_display: values[8] ?? existing?.views_display ?? null,
         first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],
-        metadata_refreshed_at: values[17] ? values[11] : existing?.metadata_refreshed_at ?? null,
+        metadata_refreshed_at: values[18] ? values[11] : existing?.metadata_refreshed_at ?? null,
         file_ids_updated_at: hasFiles ? values[12] : existing?.file_ids_updated_at ?? null,
         cache_version: BigInt(String(existing?.cache_version ?? 0)) + (hasFiles ? 1n : 0n),
       };

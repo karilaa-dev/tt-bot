@@ -326,7 +326,7 @@ function memoryDatabase(): {
         likes_display: values[7] ?? existing?.likes_display ?? null,
         views_display: values[8] ?? existing?.views_display ?? null,
         first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],
-        metadata_refreshed_at: values[11] ?? existing?.metadata_refreshed_at ?? null,
+        metadata_refreshed_at: values[18] ? values[11] : existing?.metadata_refreshed_at ?? null,
         file_ids_updated_at: hasFiles ? values[12] : existing?.file_ids_updated_at ?? null,
         cache_version: BigInt(String(existing?.cache_version ?? 0)) + (hasFiles ? 1n : 0n),
       };

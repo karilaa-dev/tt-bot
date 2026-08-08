@@ -60,7 +60,11 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   if (final && !legacy) {
     const completed = await completedEvidence(sql);
     if (!completed) throw new Error("Final videos schema exists but the legacy migration has no completed audit row");
-    return { status: "complete", phase: "cutover", evidence: completed };
+    // Repair the only safe partial-cutover remainder without rebuilding history.
+    // The explicit offline command still provides the backup/stopped-process
+    // confirmations, and records exact values before removing either column.
+    await recoverFinalUserColumns(sql);
+    return { status: "complete", phase: "cutover", evidence: await completedEvidence(sql) ?? completed };
   }
   if (!legacy) throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
   await validateLegacyShape(sql);
@@ -234,6 +238,24 @@ async function userAudit(sql: SQLType): Promise<Record<string, string>> {
     ad_count_column_present: String(hasAdCount),
     ad_cooldown_column_present: String(hasAdCooldown),
   };
+}
+
+async function recoverFinalUserColumns(sql: SQLType): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`LOCK TABLE users IN ACCESS EXCLUSIVE MODE`;
+    const audit = await userAudit(tx);
+    if (audit.ad_count_column_present !== "true" && audit.ad_cooldown_column_present !== "true") return;
+    await tx`ALTER TABLE users DROP COLUMN IF EXISTS ad_count`;
+    await tx`ALTER TABLE users DROP COLUMN IF EXISTS ad_cooldown`;
+    const recoveredAt = Math.floor(Date.now() / 1000);
+    await tx`UPDATE migration_audit SET evidence = evidence || jsonb_build_object(
+        'post_cutover_user_column_recovery', ${{
+          ...audit,
+          recovered_at: String(recoveredAt),
+        }}::jsonb
+      )
+      WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
+  });
 }
 
 async function createIdentityParser(sql: SQLType): Promise<void> {

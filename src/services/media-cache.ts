@@ -132,18 +132,40 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "instagram", localId);
     let extraction: InstagramExtraction | null = null;
-    let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "instagram");
-    if (options.fileMode || !cachedFiles) extraction = await options.scrap.extractInstagram(options.link, options.retry);
+    const storedFiles = validStoredFiles(details, options.botId, "instagram");
+    let cachedFiles = options.fileMode ? null : storedFiles;
+    // Instagram intentionally has no periodic TTL. A null timestamp alongside
+    // usable files is a one-shot validation marker written when document mode
+    // observed a changed media shape without deleting the standard-media IDs.
+    const validationRequired = cachedFiles !== null && details?.metadataRefreshedAt === null;
+    if (options.fileMode || !cachedFiles) {
+      extraction = await options.scrap.extractInstagram(options.link, options.retry);
+    } else if (validationRequired) {
+      try {
+        extraction = await options.scrap.extractInstagram(options.link, options.retry);
+      } catch (error) {
+        logger.warn("Instagram cache validation failed; using cached Telegram media", error);
+      }
+    }
     const extractionCacheAllowed = extraction ? extractionSourceIdMatches("instagram", extraction.source_id, localId) : true;
-    if (extraction && extractionCacheAllowed && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
+    const storedFilesMatchExtraction = !extraction || !storedFiles || filesMatchExtraction(storedFiles, extraction);
+    if (extraction && extractionCacheAllowed && cachedFiles && !storedFilesMatchExtraction) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
-    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles, extractionCacheAllowed);
+    const prepared = instagramPrepared(
+      options.link,
+      localId,
+      details,
+      extraction,
+      cachedFiles,
+      extractionCacheAllowed,
+      !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
+    );
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractInstagram(options.link, options.retry);
       const refreshedCacheAllowed = extractionSourceIdMatches("instagram", refreshed.source_id, localId);
-      return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed);
+      return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed, true);
     }, now);
   }, lockWaitTimeoutMs);
 }
@@ -253,6 +275,7 @@ function instagramPrepared(
   extraction: InstagramExtraction | null,
   cachedFiles: TelegramFileReference[] | null,
   extractionCacheAllowed: boolean,
+  metadataFreshnessConfirmed: boolean,
 ): PreparedMedia {
   const trustedExtraction = extractionCacheAllowed ? extraction : null;
   const deliveryExtraction = extractionCacheAllowed || !cachedFiles ? extraction : null;
@@ -268,7 +291,7 @@ function instagramPrepared(
     likesDisplay: null,
     viewsDisplay: null,
     extractionCacheAllowed,
-    metadataFreshnessConfirmed: true,
+    metadataFreshnessConfirmed,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
