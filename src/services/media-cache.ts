@@ -83,6 +83,9 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
     if (options.fileMode || !cachedFiles) {
       extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
     } else if (stale) {
+      // Product contract: refresh full TikTok creator/stats information after
+      // 24 hours. tt-scrap currently returns that metadata only from extraction,
+      // so this call is intentionally heavier even though valid file IDs remain.
       try {
         extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
       } catch (error) {

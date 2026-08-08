@@ -117,7 +117,7 @@ WHERE migration_id = '002_media_cache_rebuild';
 
 ## Telegram media cache
 
-Standard video/photo deliveries store ordered, bot-scoped Telegram `file_id` and `file_unique_id` values. TikTok always resolves a link before lookup. Fresh TikTok cache hits avoid extraction for 24 hours; stale hits refresh creator and rounded likes/views while reusing IDs if the media shape is unchanged. Instagram cache hits skip extraction without the TikTok periodic refresh rule; a changed shape observed in document mode triggers a one-time validation on the next standard-media request.
+Standard video/photo deliveries store ordered, bot-scoped Telegram `file_id` and `file_unique_id` values. TikTok always resolves a link before lookup. Fresh TikTok cache hits avoid extraction for 24 hours; stale hits use full extraction because the current API exposes refreshed creator and rounded likes/views there, while still reusing IDs if the media shape is unchanged. Instagram cache hits skip extraction without the TikTok periodic refresh rule; a changed shape observed in document mode triggers a one-time validation on the next standard-media request.
 
 Document mode always extracts and uploads, records history and refreshed details, never stores document IDs, and never erases a standard-media cache. If that extraction reveals a changed media shape, the retained cache is marked stale so the next standard-media request validates and replaces it. A confirmed invalid Telegram file identifier invalidates that exact cache version and permits one extraction/upload retry; ambiguous transport errors and partially delivered albums are never blindly resent.
 
