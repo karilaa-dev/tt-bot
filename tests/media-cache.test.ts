@@ -5,7 +5,7 @@ import type { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
 import type { Database } from "../src/db/client.ts";
 import type { TelegramFileReference } from "../src/db/videos.ts";
-import { albumBatches, deliverCachedTikTokToChat } from "../src/services/cached-delivery.ts";
+import { albumBatches, deliverCachedInstagramToChat, deliverCachedTikTokToChat } from "../src/services/cached-delivery.ts";
 import { executeInstagramMediaRequest, executeTikTokMediaRequest, isConfirmedInvalidFileId, type CacheIdentity } from "../src/services/media-cache.ts";
 
 const now = 2_000_000;
@@ -87,6 +87,46 @@ describe("Telegram media cache", () => {
     });
     expect(replacementIdentity).toBe(replacement.prepared.cacheIdentity);
     expect(replacementIdentity).toEqual({ detailsId: 1n, cacheVersion: 2n });
+  });
+
+  test("persists first inline video and slideshow uploads with reusable file IDs", async () => {
+    for (const contentType of ["video", "slideshow"] as const) {
+      const memory = fakeDatabase(null);
+      const scrap = fakeScrap({ tiktokContentType: contentType });
+      const uploaded = contentType === "video" ? [videoFile] : photoFiles(2);
+      await executeTikTokMediaRequest({ ...request(memory.db, scrap.client), deliverySurface: "inline" }, async (prepared) => {
+        expect(prepared.cachedFiles).toBeNull();
+        return { value: "inline-sent", telegramFiles: uploaded };
+      });
+      expect(memory.row.telegram_files).toEqual(uploaded);
+      expect(memory.history).toEqual([expect.objectContaining({
+        surface: "inline", mode: "media", kind: contentType === "video" ? "video" : "images", cacheHit: false,
+      })]);
+    }
+  });
+
+  test("puts cached single-image captions on the photo", async () => {
+    const calls: Array<{ method: string; options: Record<string, unknown> }> = [];
+    const api = {
+      async sendPhoto(_chatId: number, _fileId: string, options: Record<string, unknown>) {
+        calls.push({ method: "sendPhoto", options });
+        return { message_id: 1, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, photo: [] };
+      },
+    } as unknown as Api;
+    const file = photoFiles(1);
+    await deliverCachedTikTokToChat({
+      api, files: file, chatId: 7, replyTo: 1, lang: "en", sourceLink: "https://www.tiktok.com/@a/photo/123",
+      group: false, sourceId: "123", contentType: "slideshow", likesDisplay: "1K", viewsDisplay: "2K",
+    });
+    await deliverCachedInstagramToChat({
+      api, files: file, chatId: 7, replyTo: 2, lang: "en", sourceLink: "https://www.instagram.com/p/ABC123/",
+      group: false, contentType: "image",
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.options).toMatchObject({ parse_mode: "HTML", reply_markup: { inline_keyboard: expect.any(Array) } });
+    expect(calls[0]?.options.caption).toContain("tiktok.com");
+    expect(calls[1]?.options).toMatchObject({ parse_mode: "HTML" });
+    expect(calls[1]?.options.caption).toContain("instagram.com");
   });
 
   test("repairs cache details without recording a navigation click as a download", async () => {

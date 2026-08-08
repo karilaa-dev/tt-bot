@@ -15,15 +15,16 @@ export class DeliveryService {
   constructor(private readonly scrap: TtScrapClient, private readonly config: AppConfig) {}
 
   deliverTikTokToChat(extraction: TikTokExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean, disableNotification = false): Promise<TelegramDeliveryResult> {
+    const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
     return this.scrap.deliverTikTok({
       source: { extraction_id: extraction.extraction_id },
       delivery: fileMode ? "document" : "media",
       telegram: {
         chat_id: chatId,
-        ...(extraction.content_type === "video" ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
+        ...(captionSingle ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
         reply_parameters: { message_id: replyTo },
         disable_notification: extraction.content_type === "slideshow" || disableNotification,
-        reply_markup: extraction.content_type === "video" ? { inline_keyboard: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views).inline_keyboard } : undefined,
+        reply_markup: captionSingle ? { inline_keyboard: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views).inline_keyboard } : undefined,
         ...technicalParameters(extraction.content_type, fileMode),
       },
     });
@@ -31,9 +32,10 @@ export class DeliveryService {
 
   async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
     const chatId = this.requireStorage();
+    const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
     return this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
-      ...(extraction.content_type === "video" ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true,
       ...technicalParameters(extraction.content_type, fileMode),
     } });
@@ -46,9 +48,10 @@ export class DeliveryService {
   }
 
   deliverInstagram(extraction: InstagramExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean): Promise<TelegramDeliveryResult> {
+    const captionSingle = extraction.media.length === 1;
     return this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
-      ...(extraction.content_type === "video" ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
       reply_parameters: { message_id: replyTo },
       disable_notification: extraction.content_type !== "video",
       ...technicalParameters(extraction.content_type, fileMode),
@@ -56,9 +59,10 @@ export class DeliveryService {
   }
 
   stageInstagram(extraction: InstagramExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
+    const captionSingle = extraction.media.length === 1;
     return this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: this.requireStorage(),
-      ...(extraction.content_type === "video" ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true, ...technicalParameters(extraction.content_type, fileMode),
     } }, instagramMethod(extraction, fileMode));
   }

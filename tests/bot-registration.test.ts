@@ -127,6 +127,17 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(101)?.link).toBe("inline");
     expect(sendMessagesFor(telegramCalls, 101)).toHaveLength(4);
 
+    await bot.handleUpdate({ update_id: 1000, chosen_inline_result: {
+      result_id: "tt_download",
+      from: deepLinkUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "first-inline-video",
+    } });
+    expect(memory.videos.some((video) => video.userId === deepLinkUser.id && video.surface === "inline")).toBe(true);
+    expect(memory.details.get("tiktok:7669880788879543583")?.telegram_files).toEqual([
+      { position: 0, media_type: "video", file_id: "video-id", file_unique_id: "video-unique" },
+    ]);
+
     const firstLinkUser = { id: 102, is_bot: false, first_name: "First Link", language_code: "uk" };
     await bot.handleUpdate({ update_id: 4, message: {
       message_id: 4,
@@ -264,11 +275,12 @@ function sendMessagesFor(calls: TelegramCall[], chatId: number): TelegramCall[] 
 function memoryDatabase(): {
   db: Database;
   users: Map<number, MemoryUserRow>;
-  videos: Array<{ userId: number; link: string }>;
+  videos: Array<{ userId: number; link: string; surface: string }>;
+  details: Map<string, Record<string, unknown>>;
   readonly invalidations: number;
 } {
   const users = new Map<number, MemoryUserRow>();
-  const videos: Array<{ userId: number; link: string }> = [];
+  const videos: Array<{ userId: number; link: string; surface: string }> = [];
   const details = new Map<string, Record<string, unknown>>();
   let invalidations = 0;
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
@@ -282,16 +294,26 @@ function memoryDatabase(): {
       return row ? [row] : [];
     }
     if (query.startsWith("INSERT INTO video_details")) {
+      const key = `${values[0]}:${values[1]}`;
+      const existing = details.get(key);
+      const hasFiles = values[6] !== null;
       const row = {
-        pk_id: videos.length + 1, platform: values[0], platform_video_id: values[1], creator_username: values[2],
-        content_type: values[3], canonical_link: values[4], telegram_bot_id: values[5],
-        telegram_files: values[6] instanceof Uint8Array
-          ? JSON.parse(new TextDecoder().decode(values[6]))
-          : Array.isArray(values[6]) ? values[6] : null,
-        likes_display: values[7], views_display: values[8], first_downloaded_at: values[9], last_used_at: values[10],
-        metadata_refreshed_at: values[11], file_ids_updated_at: values[12], cache_version: values[13],
+        pk_id: existing?.pk_id ?? videos.length + 1, platform: values[0], platform_video_id: values[1],
+        creator_username: values[2] ?? existing?.creator_username ?? null,
+        content_type: values[3] ?? existing?.content_type ?? null,
+        canonical_link: values[4] ?? existing?.canonical_link ?? null,
+        telegram_bot_id: hasFiles ? values[5] : existing?.telegram_bot_id ?? null,
+        telegram_files: hasFiles
+          ? values[6] instanceof Uint8Array ? JSON.parse(new TextDecoder().decode(values[6])) : values[6]
+          : existing?.telegram_files ?? null,
+        likes_display: values[7] ?? existing?.likes_display ?? null,
+        views_display: values[8] ?? existing?.views_display ?? null,
+        first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],
+        metadata_refreshed_at: values[11] ?? existing?.metadata_refreshed_at ?? null,
+        file_ids_updated_at: hasFiles ? values[12] : existing?.file_ids_updated_at ?? null,
+        cache_version: BigInt(String(existing?.cache_version ?? 0)) + (hasFiles ? 1n : 0n),
       };
-      details.set(`${values[0]}:${values[1]}`, row);
+      details.set(key, row);
       return [row];
     }
     if (query.startsWith("INSERT INTO users")) {
@@ -308,7 +330,7 @@ function memoryDatabase(): {
       return [user];
     }
     if (query.startsWith("INSERT INTO videos")) {
-      videos.push({ userId: Number(values[0]), link: String(values[3]) });
+      videos.push({ userId: Number(values[0]), link: String(values[3]), surface: String(values[5]) });
       return [];
     }
     if (query.startsWith("UPDATE video_details SET telegram_bot_id = NULL")) {
@@ -318,5 +340,5 @@ function memoryDatabase(): {
     throw new Error(`Unexpected in-memory SQL query: ${query}`);
   };
   Object.assign(sql, { begin: async (operation: (transaction: typeof sql) => Promise<unknown>) => operation(sql) });
-  return { db: { sql } as unknown as Database, users, videos, get invalidations() { return invalidations; } };
+  return { db: { sql } as unknown as Database, users, videos, details, get invalidations() { return invalidations; } };
 }

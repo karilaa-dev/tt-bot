@@ -33,6 +33,16 @@ export async function deliverCachedTikTokToChat(options: CachedChatOptions & {
     });
     return singleCall("sendVideo", result);
   }
+  if (options.files.length === 1) {
+    const file = options.files[0];
+    if (!file || file.media_type !== "photo") throw new Error("TikTok slideshow cache has an invalid media shape");
+    const result = await options.api.sendPhoto(options.chatId, file.file_id, {
+      caption: resultCaption(options.lang, options.sourceLink), parse_mode: "HTML", disable_notification: true,
+      reply_parameters: { message_id: options.replyTo },
+      reply_markup: musicKeyboard(options.sourceId, options.lang, options.likesDisplay, options.viewsDisplay),
+    });
+    return singleCall("sendPhoto", result);
+  }
   const files = chatAlbumFiles(options.files, options.group);
   return sendAlbum(options.api, options.chatId, files, options.replyTo, true);
 }
@@ -50,7 +60,10 @@ export async function deliverCachedInstagramToChat(options: CachedChatOptions & 
   if (options.contentType === "image") {
     const file = options.files[0];
     if (!file || file.media_type !== "photo") throw new Error("Instagram image cache has an invalid media shape");
-    const result = await options.api.sendPhoto(options.chatId, file.file_id, { disable_notification: true, reply_parameters: { message_id: options.replyTo } });
+    const result = await options.api.sendPhoto(options.chatId, file.file_id, {
+      caption: resultCaption(options.lang, options.sourceLink), parse_mode: "HTML", disable_notification: true,
+      reply_parameters: { message_id: options.replyTo },
+    });
     return singleCall("sendPhoto", result);
   }
   const files = chatAlbumFiles(options.files, options.group);

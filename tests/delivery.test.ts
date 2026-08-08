@@ -43,6 +43,23 @@ describe("DeliveryService", () => {
     expect(payload.telegram).not.toHaveProperty("parse_mode");
   });
 
+  test("attaches the caption and controls to a one-image TikTok slideshow", async () => {
+    let payload: Record<string, any> = {};
+    server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: message }); } });
+    const config = testConfig(`http://127.0.0.1:${server.port}`);
+    const service = new DeliveryService(new TtScrapClient(config), config);
+    const singleImage = { ...extraction, media: [{
+      asset_id: "image-1", kind: "image" as const, position: 0, download_url: "/v1/assets/image-1",
+      filename: "image.jpg", expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }] };
+    await service.deliverTikTokToChat(singleImage, singleImage.source_url, 7, 9, "en", false);
+    expect(payload).toMatchObject({
+      source: { extraction_id: "extraction-1" }, delivery: "media",
+      telegram: { chat_id: 7, parse_mode: "HTML", reply_parameters: { message_id: 9 }, reply_markup: { inline_keyboard: expect.any(Array) } },
+    });
+    expect(payload.telegram.caption).toContain(singleImage.source_url);
+  });
+
   test("stages document mode in the configured storage channel", async () => {
     let payload: Record<string, unknown> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, unknown>; return Response.json({ ok: true, result: message }); } });
@@ -79,9 +96,11 @@ describe("DeliveryService", () => {
     const carousel = await service.deliverInstagram(instagramExtraction("carousel", ["image", "video"]), "https://www.instagram.com/p/ABC123", 7, 9, "en", false);
     expect(image.calls[0]?.method).toBe("sendPhoto");
     expect(carousel.calls[0]?.method).toBe("sendMediaGroup");
+    expect(payloads[0]?.telegram).toMatchObject({ parse_mode: "HTML" });
+    expect(payloads[0]?.telegram.caption).toContain("https://www.instagram.com/p/ABC123");
+    expect(payloads[1]?.telegram).not.toHaveProperty("caption");
+    expect(payloads[1]?.telegram).not.toHaveProperty("parse_mode");
     for (const payload of payloads) {
-      expect(payload.telegram).not.toHaveProperty("caption");
-      expect(payload.telegram).not.toHaveProperty("parse_mode");
       expect(payload.telegram).not.toHaveProperty("supports_streaming");
       expect(payload.telegram).not.toHaveProperty("disable_content_type_detection");
     }

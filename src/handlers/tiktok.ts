@@ -115,7 +115,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
               if (!fileMode) uploadedFiles = telegramFilesFromResult(result);
             }
           }
-          if (prepared.contentType === "slideshow") {
+          if (prepared.contentType === "slideshow" && allMessages(result).length > 1) {
             const final = lastBatch(result)[0];
             if (final) await ctx.api.sendMessage(ctx.chat.id, resultCaption(lang, link, group), {
               parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_parameters: { message_id: final.message_id },

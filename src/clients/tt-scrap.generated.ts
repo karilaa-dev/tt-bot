@@ -537,7 +537,7 @@ export interface components {
             start_timestamp?: number | null;
             /**
              * Caption
-             * @description Caption for single calls; Instagram carousels use the first item; TikTok slideshows reject it
+             * @description Caption for single calls; Instagram carousels use the first item; multi-image TikTok slideshows reject it
              */
             caption?: string | null;
             /** Parse Mode */
