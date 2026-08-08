@@ -48,6 +48,8 @@ bun run start
 
 The test suite is self-contained and does not connect to PostgreSQL. Exercise the offline migration against a verified database copy during rollout rather than from automated tests.
 
+Instagram standard-media cache entries intentionally have no periodic expiry. They are refreshed only after Telegram rejects a stored file ID or after document delivery detects a changed media shape; the 24-hour metadata refresh applies only to TikTok.
+
 Maintenance mode is available separately:
 
 ```bash

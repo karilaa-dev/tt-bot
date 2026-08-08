@@ -140,6 +140,27 @@ describe("Telegram media cache", () => {
     expect(memory.history).toHaveLength(0);
   });
 
+  test("retains reusable IDs when the download-history insert fails", async () => {
+    const historyError = new Error("missing users row");
+    const memory = fakeDatabase(null, { historyError });
+    const scrap = fakeScrap();
+    let uploads = 0;
+    const deliver = async (prepared: Parameters<Parameters<typeof executeTikTokMediaRequest<string>>[1]>[0]) => {
+      if (!prepared.cachedFiles) uploads++;
+      return prepared.cachedFiles ? { value: "cached" } : { value: "uploaded", telegramFiles: [videoFile] };
+    };
+
+    const first = await executeTikTokMediaRequest(request(memory.db, scrap.client), deliver);
+    const second = await executeTikTokMediaRequest(request(memory.db, scrap.client), deliver);
+
+    expect(first.prepared.cacheIdentity).toEqual({ detailsId: 1n, cacheVersion: 1n });
+    expect(memory.row.telegram_files).toEqual([videoFile]);
+    expect(memory.history).toHaveLength(0);
+    expect(second.cacheHit).toBe(true);
+    expect(scrap.tiktokExtractions).toBe(1);
+    expect(uploads).toBe(1);
+  });
+
   test("document mode always extracts, never stores document IDs, and preserves standard IDs", async () => {
     const initial = detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] });
     const memory = fakeDatabase(initial);
@@ -251,12 +272,15 @@ describe("Telegram media cache", () => {
     expect(scrap.tiktokExtractions).toBe(0);
   });
 
-  test("Instagram cache hits skip extraction and retain mixed ordered media", async () => {
+  test("Instagram cache hits have no TTL and retain mixed ordered media", async () => {
     const mixed: TelegramFileReference[] = [
       { position: 0, media_type: "photo", file_id: "p", file_unique_id: "pu" },
       { position: 1, media_type: "video", file_id: "v", file_unique_id: "vu" },
     ];
-    const memory = fakeDatabase(detailsRow({ platform: "instagram", platform_video_id: "ABC123", content_type: "carousel", telegram_files: mixed }));
+    const memory = fakeDatabase(detailsRow({
+      platform: "instagram", platform_video_id: "ABC123", content_type: "carousel",
+      metadata_refreshed_at: now - 365 * 24 * 60 * 60, telegram_files: mixed,
+    }));
     const scrap = fakeScrap();
     await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async (prepared) => {
       expect(prepared.cachedFiles).toEqual(mixed);
@@ -495,7 +519,7 @@ function detailsRow(overrides: Record<string, unknown>) {
   };
 }
 
-function fakeDatabase(initial: Record<string, unknown> | null): {
+function fakeDatabase(initial: Record<string, unknown> | null, options: { historyError?: unknown } = {}): {
   db: Database; row: Record<string, unknown>; history: Array<Record<string, unknown>>; invalidations: number;
 } {
   let row: Record<string, unknown> | null = initial ? { ...initial } : null;
@@ -535,6 +559,7 @@ function fakeDatabase(initial: Record<string, unknown> | null): {
       return [row];
     }
     if (query.startsWith("INSERT INTO videos")) {
+      if (options.historyError !== undefined) throw options.historyError;
       history.push({ userId: values[0], detailsId: values[1], downloadedAt: values[2], link: values[3], kind: values[4], surface: values[5], mode: values[6], cacheHit: values[7] });
       return [];
     }

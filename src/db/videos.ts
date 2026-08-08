@@ -1,4 +1,5 @@
 import type { Database } from "./client.ts";
+import { logger } from "../logging.ts";
 
 export type VideoPlatform = "tiktok" | "instagram";
 export type MediaKind = "video" | "images";
@@ -76,50 +77,56 @@ export async function getVideoDetails(db: Database, platform: VideoPlatform, pla
   return rows[0] ? mapDetails(rows[0]) : null;
 }
 
-/** Persist detail/cache changes and the successful request event atomically. */
+/** Persist reusable details first; download history is intentionally best-effort. */
 export async function recordDownload(db: Database, input: RecordDownloadInput): Promise<VideoDetailsRecord> {
   const now = input.downloadedAt ?? Math.floor(Date.now() / 1000);
-  return db.sql.begin(async (tx) => {
-    const hasFiles = input.telegramFiles !== undefined;
-    // Send explicit UTF-8 bytes and decode them server-side. This avoids relying
-    // on Bun to distinguish a JSON array from PostgreSQL's native array encoding.
-    const filesJson = hasFiles ? Buffer.from(JSON.stringify(input.telegramFiles), "utf8") : null;
-    const rows = await tx<DetailsRow[]>`INSERT INTO video_details (
-        platform, platform_video_id, creator_username, content_type, canonical_link,
-        telegram_bot_id, telegram_files, likes_display, views_display,
-        first_downloaded_at, last_used_at, metadata_refreshed_at, file_ids_updated_at, cache_version
-      ) VALUES (
-        ${input.platform}, ${input.platformVideoId}, ${input.creatorUsername ?? null}, ${input.contentType ?? null},
-        ${input.canonicalLink ?? null}, ${hasFiles ? input.telegramBotId ?? null : null},
-        convert_from(${filesJson}, 'UTF8')::jsonb, ${input.likesDisplay ?? null}, ${input.viewsDisplay ?? null},
-        ${now}, ${now}, ${input.metadataRefreshedAt ?? null}, ${hasFiles ? now : null}, ${hasFiles ? 1 : 0}
-      )
-      ON CONFLICT (platform, platform_video_id) DO UPDATE SET
-        creator_username = COALESCE(EXCLUDED.creator_username, video_details.creator_username),
-        content_type = COALESCE(EXCLUDED.content_type, video_details.content_type),
-        canonical_link = COALESCE(EXCLUDED.canonical_link, video_details.canonical_link),
-        telegram_bot_id = CASE WHEN ${hasFiles} THEN EXCLUDED.telegram_bot_id ELSE video_details.telegram_bot_id END,
-        telegram_files = CASE WHEN ${hasFiles} THEN EXCLUDED.telegram_files ELSE video_details.telegram_files END,
-        likes_display = CASE WHEN ${input.likesDisplay !== undefined} THEN EXCLUDED.likes_display ELSE video_details.likes_display END,
-        views_display = CASE WHEN ${input.viewsDisplay !== undefined} THEN EXCLUDED.views_display ELSE video_details.views_display END,
-        first_downloaded_at = COALESCE(video_details.first_downloaded_at, EXCLUDED.first_downloaded_at),
-        last_used_at = EXCLUDED.last_used_at,
-        metadata_refreshed_at = CASE WHEN ${input.metadataRefreshedAt !== undefined} THEN EXCLUDED.metadata_refreshed_at ELSE video_details.metadata_refreshed_at END,
-        file_ids_updated_at = CASE WHEN ${hasFiles} THEN EXCLUDED.file_ids_updated_at ELSE video_details.file_ids_updated_at END,
-        cache_version = video_details.cache_version + CASE WHEN ${hasFiles} THEN 1 ELSE 0 END
-      RETURNING *`;
-    const details = rows[0];
-    if (!details) throw new Error("Failed to upsert video details");
-    if (input.recordHistory !== false) {
-      await tx`INSERT INTO videos (
+  const hasFiles = input.telegramFiles !== undefined;
+  // Send explicit UTF-8 bytes and decode them server-side. This avoids relying
+  // on Bun to distinguish a JSON array from PostgreSQL's native array encoding.
+  const filesJson = hasFiles ? Buffer.from(JSON.stringify(input.telegramFiles), "utf8") : null;
+  const rows = await db.sql<DetailsRow[]>`INSERT INTO video_details (
+      platform, platform_video_id, creator_username, content_type, canonical_link,
+      telegram_bot_id, telegram_files, likes_display, views_display,
+      first_downloaded_at, last_used_at, metadata_refreshed_at, file_ids_updated_at, cache_version
+    ) VALUES (
+      ${input.platform}, ${input.platformVideoId}, ${input.creatorUsername ?? null}, ${input.contentType ?? null},
+      ${input.canonicalLink ?? null}, ${hasFiles ? input.telegramBotId ?? null : null},
+      convert_from(${filesJson}, 'UTF8')::jsonb, ${input.likesDisplay ?? null}, ${input.viewsDisplay ?? null},
+      ${now}, ${now}, ${input.metadataRefreshedAt ?? null}, ${hasFiles ? now : null}, ${hasFiles ? 1 : 0}
+    )
+    ON CONFLICT (platform, platform_video_id) DO UPDATE SET
+      creator_username = COALESCE(EXCLUDED.creator_username, video_details.creator_username),
+      content_type = COALESCE(EXCLUDED.content_type, video_details.content_type),
+      canonical_link = COALESCE(EXCLUDED.canonical_link, video_details.canonical_link),
+      telegram_bot_id = CASE WHEN ${hasFiles} THEN EXCLUDED.telegram_bot_id ELSE video_details.telegram_bot_id END,
+      telegram_files = CASE WHEN ${hasFiles} THEN EXCLUDED.telegram_files ELSE video_details.telegram_files END,
+      likes_display = CASE WHEN ${input.likesDisplay !== undefined} THEN EXCLUDED.likes_display ELSE video_details.likes_display END,
+      views_display = CASE WHEN ${input.viewsDisplay !== undefined} THEN EXCLUDED.views_display ELSE video_details.views_display END,
+      first_downloaded_at = COALESCE(video_details.first_downloaded_at, EXCLUDED.first_downloaded_at),
+      last_used_at = EXCLUDED.last_used_at,
+      metadata_refreshed_at = CASE WHEN ${input.metadataRefreshedAt !== undefined} THEN EXCLUDED.metadata_refreshed_at ELSE video_details.metadata_refreshed_at END,
+      file_ids_updated_at = CASE WHEN ${hasFiles} THEN EXCLUDED.file_ids_updated_at ELSE video_details.file_ids_updated_at END,
+      cache_version = video_details.cache_version + CASE WHEN ${hasFiles} THEN 1 ELSE 0 END
+    RETURNING *`;
+  const details = rows[0];
+  if (!details) throw new Error("Failed to upsert video details");
+
+  // A registration outage can leave delivery without a users row. Commit the
+  // reusable cache before attempting its foreign-keyed history row so that a
+  // history failure never forces the next request to extract and upload again.
+  if (input.recordHistory !== false) {
+    try {
+      await db.sql`INSERT INTO videos (
           user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit
         ) VALUES (
           ${input.userId}, ${details.pk_id}, ${now}, ${input.sharedLink}, ${input.mediaKind},
           ${input.deliverySurface}, ${input.deliveryMode}, ${input.cacheHit}
         )`;
+    } catch (error) {
+      logger.error("Can't persist download history; reusable media details were retained", error);
     }
-    return mapDetails(details);
-  });
+  }
+  return mapDetails(details);
 }
 
 /** Remove a known stale file set without erasing a concurrently replaced set. */

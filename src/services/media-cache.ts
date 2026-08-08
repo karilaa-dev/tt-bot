@@ -225,9 +225,9 @@ async function perform<T>(
       downloadedAt: now,
       recordHistory: options.recordHistory,
     });
-    // Inline slideshow sessions retain this small object by reference. Update it
-    // only after the transaction commits so invalid-file recovery uses the exact
-    // row/version corresponding to the stored Telegram file IDs.
+    // Inline slideshow sessions retain this small object by reference. Details
+    // are committed before best-effort history, so invalid-file recovery keeps
+    // the exact row/version even when the user's history row cannot be written.
     prepared.cacheIdentity.detailsId = persisted.id;
     prepared.cacheIdentity.cacheVersion = persisted.cacheVersion;
   } catch (error) {
