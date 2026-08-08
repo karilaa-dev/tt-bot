@@ -77,7 +77,8 @@ Before running it:
 1. Deploy the matching `tt-scrap` API.
 2. Stop the bot and any legacy stats process.
 3. Create and verify an external PostgreSQL backup.
-4. Check free bytes on the filesystem containing PostgreSQL data. The command requires a confirmed value and also enforces a conservative minimum of four times the source `videos` relation size.
+4. Rehearse the complete rebuild and destructive cutover on a production-sized copy, including audit review and restore from the verified backup.
+5. Check free bytes on the filesystem containing PostgreSQL data. The command requires a confirmed value and also enforces a conservative minimum of four times the source `videos` relation size.
 
 Do not start `bun run start` against the legacy schema; it intentionally exits with instructions to run the offline rebuild. `bun run maintenance` remains available because it does not access PostgreSQL. Aside from that optional notifier, `bun run db:migrate-legacy` must be the only application process accessing the database during the rebuild.
 
@@ -88,11 +89,12 @@ Run:
 ```bash
 LEGACY_MIGRATION_BACKUP_CONFIRMED=yes \
 LEGACY_MIGRATION_BOT_STOPPED=yes \
+LEGACY_MIGRATION_PRODUCTION_COPY_REHEARSAL_CONFIRMED=yes \
 LEGACY_MIGRATION_AVAILABLE_BYTES=30000000000 \
 bun run db:migrate-legacy
 ```
 
-Re-running the same command resumes the last committed batch. After exact verification, cutover is atomic and the old table is dropped in that transaction. Post-commit rollback therefore uses the required external backup.
+Re-running the same command resumes the last committed batch. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup and the command refuses to run without explicit confirmation of a production-copy rehearsal.
 
 If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
 
@@ -120,6 +122,8 @@ WHERE migration_id = '002_media_cache_rebuild';
 Standard video/photo deliveries store ordered, bot-scoped Telegram `file_id` and `file_unique_id` values. TikTok always resolves a link before lookup. Fresh TikTok cache hits avoid extraction for 24 hours; stale hits use full extraction because the current API exposes refreshed creator and rounded likes/views there, while still reusing IDs if the media shape is unchanged. Instagram cache hits skip extraction without the TikTok periodic refresh rule; a changed shape observed in document mode triggers a one-time validation on the next standard-media request.
 
 Document mode always extracts and uploads, records history and refreshed details, never stores document IDs, and never erases a standard-media cache. If that extraction reveals a changed media shape, the retained cache is marked stale so the next standard-media request validates and replaces it. A confirmed invalid Telegram file identifier invalidates that exact cache version and permits one extraction/upload retry; ambiguous transport errors and partially delivered albums are never blindly resent.
+
+Cached albums intentionally mirror tt-scrap's `_album_batches` delivery contract: Telegram groups contain 2-10 items, batches prefer 10 items, and an 11-item tail splits as 9+2. Changes to that cross-service contract must update and deploy tt-scrap and the bot together; `tests/media-cache.test.ts` locks the bot side to the agreed boundary cases.
 
 ## Instagram delivery
 

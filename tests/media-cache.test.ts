@@ -232,6 +232,10 @@ describe("Telegram media cache", () => {
       error_code: 400,
       description: "Bad Request: wrong remote file identifier specified: Wrong string length",
     })).toBe(true);
+    expect(isConfirmedInvalidFileId({
+      error_code: 400,
+      description: "Bad Request: wrong file_id or file is temporarily unavailable",
+    })).toBe(true);
   });
 
   test("preserves cached albums after a transient partial delivery", async () => {

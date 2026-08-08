@@ -9,6 +9,7 @@ if (!availableRaw || !/^[0-9]+$/u.test(availableRaw)) {
 const result = await runLegacyMigration(databaseUrl, {
   backupConfirmed: Bun.env.LEGACY_MIGRATION_BACKUP_CONFIRMED === "yes",
   botStopped: Bun.env.LEGACY_MIGRATION_BOT_STOPPED === "yes",
+  productionCopyRehearsalConfirmed: Bun.env.LEGACY_MIGRATION_PRODUCTION_COPY_REHEARSAL_CONFIRMED === "yes",
   availableBytes: BigInt(availableRaw),
   onProgress: (message) => console.log(`[legacy-migration] ${message}`),
 });

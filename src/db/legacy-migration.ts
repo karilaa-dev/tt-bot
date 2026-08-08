@@ -8,6 +8,7 @@ const ADVISORY_LOCK_KEY = "tt-bot:002-media-cache-rebuild";
 export interface LegacyMigrationOptions {
   backupConfirmed: boolean;
   botStopped: boolean;
+  productionCopyRehearsalConfirmed: boolean;
   availableBytes: bigint;
   batchSize?: number;
   /** Test hook: return after a committed phase without cutting over. */
@@ -31,6 +32,9 @@ type MigrationConnection = Awaited<ReturnType<SQLType["reserve"]>>;
 export async function runLegacyMigration(databaseUrl: string, options: LegacyMigrationOptions): Promise<LegacyMigrationResult> {
   if (!options.backupConfirmed) throw new Error("Refusing migration: a completed and verified external backup must be confirmed");
   if (!options.botStopped) throw new Error("Refusing migration: confirm that the bot and legacy stats processes are stopped");
+  if (!options.productionCopyRehearsalConfirmed) {
+    throw new Error("Refusing migration: rehearse the complete rebuild and destructive cutover on a production-sized database copy first");
+  }
   if (options.availableBytes <= 0n) throw new Error("Refusing migration: available database-filesystem bytes must be supplied");
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   if (!Number.isSafeInteger(batchSize) || batchSize <= 0) throw new Error("Migration batch size must be a positive integer");
@@ -82,7 +86,8 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   await sql`INSERT INTO migration_audit (migration_id, started_at, status, evidence)
     VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${now}, 'running', jsonb_build_object(
       'source_relation_bytes', ${sourceBytes.toString()}::text, 'required_free_bytes', ${requiredBytes.toString()}::text,
-      'confirmed_available_bytes', ${options.availableBytes.toString()}::text, 'batch_size', ${batchSize}::integer
+      'confirmed_available_bytes', ${options.availableBytes.toString()}::text, 'batch_size', ${batchSize}::integer,
+      'production_copy_rehearsal_confirmed', TRUE
     )) ON CONFLICT (migration_id) DO NOTHING`;
 
   let evidence = await auditEvidence(sql);
@@ -99,6 +104,10 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
 
   const upperPk = BigInt(source.max_pk as string);
   await createIdentityParser(sql);
+  await verifyIdentityParser(sql);
+  await mergeEvidence(sql, {
+    identity_parser_self_test: { case_count: 15, verified_at: Math.floor(Date.now() / 1000) },
+  });
   await sql`CREATE TABLE IF NOT EXISTS legacy_video_identity (
     legacy_pk BIGINT PRIMARY KEY,
     platform VARCHAR NOT NULL,
@@ -314,6 +323,45 @@ BEGIN
   RETURN NEXT;
 END
 $function$`);
+}
+
+/**
+ * Exercise the actual PostgreSQL parser before it scans legacy history. This is
+ * deliberately a migration preflight instead of a second TypeScript parser,
+ * so the tested implementation and the implementation used for 47M rows cannot
+ * drift apart and no network/database integration test is needed in CI.
+ */
+async function verifyIdentityParser(sql: SQLType): Promise<void> {
+  const mismatches = await sql<Array<{ value: string }>>`WITH cases(
+      value, expected_platform, expected_id, expected_type, expected_canonical, expected_conflict
+    ) AS (VALUES
+      ('https://www.tiktok.com/@creator/video/123', 'tiktok'::varchar, '123'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/123'::text, FALSE),
+      ('https://www.tiktok.com/@/video/124', 'tiktok'::varchar, '124'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/124'::text, FALSE),
+      ('https://www.tiktok.com/@creator/photo/125', 'tiktok'::varchar, '125'::varchar, 'images'::varchar, 'https://www.tiktok.com/@_/photo/125'::text, FALSE),
+      ('https://m.tiktok.com/v/126.html', 'tiktok'::varchar, '126'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/126'::text, FALSE),
+      ('https://www.tiktok.com/embed/127', 'tiktok'::varchar, '127'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/127'::text, FALSE),
+      ('https://www.tiktok.com/embed/v2/128', 'tiktok'::varchar, '128'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/128'::text, FALSE),
+      ('https://www.tiktok.com/player/v1/129', 'tiktok'::varchar, '129'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/129'::text, FALSE),
+      ('https://www.tiktok.com/share/video/130', 'tiktok'::varchar, '130'::varchar, 'video'::varchar, 'https://www.tiktok.com/@_/video/130'::text, FALSE),
+      ('https://www.tiktok.com/share/item/131', 'tiktok'::varchar, '131'::varchar, NULL::varchar, NULL::text, FALSE),
+      ('https://www.tiktok.com/?item_id=132', 'tiktok'::varchar, '132'::varchar, NULL::varchar, NULL::text, FALSE),
+      ('https://www.tiktok.com/?share_item_id=133', 'tiktok'::varchar, '133'::varchar, NULL::varchar, NULL::text, FALSE),
+      ('https://www.tiktok.com/@creator/video/134?item_id=999', NULL::varchar, NULL::varchar, NULL::varchar, NULL::text, TRUE),
+      ('https://vm.tiktok.com/TOKEN/', NULL::varchar, NULL::varchar, NULL::varchar, NULL::text, FALSE),
+      ('https://www.instagram.com/p/ABC_1/', 'instagram'::varchar, 'ABC_1'::varchar, NULL::varchar, 'https://www.instagram.com/p/ABC_1/'::text, FALSE),
+      ('https://www.instagram.com/reels/XYZ-2/', 'instagram'::varchar, 'XYZ-2'::varchar, 'video'::varchar, 'https://www.instagram.com/reel/XYZ-2/'::text, FALSE)
+    )
+    SELECT c.value
+    FROM cases c
+    CROSS JOIN LATERAL parse_legacy_video_identity(c.value) parsed
+    WHERE parsed.platform IS DISTINCT FROM c.expected_platform
+      OR parsed.platform_video_id IS DISTINCT FROM c.expected_id
+      OR parsed.url_content_type IS DISTINCT FROM c.expected_type
+      OR parsed.canonical_candidate IS DISTINCT FROM c.expected_canonical
+      OR parsed.conflict IS DISTINCT FROM c.expected_conflict`;
+  if (mismatches.length) {
+    throw new Error(`Legacy identity parser self-test failed for: ${mismatches.map((row) => row.value).join(", ")}`);
+  }
 }
 
 async function runIdentityBatches(sql: SQLType, upperPk: bigint, batchSize: number, progress: (message: string) => void, maxBatches?: number): Promise<boolean> {

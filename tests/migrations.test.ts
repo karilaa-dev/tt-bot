@@ -1,7 +1,16 @@
 import { expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { assertLegacySourceAudit } from "../src/db/legacy-migration.ts";
+import { assertLegacySourceAudit, runLegacyMigration } from "../src/db/legacy-migration.ts";
 import { LEGACY_MIGRATION_COMMAND, runMigrations } from "../src/db/migrations.ts";
+
+test("legacy rebuild requires a production-copy rehearsal before connecting", async () => {
+  await expect(runLegacyMigration("postgresql://unused", {
+    backupConfirmed: true,
+    botStopped: true,
+    productionCopyRehearsalConfirmed: false,
+    availableBytes: 1n,
+  })).rejects.toThrow("production-sized database copy");
+});
 
 test("legacy rebuild refuses audited NULL links before its copy phase", () => {
   expect(() => assertLegacySourceAudit({ video_link_null_count: "0" })).not.toThrow();
