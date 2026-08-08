@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import type { MessageEntity } from "grammy/types";
 import { compressInlineRetryLink, inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { findInstagramUrl } from "../src/handlers/links.ts";
-import { findTikTokUrl, tikTokExtractionUrl } from "../src/handlers/tiktok.ts";
+import { findTikTokUrl } from "../src/handlers/tiktok.ts";
+import { normalizeTikTokLookupUrl } from "../src/services/tiktok-url.ts";
 
 test("routes all TikTok-owned link formats", () => {
   const supported = [
@@ -58,10 +59,10 @@ test("normalizes ID-bearing legacy and embed routes for extraction", () => {
     "https://www.tiktok.com/player/v1/7669880788879543583",
     "https://www.tiktok.com/share/video/7669880788879543583",
     "https://www.tiktok.com/share/item/7669880788879543583",
-  ]) expect(tikTokExtractionUrl(link)).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
-  expect(tikTokExtractionUrl("https://www.tiktok.com/@/video/7520203299816066326"))
+  ]) expect(normalizeTikTokLookupUrl(link)).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
+  expect(normalizeTikTokLookupUrl("https://www.tiktok.com/@/video/7520203299816066326"))
     .toBe("https://www.tiktok.com/@_/video/7520203299816066326");
-  expect(tikTokExtractionUrl("https://vm.tiktok.com/ZTest")).toBe("https://vm.tiktok.com/ZTest");
+  expect(normalizeTikTokLookupUrl("https://vm.tiktok.com/ZTest")).toBe("https://vm.tiktok.com/ZTest");
 });
 
 test("routes direct and embedded Instagram links", () => {

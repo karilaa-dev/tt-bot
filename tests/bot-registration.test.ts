@@ -156,6 +156,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     const extractionsAfterSingleInline = scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").length;
 
     const firstLinkUser = { id: 102, is_bot: false, first_name: "First Link", language_code: "uk" };
+    const resolutionsBeforeFirstLink = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions").length;
     await bot.handleUpdate({ update_id: 4, message: {
       message_id: 4,
       date: 1,
@@ -166,6 +167,9 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(102)).toMatchObject({ user_id: 102, lang: "uk", link: null });
     expect(sendMessagesFor(telegramCalls, 102)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === 102)).toBe(true);
+    const firstLinkResolutions = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions");
+    expect(firstLinkResolutions).toHaveLength(resolutionsBeforeFirstLink + 1);
+    expect(firstLinkResolutions.at(-1)?.payload.url).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
     expect(scrapCalls.find((call) => call.path === "/v1/tiktok/extractions")?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
 

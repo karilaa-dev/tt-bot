@@ -13,6 +13,7 @@ import {
 import { logger } from "../logging.ts";
 import { formatStat } from "../ui/stats.ts";
 import { PartialDeliveryError } from "../bot/errors.ts";
+import { normalizeTikTokLookupUrl } from "./tiktok-url.ts";
 
 const TIKTOK_METADATA_TTL_SECONDS = 24 * 60 * 60;
 const MEDIA_LOCK_TIMEOUT_MARGIN_MS = 60 * 1000;
@@ -70,7 +71,7 @@ export type MediaDeliverer<T> = (prepared: PreparedMedia) => Promise<MediaDelive
 export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, deliver: MediaDeliverer<T>): Promise<CompletedMediaRequest<T>> {
   // Resolution is intentionally always first. It is cheap and gives the stable ID
   // needed for a database lookup before any extraction/download work.
-  const resolution = await options.scrap.resolveTikTok(options.link, options.retry);
+  const resolution = await options.scrap.resolveTikTok(normalizeTikTokLookupUrl(options.link), options.retry);
   const key = `tiktok:${resolution.source_id}:requester:${options.userId}`;
   const lockWaitTimeoutMs = options.lockWaitTimeoutMs ?? options.scrap.mediaRequestBudgetMs(options.retry) + MEDIA_LOCK_TIMEOUT_MARGIN_MS;
   return withMediaLock(key, async () => {

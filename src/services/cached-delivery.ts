@@ -79,14 +79,14 @@ async function sendAlbum(api: Api, chatId: number, files: TelegramFileReference[
     return singleCall(file.media_type === "video" ? "sendVideo" : "sendPhoto", result);
   }
   const calls: TelegramDeliveryCall[] = [];
-  for (const batch of albumBatches(files)) {
+  for (const [batchIndex, batch] of albumBatches(files).entries()) {
     try {
       const media = batch.map((file): InputMediaPhoto | InputMediaVideo => file.media_type === "video"
         ? { type: "video", media: file.file_id, supports_streaming: true }
         : { type: "photo", media: file.file_id });
       const result = await api.sendMediaGroup(chatId, media as [InputMediaPhoto | InputMediaVideo, InputMediaPhoto | InputMediaVideo, ...(InputMediaPhoto | InputMediaVideo)[]], {
         disable_notification: disableNotification,
-        reply_parameters: { message_id: replyTo },
+        ...(batchIndex === 0 ? { reply_parameters: { message_id: replyTo } } : {}),
       });
       calls.push({ method: "sendMediaGroup", statusCode: 200, result });
     } catch (error) {

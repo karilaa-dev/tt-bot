@@ -129,6 +129,22 @@ describe("Telegram media cache", () => {
     expect(calls[1]?.options.caption).toContain("instagram.com");
   });
 
+  test("replies only the first cached album batch to the source message", async () => {
+    const options: Array<Record<string, unknown>> = [];
+    const api = { async sendMediaGroup(_chatId: number, _media: unknown, callOptions: Record<string, unknown>) {
+      options.push(callOptions);
+      return [{ message_id: options.length, date: 1, chat: { id: 7, type: "private", first_name: "Test" } }];
+    } } as unknown as Api;
+    await deliverCachedTikTokToChat({
+      api, files: photoFiles(11), chatId: 7, replyTo: 42, lang: "en",
+      sourceLink: "https://www.tiktok.com/@a/photo/123", group: false, sourceId: "123",
+      contentType: "slideshow", likesDisplay: null, viewsDisplay: null,
+    });
+    expect(options).toHaveLength(2);
+    expect(options[0]?.reply_parameters).toEqual({ message_id: 42 });
+    expect(options[1]?.reply_parameters).toBeUndefined();
+  });
+
   test("repairs cache details without recording a navigation click as a download", async () => {
     const memory = fakeDatabase(null);
     const scrap = fakeScrap();

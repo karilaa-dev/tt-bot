@@ -9,6 +9,7 @@ import { deliverCachedTikTokToChat } from "../services/cached-delivery.ts";
 import { DeliveryService, allMessages, fileIdFromMessage, lastBatch, telegramFilesFromResult } from "../services/delivery.ts";
 import { executeTikTokMediaRequest } from "../services/media-cache.ts";
 import { resolveDownloadPreferences, resolveLanguage } from "../services/registration.ts";
+import { isTikTokHost, normalizeTikTokLookupUrl, normalizedTikTokHost } from "../services/tiktok-url.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 import { queueRejectionAlert, replyForQueueRejection } from "./queue-rejection.ts";
@@ -36,7 +37,7 @@ function matchTikTok(value: string): string | null {
   if (directPost) {
     // TikTok sometimes shares an ID-bearing URL without a username segment.
     // Normalize that otherwise-invalid route so resolutions can use the ID.
-    if (!directPost[1]) return `https://www.tiktok.com/@_/${directPost[2]}/${directPost[3]}`;
+    if (!directPost[1]) return normalizeTikTokLookupUrl(canonicalHttpsUrl(url));
     return canonicalHttpsUrl(url);
   }
   const isPostLink = /^\/t\/[A-Za-z0-9_-]+$/u.test(path)
@@ -47,28 +48,6 @@ function matchTikTok(value: string): string | null {
   if (isShortLink || isPostLink) return canonicalHttpsUrl(url);
   const itemId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
   return path === "/" && itemId && /^[0-9]+$/u.test(itemId) ? `https://www.tiktok.com/@_/video/${itemId}` : null;
-}
-
-export function tikTokExtractionUrl(link: string): string {
-  const url = parsePublicUrl(link);
-  if (!url || !isTikTokHost(url.hostname)) return link;
-  const directPostMatch = url.pathname.match(/^\/@([^/]*)\/(video|photo)\/([0-9]+)\/?$/u);
-  if (directPostMatch && !directPostMatch[1]) {
-    return `https://www.tiktok.com/@_/${directPostMatch[2]}/${directPostMatch[3]}`;
-  }
-  const pathMatch = url.pathname.match(/^\/(?:v|embed(?:\/v2)?|player\/v1|share\/(?:video|item))\/([0-9]+)(?:\.html)?\/?$/u);
-  const queryId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
-  const videoId = pathMatch?.[1] ?? (queryId && /^[0-9]+$/u.test(queryId) ? queryId : null);
-  return videoId ? `https://www.tiktok.com/@_/video/${videoId}` : link;
-}
-
-function isTikTokHost(hostname: string): boolean {
-  const host = normalizedTikTokHost(hostname);
-  return host === "tiktok.com" || host.endsWith(".tiktok.com");
-}
-
-function normalizedTikTokHost(hostname: string): string {
-  return hostname.replace(/\.$/u, "").toLowerCase();
 }
 
 export function registerTikTokHandlers(bot: Bot<BotContext>): void {
