@@ -90,6 +90,19 @@ bun run db:migrate-legacy
 
 Re-running the same command resumes the last committed batch. After exact verification, cutover is atomic and the old table is dropped in that transaction. Post-commit rollback therefore uses the required external backup.
 
+If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
+
+```sql
+BEGIN;
+DROP TABLE IF EXISTS videos_new;
+DELETE FROM legacy_migration_state
+WHERE migration_id = '002_media_cache_rebuild'
+  AND phase IN ('copy', 'constraints', 'verification');
+COMMIT;
+```
+
+Do not delete the source audit, identity, or details phase state: those completed phases remain reusable. Run this recovery only while the bot and stats processes are still stopped and the verified backup remains available.
+
 Review the durable evidence before starting the bot:
 
 ```sql

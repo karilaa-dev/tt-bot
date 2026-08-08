@@ -111,8 +111,11 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
 
   await createTelegramFilesValidator(sql);
   await createVideoDetails(sql);
-  await buildLegacyDetails(sql);
-  await markPhase(sql, "details", upperPk, {});
+  if (!await phaseComplete(sql, "details")) {
+    progress("Building locally recoverable legacy video details");
+    await buildLegacyDetails(sql);
+    await markPhase(sql, "details", upperPk, {});
+  }
   if (options.stopAfterPhase === "details") return paused("details", await auditEvidence(sql));
 
   await createVideosNew(sql);
@@ -120,9 +123,11 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   if (!copyComplete) return paused("copy", await auditEvidence(sql));
   if (options.stopAfterPhase === "copy") return paused("copy", await auditEvidence(sql));
 
-  progress("Building indexes and validating final constraints");
-  await buildFinalConstraints(sql);
-  await markPhase(sql, "constraints", upperPk, {});
+  if (!await phaseComplete(sql, "constraints")) {
+    progress("Building indexes and validating final constraints");
+    await buildFinalConstraints(sql);
+    await markPhase(sql, "constraints", upperPk, {});
+  }
   if (options.stopAfterPhase === "constraints") return paused("constraints", await auditEvidence(sql));
 
   progress("Verifying exact source/destination aggregates");
@@ -547,6 +552,11 @@ async function ensureConstraint(sql: SQLType, name: FinalConstraintName): Promis
 async function stateFor(sql: SQLType, phase: string): Promise<StateRow | null> {
   const rows = await sql<StateRow[]>`SELECT last_pk, counters FROM legacy_migration_state WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID} AND phase = ${phase}`;
   return rows[0] ?? null;
+}
+
+async function phaseComplete(sql: SQLType, phase: string): Promise<boolean> {
+  const state = await stateFor(sql, phase);
+  return readObject(state?.counters).complete === true;
 }
 
 async function markPhase(sql: SQLType, phase: string, lastPk: bigint, counters: Record<string, unknown>): Promise<void> {

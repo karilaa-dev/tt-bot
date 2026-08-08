@@ -84,7 +84,31 @@ integration("PostgreSQL legacy rebuild", () => {
       const columns = await check<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'videos' AND column_name = 'video_link'`;
       expect(columns).toHaveLength(1);
+      await check.begin(async (tx) => {
+        await tx`DROP TABLE IF EXISTS videos_new`;
+        await tx`DELETE FROM legacy_migration_state
+          WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID} AND phase IN ('copy', 'constraints', 'verification')`;
+      });
     } finally { await check.close(); }
+    const recovered = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
+    expect(recovered.status).toBe("complete");
+  }, 30_000);
+
+  test("does not repeat a completed details phase", async () => {
+    const fixture = await createFixture(admin, databases, "details-resume");
+    const paused = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "details" }));
+    expect(paused).toMatchObject({ status: "paused", phase: "details" });
+
+    const sql = new SQL(fixture.url);
+    try {
+      await sql.unsafe(`CREATE FUNCTION reject_repeated_detail_build() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'details phase repeated'; END $$`);
+      await sql`CREATE TRIGGER reject_repeated_detail_build BEFORE INSERT ON video_details
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_repeated_detail_build()`;
+    } finally { await sql.close(); }
+
+    const completed = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
+    expect(completed.status).toBe("complete");
   }, 30_000);
 
   test("migrates TypeScript-era users tables without advertising columns", async () => {
