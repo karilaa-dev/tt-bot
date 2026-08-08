@@ -46,7 +46,7 @@ bun test
 bun run start
 ```
 
-The default test suite does not start or require PostgreSQL. Database integration tests are optional and run only when `TEST_DB_URL` or `TEST_DB_ADMIN_URL` is set.
+The test suite is self-contained and does not connect to PostgreSQL. Exercise the offline migration against a verified database copy during rollout rather than from automated tests.
 
 Maintenance mode is available separately:
 

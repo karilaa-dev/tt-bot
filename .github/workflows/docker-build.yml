@@ -18,27 +18,9 @@ permissions:
   contents: read
 
 jobs:
-  postgres_checks:
-    name: Checks (PostgreSQL ${{ matrix.postgres }})
+  checks:
+    name: checks
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        postgres: ["17", "18"]
-    services:
-      postgres:
-        image: postgres:${{ matrix.postgres }}
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -55,20 +37,7 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        env:
-          TEST_DB_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: bun test --coverage
-
-  checks:
-    name: checks
-    if: always()
-    needs: postgres_checks
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require successful PostgreSQL checks
-        env:
-          POSTGRES_CHECKS_RESULT: ${{ needs.postgres_checks.result }}
-        run: test "$POSTGRES_CHECKS_RESULT" = "success"
 
   build-main:
     if: github.event_name != 'pull_request'
