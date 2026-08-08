@@ -362,6 +362,7 @@ function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type
     creator_username: "creator", content_type: "video", media: [{ position: 0, media_type: "video", asset: extraction.media[0]! }], expires_at: new Date().toISOString(),
   };
   const client = {
+    mediaRequestBudgetMs() { return 800_000; },
     async resolveTikTok(url: string) { counts.resolutions++; return { platform: "tiktok" as const, source_id: "123", source_url: url, resolved_url: extraction.resolved_url }; },
     async extractTikTok() {
       counts.tiktokExtractions++;

@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  postgres_checks:
     name: Checks (PostgreSQL ${{ matrix.postgres }})
     runs-on: ubuntu-latest
     strategy:
@@ -58,6 +58,17 @@ jobs:
         env:
           TEST_DB_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: bun test --coverage
+
+  checks:
+    name: checks
+    if: always()
+    needs: postgres_checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful PostgreSQL checks
+        env:
+          POSTGRES_CHECKS_RESULT: ${{ needs.postgres_checks.result }}
+        run: test "$POSTGRES_CHECKS_RESULT" = "success"
 
   build-main:
     if: github.event_name != 'pull_request'

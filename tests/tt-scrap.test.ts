@@ -15,6 +15,14 @@ function start(handler: (request: Request) => Response | Promise<Response>): TtS
 const message: Message = { message_id: 42, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, video: { file_id: "video-file", file_unique_id: "u", width: 1, height: 1, duration: 1 } };
 
 describe("TtScrapClient", () => {
+  test("budgets coalescing waits for all retryable request phases and delivery", () => {
+    const config = testConfig("http://127.0.0.1:8000");
+    config.ttScrapRequestTimeoutMs = 90_000;
+    config.ttScrapDeliveryTimeoutMs = 620_000;
+    const client = new TtScrapClient(config);
+    expect(client.mediaRequestBudgetMs({ attempts: 4 })).toBe(1_347_000);
+  });
+
   test("resolves TikTok links before extraction with the stable source ID", async () => {
     let path = "";
     const client = start((request) => {

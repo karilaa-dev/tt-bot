@@ -26,6 +26,17 @@ export interface RetryOptions {
 export class TtScrapClient {
   constructor(private readonly config: AppConfig) {}
 
+  /** Conservative wall-clock budget for resolution, extraction, and delivery. */
+  mediaRequestBudgetMs(options: RetryOptions = {}): number {
+    const attempts = Math.max(1, options.attempts ?? 1);
+    let retryDelayMs = 0;
+    for (let attempt = 1; attempt < attempts; attempt++) {
+      retryDelayMs += Math.min(4_000, 500 * 2 ** (attempt - 1));
+    }
+    const requestPhaseMs = attempts * this.config.ttScrapRequestTimeoutMs + retryDelayMs;
+    return requestPhaseMs * 2 + this.config.ttScrapDeliveryTimeoutMs;
+  }
+
   async healthReady(): Promise<boolean> {
     try {
       const response = await fetch(`${this.config.ttScrapBaseUrl}/health/ready`, { signal: AbortSignal.timeout(5_000) });

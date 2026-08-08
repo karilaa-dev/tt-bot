@@ -15,7 +15,7 @@ import { formatStat } from "../ui/stats.ts";
 import { PartialDeliveryError } from "../bot/errors.ts";
 
 const TIKTOK_METADATA_TTL_SECONDS = 24 * 60 * 60;
-const DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
+const MEDIA_LOCK_TIMEOUT_MARGIN_MS = 60 * 1000;
 const locks = new Map<string, Promise<void>>();
 
 interface BaseRequestOptions {
@@ -71,6 +71,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
   // needed for a database lookup before any extraction/download work.
   const resolution = await options.scrap.resolveTikTok(options.link, options.retry);
   const key = `tiktok:${resolution.source_id}:requester:${options.userId}`;
+  const lockWaitTimeoutMs = options.lockWaitTimeoutMs ?? options.scrap.mediaRequestBudgetMs(options.retry) + MEDIA_LOCK_TIMEOUT_MARGIN_MS;
   return withMediaLock(key, async () => {
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "tiktok", resolution.source_id);
@@ -98,12 +99,13 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       const refreshed = extraction ?? await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
       return tikTokPrepared(options.link, resolution.resolved_url, resolution.source_id, details, refreshed, null);
     }, now);
-  }, options.lockWaitTimeoutMs);
+  }, lockWaitTimeoutMs);
 }
 
 export async function executeInstagramMediaRequest<T>(options: BaseRequestOptions, deliver: MediaDeliverer<T>): Promise<CompletedMediaRequest<T>> {
   const localId = instagramIdFromUrl(options.link);
   if (!localId) throw new Error("Instagram URL has no recoverable post shortcode");
+  const lockWaitTimeoutMs = options.lockWaitTimeoutMs ?? options.scrap.mediaRequestBudgetMs(options.retry) + MEDIA_LOCK_TIMEOUT_MARGIN_MS;
   return withMediaLock(`instagram:${localId}:requester:${options.userId}`, async () => {
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "instagram", localId);
@@ -121,7 +123,7 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
       const refreshedCacheAllowed = instagramSourceIdMatches(refreshed.source_id, localId);
       return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed);
     }, now);
-  }, options.lockWaitTimeoutMs);
+  }, lockWaitTimeoutMs);
 }
 
 async function perform<T>(
@@ -301,7 +303,7 @@ function instagramSourceIdMatches(actual: string, expected: string): boolean {
   return false;
 }
 
-async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTimeoutMs = DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS): Promise<T> {
+async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTimeoutMs: number): Promise<T> {
   const active = locks.get(key);
   if (active) {
     const acquired = await waitForMediaLock(active, Math.max(1, waitTimeoutMs));
