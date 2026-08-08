@@ -112,9 +112,11 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   await createTelegramFilesValidator(sql);
   await createVideoDetails(sql);
   if (!await phaseComplete(sql, "details")) {
-    progress("Building locally recoverable legacy video details");
-    await buildLegacyDetails(sql);
-    await markPhase(sql, "details", upperPk, {});
+    await createLegacyDetailAggregate(sql);
+    const aggregateComplete = await runDetailAggregateBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
+    if (!aggregateComplete) return paused("details", await auditEvidence(sql));
+    const detailsComplete = await runDetailFinalizeBatches(sql, batchSize, progress, options.maxBatchesPerPhaseRun);
+    if (!detailsComplete) return paused("details", await auditEvidence(sql));
   }
   if (options.stopAfterPhase === "details") return paused("details", await auditEvidence(sql));
 
@@ -305,6 +307,7 @@ async function runIdentityBatches(sql: SQLType, upperPk: bigint, batchSize: numb
           COUNT(*) FILTER (WHERE conflict) AS conflicts FROM classified`;
       const metric = metrics[0]!;
       counters = {
+        ...counters,
         total: counters.total + Number(metric.total), parsed: counters.parsed + Number(metric.parsed),
         conflicts: counters.conflicts + Number(metric.conflicts), batches: counters.batches + 1,
       };
@@ -352,30 +355,152 @@ async function createVideoDetails(sql: SQLType): Promise<void> {
   )`;
 }
 
-async function buildLegacyDetails(sql: SQLType): Promise<void> {
-  await sql`INSERT INTO video_details (
-      platform, platform_video_id, content_type, canonical_link, first_downloaded_at, last_used_at
-    ) SELECT i.platform, i.platform_video_id,
-      CASE
-        WHEN COUNT(DISTINCT i.legacy_content_type) = 1
-          AND NOT BOOL_OR(i.url_content_type IS NOT NULL AND i.url_content_type <> i.legacy_content_type)
-        THEN CASE
-          WHEN i.platform = 'tiktok' AND MIN(i.legacy_content_type) = 'images' THEN 'slideshow'
-          WHEN i.platform = 'instagram' AND MIN(i.legacy_content_type) = 'images' THEN 'image'
-          ELSE 'video'
-        END
-        ELSE NULL
-      END,
-      CASE WHEN COUNT(DISTINCT i.canonical_candidate) FILTER (WHERE i.canonical_candidate IS NOT NULL) = 1
-        AND NOT BOOL_OR(i.url_content_type IS NOT NULL AND i.url_content_type <> i.legacy_content_type)
-        THEN MIN(i.canonical_candidate) ELSE NULL END,
-      MIN(v.downloaded_at), MAX(v.downloaded_at)
-    FROM legacy_video_identity i JOIN videos v ON v.pk_id = i.legacy_pk
-    GROUP BY i.platform, i.platform_video_id
-    ON CONFLICT (platform, platform_video_id) DO UPDATE SET
-      first_downloaded_at = LEAST(video_details.first_downloaded_at, EXCLUDED.first_downloaded_at),
-      last_used_at = GREATEST(video_details.last_used_at, EXCLUDED.last_used_at)`;
+async function createLegacyDetailAggregate(sql: SQLType): Promise<void> {
+  await sql`CREATE TABLE IF NOT EXISTS legacy_video_detail_aggregate (
+    pk_id BIGSERIAL UNIQUE NOT NULL,
+    platform VARCHAR NOT NULL,
+    platform_video_id VARCHAR NOT NULL,
+    legacy_content_type_min VARCHAR NOT NULL,
+    legacy_content_type_max VARCHAR NOT NULL,
+    url_content_conflict BOOLEAN NOT NULL,
+    canonical_candidate_min TEXT,
+    canonical_candidate_max TEXT,
+    first_downloaded_at BIGINT,
+    last_downloaded_at BIGINT,
+    PRIMARY KEY (platform, platform_video_id)
+  )`;
+}
+
+async function runDetailAggregateBatches(
+  sql: SQLType,
+  upperPk: bigint,
+  batchSize: number,
+  progress: (message: string) => void,
+  maxBatches?: number,
+): Promise<boolean> {
+  const state = await stateFor(sql, "details_aggregate");
+  let lastPk = BigInt(state?.last_pk ?? 0);
+  let counters = numberCounters(state?.counters);
+  let batchesThisRun = 0;
+  while (lastPk < upperPk) {
+    if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
+    const boundary = await sql<BoundaryRow[]>`SELECT MAX(legacy_pk) AS end_pk FROM (
+      SELECT legacy_pk FROM legacy_video_identity
+      WHERE legacy_pk > ${lastPk} AND legacy_pk <= ${upperPk}
+      ORDER BY legacy_pk LIMIT ${batchSize}
+    ) batch`;
+    if (boundary[0]?.end_pk === null || boundary[0]?.end_pk === undefined) break;
+    const endPk = BigInt(boundary[0].end_pk);
+    await sql.begin(async (tx) => {
+      const metrics = await tx<Array<{ total: number | string; groups: number | string }>>`WITH batch_rows AS (
+          SELECT i.*, v.downloaded_at
+          FROM legacy_video_identity i JOIN videos v ON v.pk_id = i.legacy_pk
+          WHERE i.legacy_pk > ${lastPk} AND i.legacy_pk <= ${endPk}
+        ), aggregated AS (
+          SELECT platform, platform_video_id,
+            MIN(legacy_content_type) AS legacy_content_type_min,
+            MAX(legacy_content_type) AS legacy_content_type_max,
+            BOOL_OR(url_content_type IS NOT NULL AND url_content_type <> legacy_content_type) AS url_content_conflict,
+            MIN(canonical_candidate) AS canonical_candidate_min,
+            MAX(canonical_candidate) AS canonical_candidate_max,
+            MIN(downloaded_at) AS first_downloaded_at,
+            MAX(downloaded_at) AS last_downloaded_at
+          FROM batch_rows GROUP BY platform, platform_video_id
+        ), upserted AS (
+          INSERT INTO legacy_video_detail_aggregate (
+            platform, platform_video_id, legacy_content_type_min, legacy_content_type_max,
+            url_content_conflict, canonical_candidate_min, canonical_candidate_max,
+            first_downloaded_at, last_downloaded_at
+          ) SELECT platform, platform_video_id, legacy_content_type_min, legacy_content_type_max,
+            url_content_conflict, canonical_candidate_min, canonical_candidate_max,
+            first_downloaded_at, last_downloaded_at
+          FROM aggregated
+          ON CONFLICT (platform, platform_video_id) DO UPDATE SET
+            legacy_content_type_min = LEAST(legacy_video_detail_aggregate.legacy_content_type_min, EXCLUDED.legacy_content_type_min),
+            legacy_content_type_max = GREATEST(legacy_video_detail_aggregate.legacy_content_type_max, EXCLUDED.legacy_content_type_max),
+            url_content_conflict = legacy_video_detail_aggregate.url_content_conflict OR EXCLUDED.url_content_conflict,
+            canonical_candidate_min = LEAST(legacy_video_detail_aggregate.canonical_candidate_min, EXCLUDED.canonical_candidate_min),
+            canonical_candidate_max = GREATEST(legacy_video_detail_aggregate.canonical_candidate_max, EXCLUDED.canonical_candidate_max),
+            first_downloaded_at = LEAST(legacy_video_detail_aggregate.first_downloaded_at, EXCLUDED.first_downloaded_at),
+            last_downloaded_at = GREATEST(legacy_video_detail_aggregate.last_downloaded_at, EXCLUDED.last_downloaded_at)
+          RETURNING 1
+        ) SELECT (SELECT COUNT(*) FROM batch_rows) AS total, COUNT(*) AS groups FROM upserted`;
+      counters = {
+        ...counters,
+        total: counters.total + Number(metrics[0]?.total ?? 0),
+        groups: counters.groups + Number(metrics[0]?.groups ?? 0),
+        batches: counters.batches + 1,
+      };
+      await upsertState(tx, "details_aggregate", endPk, counters);
+    });
+    lastPk = endPk;
+    batchesThisRun++;
+    progress(`Details aggregation: completed through legacy pk ${lastPk}`);
+  }
+  await upsertState(sql, "details_aggregate", lastPk, { ...counters, complete: true });
+  return true;
+}
+
+async function runDetailFinalizeBatches(
+  sql: SQLType,
+  batchSize: number,
+  progress: (message: string) => void,
+  maxBatches?: number,
+): Promise<boolean> {
+  const upperRows = await sql<Array<{ max_pk: bigint | string | null }>>`SELECT MAX(pk_id) AS max_pk FROM legacy_video_detail_aggregate`;
+  const upperPk = BigInt(upperRows[0]?.max_pk ?? 0);
+  const state = await stateFor(sql, "details");
+  let lastPk = BigInt(state?.last_pk ?? 0);
+  let counters = numberCounters(state?.counters);
+  let batchesThisRun = 0;
+  while (lastPk < upperPk) {
+    if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
+    const boundary = await sql<BoundaryRow[]>`SELECT MAX(pk_id) AS end_pk FROM (
+      SELECT pk_id FROM legacy_video_detail_aggregate
+      WHERE pk_id > ${lastPk} AND pk_id <= ${upperPk}
+      ORDER BY pk_id LIMIT ${batchSize}
+    ) batch`;
+    if (boundary[0]?.end_pk === null || boundary[0]?.end_pk === undefined) break;
+    const endPk = BigInt(boundary[0].end_pk);
+    await sql.begin(async (tx) => {
+      const inserted = await tx<Array<{ count: number | string }>>`WITH finalized AS (
+          INSERT INTO video_details (
+            platform, platform_video_id, content_type, canonical_link, first_downloaded_at, last_used_at
+          ) SELECT platform, platform_video_id,
+            CASE WHEN legacy_content_type_min = legacy_content_type_max AND NOT url_content_conflict
+              THEN CASE
+                WHEN platform = 'tiktok' AND legacy_content_type_min = 'images' THEN 'slideshow'
+                WHEN platform = 'instagram' AND legacy_content_type_min = 'images' THEN 'image'
+                ELSE 'video'
+              END
+              ELSE NULL
+            END,
+            CASE WHEN canonical_candidate_min = canonical_candidate_max AND NOT url_content_conflict
+              THEN canonical_candidate_min ELSE NULL END,
+            first_downloaded_at, last_downloaded_at
+          FROM legacy_video_detail_aggregate
+          WHERE pk_id > ${lastPk} AND pk_id <= ${endPk}
+          ON CONFLICT (platform, platform_video_id) DO UPDATE SET
+            content_type = EXCLUDED.content_type,
+            canonical_link = EXCLUDED.canonical_link,
+            first_downloaded_at = EXCLUDED.first_downloaded_at,
+            last_used_at = EXCLUDED.last_used_at
+          RETURNING 1
+        ) SELECT COUNT(*) AS count FROM finalized`;
+      counters = {
+        ...counters,
+        total: counters.total + Number(inserted[0]?.count ?? 0),
+        batches: counters.batches + 1,
+      };
+      await upsertState(tx, "details", endPk, counters);
+    });
+    lastPk = endPk;
+    batchesThisRun++;
+    progress(`Details finalization: completed through aggregate pk ${lastPk}`);
+  }
   await sql`CREATE INDEX IF NOT EXISTS video_details_last_used_idx ON video_details (last_used_at DESC)`;
+  await upsertState(sql, "details", lastPk, { ...counters, complete: true });
+  return true;
 }
 
 async function createVideosNew(sql: SQLType): Promise<void> {
@@ -504,6 +629,7 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
     await tx`ALTER TABLE users DROP COLUMN IF EXISTS ad_cooldown`;
     await tx`DROP TABLE videos_legacy_002`;
     await tx`DROP TABLE legacy_video_identity`;
+    await tx`DROP TABLE IF EXISTS legacy_video_detail_aggregate`;
     await tx`DROP FUNCTION parse_legacy_video_identity(TEXT)`;
     await tx`ALTER TABLE videos RENAME CONSTRAINT videos_new_pkey TO videos_pkey`;
     await tx`ALTER INDEX videos_new_user_downloaded_idx RENAME TO videos_user_downloaded_idx`;
@@ -512,7 +638,7 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
     const completedAt = Math.floor(Date.now() / 1000);
     await tx`INSERT INTO schema_migrations (version, applied_at) VALUES (${MEDIA_CACHE_SCHEMA_VERSION}, ${completedAt}) ON CONFLICT (version) DO NOTHING`;
     await tx`UPDATE migration_audit SET status = 'complete', completed_at = ${completedAt},
-      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}::bigint, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE))
+      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}::bigint, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE, 'detail_staging_dropped', TRUE))
       WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
     await upsertState(tx, "cutover", upperPk, { complete: true });
     return true;
@@ -596,7 +722,13 @@ function readObject(value: unknown): Record<string, unknown> {
   if (typeof value === "string") { try { return readObject(JSON.parse(value)); } catch { return {}; } }
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
-function numberCounters(value: unknown): { total: number; parsed: number; conflicts: number; batches: number; [key: string]: number } {
+function numberCounters(value: unknown): { total: number; parsed: number; conflicts: number; groups: number; batches: number; [key: string]: number } {
   const row = readObject(value);
-  return { total: Number(row.total ?? 0), parsed: Number(row.parsed ?? 0), conflicts: Number(row.conflicts ?? 0), batches: Number(row.batches ?? 0) };
+  return {
+    total: Number(row.total ?? 0),
+    parsed: Number(row.parsed ?? 0),
+    conflicts: Number(row.conflicts ?? 0),
+    groups: Number(row.groups ?? 0),
+    batches: Number(row.batches ?? 0),
+  };
 }

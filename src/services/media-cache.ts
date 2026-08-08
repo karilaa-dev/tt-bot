@@ -49,6 +49,7 @@ export interface PreparedMedia {
   likesDisplay: string | null;
   viewsDisplay: string | null;
   extractionCacheAllowed: boolean;
+  metadataFreshnessConfirmed: boolean;
   cacheIdentity: CacheIdentity;
 }
 
@@ -76,7 +77,8 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "tiktok", resolution.source_id);
     let extraction: TikTokExtraction | null = null;
-    let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "tiktok");
+    const storedFiles = validStoredFiles(details, options.botId, "tiktok");
+    let cachedFiles = options.fileMode ? null : storedFiles;
     const stale = !details?.metadataRefreshedAt || now - details.metadataRefreshedAt >= TIKTOK_METADATA_TTL_SECONDS;
     if (options.fileMode || !cachedFiles) {
       extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
@@ -91,7 +93,8 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       }
     }
     const extractionCacheAllowed = extraction ? extractionSourceIdMatches("tiktok", extraction.source_id, resolution.source_id) : true;
-    if (extraction && extractionCacheAllowed && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
+    const storedFilesMatchExtraction = !extraction || !storedFiles || filesMatchExtraction(storedFiles, extraction);
+    if (extraction && extractionCacheAllowed && cachedFiles && !storedFilesMatchExtraction) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
@@ -103,6 +106,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       extraction,
       options.fileMode ? null : cachedFiles,
       extractionCacheAllowed,
+      !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
     );
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
@@ -114,6 +118,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
         refreshed,
         null,
         extractionSourceIdMatches("tiktok", refreshed.source_id, resolution.source_id),
+        true,
       );
     }, now);
   }, lockWaitTimeoutMs);
@@ -171,7 +176,11 @@ async function perform<T>(
 
   const extraction = prepared.extractionCacheAllowed ? prepared.extraction : null;
   const mediaKind = prepared.contentType === "video" ? "video" : "images";
-  const metadataRefreshedAt = extraction ? now : undefined;
+  // A document-mode extraction may reveal that retained standard-media IDs no
+  // longer match the post. Clear freshness in that case so the next media-mode
+  // request validates and replaces them, without erasing IDs during document
+  // delivery itself.
+  const metadataRefreshedAt = extraction ? (prepared.metadataFreshnessConfirmed ? now : null) : undefined;
   try {
     const persisted = await recordDownload(options.db, {
       userId: options.userId,
@@ -216,6 +225,7 @@ function tikTokPrepared(
   extraction: TikTokExtraction | null,
   cachedFiles: TelegramFileReference[] | null,
   extractionCacheAllowed: boolean,
+  metadataFreshnessConfirmed: boolean,
 ): PreparedMedia {
   const trustedExtraction = extractionCacheAllowed ? extraction : null;
   const deliveryExtraction = extractionCacheAllowed || !cachedFiles ? extraction : null;
@@ -231,6 +241,7 @@ function tikTokPrepared(
     likesDisplay: trustedExtraction?.likes == null ? details?.likesDisplay ?? null : formatStat(trustedExtraction.likes),
     viewsDisplay: trustedExtraction?.views == null ? details?.viewsDisplay ?? null : formatStat(trustedExtraction.views),
     extractionCacheAllowed,
+    metadataFreshnessConfirmed,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
@@ -257,6 +268,7 @@ function instagramPrepared(
     likesDisplay: null,
     viewsDisplay: null,
     extractionCacheAllowed,
+    metadataFreshnessConfirmed: true,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }

@@ -93,6 +93,9 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
         if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
         if (media.length === 1) {
           const markup = prepared.platform === "tiktok" ? statsKeyboard(prepared.likesDisplay, prepared.viewsDisplay) : undefined;
+          // Keep this edit inside the cache deliverer: a confirmed invalid cached
+          // file ID is caught by execute*MediaRequest, invalidated, extracted,
+          // staged, and delivered through this callback exactly once more.
           await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
         } else {
           const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity,

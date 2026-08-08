@@ -25,12 +25,16 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
   const telegramCalls: TelegramCall[] = [];
   const scrapCalls: Array<{ path: string; payload: Record<string, unknown> }> = [];
   let nextMessageId = 100;
+  let invalidSingleMediaAttempts = 0;
 
   const telegram = Bun.serve({ port: 0, async fetch(request) {
     const method = new URL(request.url).pathname.split("/").at(-1) || "";
     const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
     telegramCalls.push({ method, payload });
     if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+    if (method === "editMessageMedia" && payload.inline_message_id === "invalid-single-inline" && invalidSingleMediaAttempts++ === 0) {
+      return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
+    }
     if (method === "editMessageMedia" && payload.inline_message_id === "viewer-invalid-slideshow") {
       return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
     }
@@ -138,6 +142,19 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
       { position: 0, media_type: "video", file_id: "video-id", file_unique_id: "video-unique" },
     ]);
 
+    const invalidationsBeforeSingleInline = memory.invalidations;
+    const extractionsBeforeSingleInline = scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").length;
+    await bot.handleUpdate({ update_id: 1001, chosen_inline_result: {
+      result_id: "tt_download",
+      from: deepLinkUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "invalid-single-inline",
+    } });
+    expect(telegramCalls.filter((call) => call.method === "editMessageMedia" && call.payload.inline_message_id === "invalid-single-inline")).toHaveLength(2);
+    expect(memory.invalidations).toBe(invalidationsBeforeSingleInline + 1);
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(extractionsBeforeSingleInline + 1);
+    const extractionsAfterSingleInline = scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").length;
+
     const firstLinkUser = { id: 102, is_bot: false, first_name: "First Link", language_code: "uk" };
     await bot.handleUpdate({ update_id: 4, message: {
       message_id: 4,
@@ -167,7 +184,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(groupChat.id)).toMatchObject({ user_id: groupChat.id, lang: "en" });
     expect(sendMessagesFor(telegramCalls, groupChat.id)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === groupChat.id)).toBe(true);
-    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(1);
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(extractionsAfterSingleInline);
 
     const instagramGroup = { id: -100501, type: "group" as const, title: "Instagram Group" };
     await bot.handleUpdate({ update_id: 7, message: {

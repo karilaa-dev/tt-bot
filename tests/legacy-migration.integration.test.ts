@@ -43,7 +43,13 @@ integration("PostgreSQL legacy rebuild", () => {
     expect(second).toMatchObject({ status: "paused", phase: "identity" });
 
     const third = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, maxBatchesPerPhaseRun: 1 }));
-    expect(third).toMatchObject({ status: "paused", phase: "copy" });
+    expect(third).toMatchObject({ status: "paused", phase: "details" });
+
+    const details = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "details" }));
+    expect(details).toMatchObject({ status: "paused", phase: "details" });
+
+    const copy = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, maxBatchesPerPhaseRun: 1 }));
+    expect(copy).toMatchObject({ status: "paused", phase: "copy" });
 
     const completed = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
     expect(completed.status).toBe("complete");
@@ -109,6 +115,45 @@ integration("PostgreSQL legacy rebuild", () => {
 
     const completed = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
     expect(completed.status).toBe("complete");
+  }, 30_000);
+
+  test("resumes both detail aggregation and detail finalization from committed batches", async () => {
+    const fixture = await createFixture(admin, databases, "details-batches");
+    await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "identity" }));
+
+    let sawFinalizeCheckpoint = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const paused = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, maxBatchesPerPhaseRun: 1 }));
+      expect(paused).toMatchObject({ status: "paused", phase: "details" });
+      const sql = new SQL(fixture.url);
+      try {
+        const states = await sql<Array<{ phase: string; last_pk: string; counters: Record<string, unknown> }>>`SELECT
+            phase, last_pk::text, counters
+          FROM legacy_migration_state
+          WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID} AND phase IN ('details_aggregate', 'details')`;
+        const aggregate = states.find((state) => state.phase === "details_aggregate");
+        const finalize = states.find((state) => state.phase === "details");
+        if (aggregate?.counters.complete === true && finalize && finalize.counters.complete !== true) {
+          expect(BigInt(finalize.last_pk)).toBeGreaterThan(0n);
+          sawFinalizeCheckpoint = true;
+          break;
+        }
+      } finally { await sql.close(); }
+    }
+    expect(sawFinalizeCheckpoint).toBe(true);
+
+    const details = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "details" }));
+    expect(details).toMatchObject({ status: "paused", phase: "details" });
+    const sql = new SQL(fixture.url);
+    try {
+      const states = await sql<Array<{ phase: string; counters: Record<string, unknown> }>>`SELECT phase, counters
+        FROM legacy_migration_state
+        WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID} AND phase IN ('details_aggregate', 'details')`;
+      expect(states).toHaveLength(2);
+      expect(states.every((state) => state.counters.complete === true)).toBe(true);
+      const detailRows = await sql<Array<{ count: string }>>`SELECT COUNT(*)::text AS count FROM video_details`;
+      expect(detailRows[0]?.count).toBe("5");
+    } finally { await sql.close(); }
   }, 30_000);
 
   test("detects in-place source updates under the cutover lock", async () => {

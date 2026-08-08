@@ -153,8 +153,11 @@ describe("Telegram media cache", () => {
     expect(memory.history[0]).toMatchObject({ cacheHit: false, mode: "document" });
   });
 
-  test("TikTok document mode preserves standard IDs when the extracted media shape changed", async () => {
-    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] }));
+  test("TikTok document mode preserves changed standard IDs but forces the next media request to validate them", async () => {
+    const stored = photoFiles(3);
+    const memory = fakeDatabase(detailsRow({
+      content_type: "slideshow", metadata_refreshed_at: now - 10, telegram_files: stored,
+    }));
     const scrap = fakeScrap({ tiktokContentType: "slideshow" });
     await executeTikTokMediaRequest({ ...request(memory.db, scrap.client), fileMode: true }, async (prepared) => {
       expect(prepared.cachedFiles).toBeNull();
@@ -162,7 +165,16 @@ describe("Telegram media cache", () => {
       return { value: "document-sent" };
     });
     expect(memory.invalidations).toBe(0);
-    expect(memory.row.telegram_files).toEqual([videoFile]);
+    expect(memory.row.telegram_files).toEqual(stored);
+    expect(memory.row.metadata_refreshed_at).toBeNull();
+
+    await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      expect(prepared.cachedFiles).toBeNull();
+      return { value: "media-sent", telegramFiles: photoFiles(2) };
+    });
+    expect(scrap.tiktokExtractions).toBe(2);
+    expect(memory.invalidations).toBe(1);
+    expect(memory.row.telegram_files).toEqual(photoFiles(2));
   });
 
   test("confirmed invalid IDs are invalidated and retried through extraction exactly once", async () => {
@@ -488,7 +500,7 @@ function fakeDatabase(initial: Record<string, unknown> | null): {
         likes_display: values[7] ?? existing?.likes_display ?? null,
         views_display: values[8] ?? existing?.views_display ?? null,
         first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],
-        metadata_refreshed_at: values[11] ?? existing?.metadata_refreshed_at ?? null,
+        metadata_refreshed_at: values[17] ? values[11] : existing?.metadata_refreshed_at ?? null,
         file_ids_updated_at: hasFiles ? values[12] : existing?.file_ids_updated_at ?? null,
         cache_version: BigInt(String(existing?.cache_version ?? 0)) + (hasFiles ? 1n : 0n),
       };
