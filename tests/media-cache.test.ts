@@ -72,6 +72,17 @@ describe("Telegram media cache", () => {
     expect(replacementIdentity).toEqual({ detailsId: 1n, cacheVersion: 2n });
   });
 
+  test("repairs cache details without recording a navigation click as a download", async () => {
+    const memory = fakeDatabase(null);
+    const scrap = fakeScrap();
+    const completed = await executeTikTokMediaRequest({ ...request(memory.db, scrap.client), recordHistory: false }, async () => ({
+      value: "repaired", telegramFiles: [videoFile],
+    }));
+    expect(completed.prepared.cacheIdentity).toEqual({ detailsId: 1n, cacheVersion: 1n });
+    expect(memory.row.telegram_files).toEqual([videoFile]);
+    expect(memory.history).toHaveLength(0);
+  });
+
   test("document mode always extracts, never stores document IDs, and preserves standard IDs", async () => {
     const initial = detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] });
     const memory = fakeDatabase(initial);
@@ -253,6 +264,29 @@ describe("Telegram media cache", () => {
     expect(scrap.tiktokExtractions).toBe(2);
   });
 
+  test("does not serialize the same post across unrelated requesters", async () => {
+    const memory = fakeDatabase(null);
+    const scrap = fakeScrap();
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const first = executeTikTokMediaRequest(request(memory.db, scrap.client), async () => {
+      markStarted();
+      await firstGate;
+      return { value: "first", telegramFiles: [videoFile] };
+    });
+    await firstStarted;
+    const secondPromise = executeTikTokMediaRequest({ ...request(memory.db, scrap.client), userId: 8 }, async () => ({
+      value: "second", telegramFiles: [videoFile],
+    }));
+    const raced = await Promise.race([secondPromise.then(() => "completed" as const), Bun.sleep(30).then(() => "waiting" as const)]);
+    releaseFirst();
+    await Promise.all([first, secondPromise]);
+    expect(raced).toBe("completed");
+    expect(scrap.tiktokExtractions).toBe(2);
+  });
+
   test("partitions eleven-item albums as 9+2", () => {
     expect(albumBatches(Array.from({ length: 11 }, (_, index) => index)).map((batch) => batch.length)).toEqual([9, 2]);
   });
@@ -329,7 +363,9 @@ function fakeDatabase(initial: Record<string, unknown> | null): {
         content_type: values[3] ?? existing?.content_type ?? null,
         canonical_link: values[4] ?? existing?.canonical_link ?? null,
         telegram_bot_id: hasFiles ? values[5] : existing?.telegram_bot_id ?? null,
-        telegram_files: hasFiles ? JSON.parse(String(values[6])) : existing?.telegram_files ?? null,
+        telegram_files: hasFiles
+          ? typeof values[6] === "string" ? JSON.parse(values[6]) : values[6]
+          : existing?.telegram_files ?? null,
         likes_display: values[7] ?? existing?.likes_display ?? null,
         views_display: values[8] ?? existing?.views_display ?? null,
         first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],

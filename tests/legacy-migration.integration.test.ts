@@ -15,6 +15,25 @@ integration("PostgreSQL 17 legacy rebuild", () => {
     await admin.close();
   });
 
+  test("keeps unsafe DDL and transactions on a reserved Bun SQL connection", async () => {
+    const sql = new SQL(adminUrl!);
+    const reserved = await sql.reserve();
+    try {
+      const owner = await reserved<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+      await reserved.unsafe("CREATE TEMP TABLE reserved_capability_probe (value INTEGER) ON COMMIT PRESERVE ROWS");
+      await reserved.begin(async (tx) => {
+        const transaction = await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+        expect(transaction[0]?.pid).toBe(owner[0]?.pid);
+        await tx`INSERT INTO reserved_capability_probe (value) VALUES (1)`;
+      });
+      const rows = await reserved<Array<{ count: string }>>`SELECT COUNT(*)::text AS count FROM reserved_capability_probe`;
+      expect(rows[0]?.count).toBe("1");
+    } finally {
+      reserved.release();
+      await sql.close();
+    }
+  });
+
   test("resumes both batch phases, preserves every row, audits removed data, and cuts over idempotently", async () => {
     const fixture = await createFixture(admin, databases, "resume");
     const first = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, maxBatchesPerPhaseRun: 1 }));

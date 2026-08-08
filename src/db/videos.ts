@@ -67,6 +67,7 @@ export interface RecordDownloadInput {
   telegramBotId?: number;
   telegramFiles?: TelegramFileReference[];
   downloadedAt?: number;
+  recordHistory?: boolean;
 }
 
 export async function getVideoDetails(db: Database, platform: VideoPlatform, platformVideoId: string): Promise<VideoDetailsRecord | null> {
@@ -80,7 +81,7 @@ export async function recordDownload(db: Database, input: RecordDownloadInput): 
   const now = input.downloadedAt ?? Math.floor(Date.now() / 1000);
   return db.sql.begin(async (tx) => {
     const hasFiles = input.telegramFiles !== undefined;
-    const filesJson = hasFiles ? JSON.stringify(input.telegramFiles) : null;
+    const filesJson = hasFiles ? input.telegramFiles : null;
     const rows = await tx<DetailsRow[]>`INSERT INTO video_details (
         platform, platform_video_id, creator_username, content_type, canonical_link,
         telegram_bot_id, telegram_files, likes_display, views_display,
@@ -107,12 +108,14 @@ export async function recordDownload(db: Database, input: RecordDownloadInput): 
       RETURNING *`;
     const details = rows[0];
     if (!details) throw new Error("Failed to upsert video details");
-    await tx`INSERT INTO videos (
-        user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit
-      ) VALUES (
-        ${input.userId}, ${details.pk_id}, ${now}, ${input.sharedLink}, ${input.mediaKind},
-        ${input.deliverySurface}, ${input.deliveryMode}, ${input.cacheHit}
-      )`;
+    if (input.recordHistory !== false) {
+      await tx`INSERT INTO videos (
+          user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit
+        ) VALUES (
+          ${input.userId}, ${details.pk_id}, ${now}, ${input.sharedLink}, ${input.mediaKind},
+          ${input.deliverySurface}, ${input.deliveryMode}, ${input.cacheHit}
+        )`;
+    }
     return mapDetails(details);
   });
 }

@@ -26,6 +26,7 @@ export interface LegacyMigrationResult {
 interface StateRow { last_pk: bigint | string; counters: Record<string, unknown> | string }
 interface BoundaryRow { end_pk: bigint | string | null }
 interface EvidenceRow { status: string; evidence: Record<string, unknown> | string }
+type MigrationConnection = Awaited<ReturnType<SQLType["reserve"]>>;
 
 export async function runLegacyMigration(databaseUrl: string, options: LegacyMigrationOptions): Promise<LegacyMigrationResult> {
   if (!options.backupConfirmed) throw new Error("Refusing migration: a completed and verified external backup must be confirmed");
@@ -50,7 +51,7 @@ export async function runLegacyMigration(databaseUrl: string, options: LegacyMig
   }
 }
 
-async function migrate(sql: SQLType, options: LegacyMigrationOptions, batchSize: number, progress: (message: string) => void): Promise<LegacyMigrationResult> {
+async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions, batchSize: number, progress: (message: string) => void): Promise<LegacyMigrationResult> {
   const shape = await sql<Array<{ column_name: string; data_type: string }>>`SELECT column_name, data_type
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'videos'`;
   const columns = new Map(shape.map((row) => [row.column_name, row.data_type]));
@@ -76,8 +77,8 @@ async function migrate(sql: SQLType, options: LegacyMigrationOptions, batchSize:
   const now = Math.floor(Date.now() / 1000);
   await sql`INSERT INTO migration_audit (migration_id, started_at, status, evidence)
     VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${now}, 'running', jsonb_build_object(
-      'source_relation_bytes', ${sourceBytes.toString()}, 'required_free_bytes', ${requiredBytes.toString()},
-      'confirmed_available_bytes', ${options.availableBytes.toString()}, 'batch_size', ${batchSize}
+      'source_relation_bytes', ${sourceBytes.toString()}::text, 'required_free_bytes', ${requiredBytes.toString()}::text,
+      'confirmed_available_bytes', ${options.availableBytes.toString()}::text, 'batch_size', ${batchSize}::integer
     )) ON CONFLICT (migration_id) DO NOTHING`;
 
   let evidence = await auditEvidence(sql);
@@ -469,7 +470,7 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
     const completedAt = Math.floor(Date.now() / 1000);
     await tx`INSERT INTO schema_migrations (version, applied_at) VALUES (${MEDIA_CACHE_SCHEMA_VERSION}, ${completedAt}) ON CONFLICT (version) DO NOTHING`;
     await tx`UPDATE migration_audit SET status = 'complete', completed_at = ${completedAt},
-      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE))
+      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}::bigint, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE))
       WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
     await upsertState(tx, "cutover", upperPk, { complete: true });
   });
@@ -491,12 +492,12 @@ async function markPhase(sql: SQLType, phase: string, lastPk: bigint, counters: 
 
 async function upsertState(sql: SQLType, phase: string, lastPk: bigint, counters: Record<string, unknown>): Promise<void> {
   await sql`INSERT INTO legacy_migration_state (migration_id, phase, last_pk, counters, updated_at)
-    VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${phase}, ${lastPk}, ${JSON.stringify(counters)}::jsonb, ${Math.floor(Date.now() / 1000)})
+    VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${phase}, ${lastPk}, ${counters}::jsonb, ${Math.floor(Date.now() / 1000)})
     ON CONFLICT (migration_id, phase) DO UPDATE SET last_pk = EXCLUDED.last_pk, counters = EXCLUDED.counters, updated_at = EXCLUDED.updated_at`;
 }
 
 async function mergeEvidence(sql: SQLType, value: Record<string, unknown>): Promise<void> {
-  await sql`UPDATE migration_audit SET evidence = evidence || ${JSON.stringify(value)}::jsonb WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
+  await sql`UPDATE migration_audit SET evidence = evidence || ${value}::jsonb WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
 }
 
 async function auditEvidence(sql: SQLType): Promise<Record<string, unknown>> {

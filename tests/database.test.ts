@@ -218,7 +218,8 @@ integration("PostgreSQL repositories", () => {
       const chat = { id: 701, type: "private" as const, first_name: "Queue Tester" };
       const original = (messageId: number) => ({ message_id: messageId, date: 1, chat, from, text: `https://www.tiktok.com/@creator/video/${7_000 + messageId}`, reply_to_message: undefined });
       const firstThree = [1, 2, 3].map((messageId) => bot.handleUpdate({ update_id: 20 + messageId, message: original(messageId) }));
-      await Bun.sleep(5);
+      const extractionDeadline = Date.now() + 1_000;
+      while (extractions === 0 && Date.now() < extractionDeadline) await Bun.sleep(2);
       expect(extractions).toBe(1);
       expect(queue.count(701)).toBe(3);
 

@@ -29,6 +29,7 @@ interface BaseRequestOptions {
   retry?: RetryOptions;
   now?: number;
   lockWaitTimeoutMs?: number;
+  recordHistory?: boolean;
 }
 
 export interface CacheIdentity {
@@ -68,7 +69,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
   // Resolution is intentionally always first. It is cheap and gives the stable ID
   // needed for a database lookup before any extraction/download work.
   const resolution = await options.scrap.resolveTikTok(options.link, options.retry);
-  const key = `tiktok:${resolution.source_id}`;
+  const key = `tiktok:${resolution.source_id}:requester:${options.userId}`;
   return withMediaLock(key, async () => {
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "tiktok", resolution.source_id);
@@ -93,7 +94,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
 export async function executeInstagramMediaRequest<T>(options: BaseRequestOptions, deliver: MediaDeliverer<T>): Promise<CompletedMediaRequest<T>> {
   const localId = instagramIdFromUrl(options.link);
   if (!localId) throw new Error("Instagram URL has no recoverable post shortcode");
-  return withMediaLock(`instagram:${localId}`, async () => {
+  return withMediaLock(`instagram:${localId}:requester:${options.userId}`, async () => {
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "instagram", localId);
     let extraction: InstagramExtraction | null = null;
@@ -160,6 +161,7 @@ async function perform<T>(
       metadataRefreshedAt,
       ...(options.fileMode || !outcome.telegramFiles ? {} : { telegramBotId: options.botId, telegramFiles: outcome.telegramFiles }),
       downloadedAt: now,
+      recordHistory: options.recordHistory,
     });
     // Inline slideshow sessions retain this small object by reference. Update it
     // only after the transaction commits so invalid-file recovery uses the exact

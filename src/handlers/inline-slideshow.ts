@@ -56,6 +56,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
     if (!session) return ctx.answerCallbackQuery({ text: "Slideshow expired.", show_alert: true });
     const action = ctx.match[1];
     if (action === "noop") return ctx.answerCallbackQuery();
+    if (refreshing.has(id)) return ctx.answerCallbackQuery({ text: "Refreshing…" });
     const index = action === "next" ? Math.min(session.currentIndex + 1, session.media.length - 1) : Math.max(session.currentIndex - 1, 0);
     if (index === session.currentIndex) return ctx.answerCallbackQuery();
     if (session.loading.has(index)) return ctx.answerCallbackQuery({ text: "Loading…" });
@@ -70,10 +71,10 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       const cacheIdentity = session.cacheIdentity;
       if (isConfirmedInvalidFileId(error) && cacheIdentity?.detailsId !== null && cacheIdentity?.detailsId !== undefined
         && cacheIdentity.cacheVersion !== null && cacheIdentity.cacheVersion !== undefined) {
-        try {
-          await invalidateTelegramFiles(ctx.db, cacheIdentity.detailsId, cacheIdentity.cacheVersion);
-          await recoverInvalidSession(ctx, id, session, index);
-        } catch (recoveryError) { logger.error("Inline slideshow invalid-file recovery failed", recoveryError); }
+        await queueInvalidSessionRecovery(ctx, id, session, index, {
+          detailsId: cacheIdentity.detailsId,
+          cacheVersion: cacheIdentity.cacheVersion,
+        });
       }
     }
     finally { session.loading.delete(index); }
@@ -137,12 +138,28 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
   });
 }
 
+async function queueInvalidSessionRecovery(ctx: BotContext, id: string, session: SlideshowSession, requestedIndex: number, cacheIdentity: { detailsId: bigint; cacheVersion: bigint }): Promise<void> {
+  if (refreshing.has(id)) return;
+  refreshing.add(id);
+  try {
+    const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
+      await invalidateTelegramFiles(ctx.db, cacheIdentity.detailsId, cacheIdentity.cacheVersion);
+      await recoverInvalidSession(ctx, id, session, requestedIndex);
+    });
+    if (!queued.acquired) logger.warn(`Inline slideshow recovery queue rejected user ${ctx.from!.id}: ${queued.reason}`);
+  } catch (error) {
+    logger.error("Inline slideshow invalid-file recovery failed", error);
+  } finally {
+    refreshing.delete(id);
+  }
+}
+
 async function recoverInvalidSession(ctx: BotContext, id: string, old: SlideshowSession, requestedIndex: number): Promise<void> {
   const instagram = findInstagramUrl(old.sourceLink) !== null;
   const identity = { userId: old.userId, fullName: old.fullName, ...(old.username ? { username: old.username } : {}) };
   const options = {
     db: ctx.db, scrap: ctx.scrap, link: old.sourceLink, userId: old.userId, botId: ctx.me.id,
-    fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 },
+    fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 }, recordHistory: false,
   };
   const execute = instagram ? executeInstagramMediaRequest : executeTikTokMediaRequest;
   await execute(options, async (prepared) => {
