@@ -414,7 +414,7 @@ function fakeDatabase(initial: Record<string, unknown> | null): {
         canonical_link: values[4] ?? existing?.canonical_link ?? null,
         telegram_bot_id: hasFiles ? values[5] : existing?.telegram_bot_id ?? null,
         telegram_files: hasFiles
-          ? typeof values[6] === "string" ? JSON.parse(values[6]) : values[6]
+          ? values[6] instanceof Uint8Array ? JSON.parse(new TextDecoder().decode(values[6])) : values[6]
           : existing?.telegram_files ?? null,
         likes_display: values[7] ?? existing?.likes_display ?? null,
         views_display: values[8] ?? existing?.views_display ?? null,

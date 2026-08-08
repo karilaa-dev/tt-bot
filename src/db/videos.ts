@@ -81,7 +81,9 @@ export async function recordDownload(db: Database, input: RecordDownloadInput): 
   const now = input.downloadedAt ?? Math.floor(Date.now() / 1000);
   return db.sql.begin(async (tx) => {
     const hasFiles = input.telegramFiles !== undefined;
-    const filesJson = hasFiles ? input.telegramFiles : null;
+    // Send explicit UTF-8 bytes and decode them server-side. This avoids relying
+    // on Bun to distinguish a JSON array from PostgreSQL's native array encoding.
+    const filesJson = hasFiles ? Buffer.from(JSON.stringify(input.telegramFiles), "utf8") : null;
     const rows = await tx<DetailsRow[]>`INSERT INTO video_details (
         platform, platform_video_id, creator_username, content_type, canonical_link,
         telegram_bot_id, telegram_files, likes_display, views_display,
@@ -89,7 +91,7 @@ export async function recordDownload(db: Database, input: RecordDownloadInput): 
       ) VALUES (
         ${input.platform}, ${input.platformVideoId}, ${input.creatorUsername ?? null}, ${input.contentType ?? null},
         ${input.canonicalLink ?? null}, ${hasFiles ? input.telegramBotId ?? null : null},
-        ${filesJson}::jsonb, ${input.likesDisplay ?? null}, ${input.viewsDisplay ?? null},
+        convert_from(${filesJson}, 'UTF8')::jsonb, ${input.likesDisplay ?? null}, ${input.viewsDisplay ?? null},
         ${now}, ${now}, ${input.metadataRefreshedAt ?? null}, ${hasFiles ? now : null}, ${hasFiles ? 1 : 0}
       )
       ON CONFLICT (platform, platform_video_id) DO UPDATE SET

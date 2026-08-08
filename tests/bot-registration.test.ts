@@ -285,7 +285,9 @@ function memoryDatabase(): {
       const row = {
         pk_id: videos.length + 1, platform: values[0], platform_video_id: values[1], creator_username: values[2],
         content_type: values[3], canonical_link: values[4], telegram_bot_id: values[5],
-        telegram_files: typeof values[6] === "string" ? JSON.parse(values[6]) : Array.isArray(values[6]) ? values[6] : null,
+        telegram_files: values[6] instanceof Uint8Array
+          ? JSON.parse(new TextDecoder().decode(values[6]))
+          : Array.isArray(values[6]) ? values[6] : null,
         likes_display: values[7], views_display: values[8], first_downloaded_at: values[9], last_used_at: values[10],
         metadata_refreshed_at: values[11], file_ids_updated_at: values[12], cache_version: values[13],
       };
