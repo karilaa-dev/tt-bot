@@ -39,6 +39,23 @@ describe("Telegram media cache", () => {
     expect(completed.cacheHit).toBe(true);
   });
 
+  test("uses valid TikTok IDs when a stale metadata refresh fails", async () => {
+    const refreshedAt = now - 86_400;
+    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: refreshedAt, telegram_files: [videoFile] }));
+    const failure = new Error("upstream unavailable");
+    const scrap = fakeScrap({ tiktokExtractionError: failure });
+    const completed = await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      expect(prepared.extraction).toBeNull();
+      expect(prepared.cachedFiles).toEqual([videoFile]);
+      expect(prepared.likesDisplay).toBe("1.2K");
+      return { value: "sent" };
+    });
+    expect(scrap.tiktokExtractions).toBe(1);
+    expect(completed.cacheHit).toBe(true);
+    expect(memory.row.metadata_refreshed_at).toBe(refreshedAt);
+    expect(memory.history[0]).toMatchObject({ cacheHit: true, mode: "media" });
+  });
+
   test("treats a Telegram bot-ID mismatch as a miss", async () => {
     const memory = fakeDatabase(detailsRow({ telegram_bot_id: 111, metadata_refreshed_at: now - 10, telegram_files: [videoFile] }));
     const scrap = fakeScrap();
@@ -329,7 +346,7 @@ function photoFiles(count: number): TelegramFileReference[] {
   return Array.from({ length: count }, (_, position) => ({ position, media_type: "photo", file_id: `photo-${position}`, file_unique_id: `photo-unique-${position}` }));
 }
 
-function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
+function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; tiktokExtractionError?: unknown; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
   const counts = { resolutions: 0, tiktokExtractions: 0, instagramExtractions: 0 };
   const tiktokContentType = options.tiktokContentType ?? "video";
   const extraction: TikTokExtraction = {
@@ -346,7 +363,11 @@ function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type
   };
   const client = {
     async resolveTikTok(url: string) { counts.resolutions++; return { platform: "tiktok" as const, source_id: "123", source_url: url, resolved_url: extraction.resolved_url }; },
-    async extractTikTok() { counts.tiktokExtractions++; return extraction; },
+    async extractTikTok() {
+      counts.tiktokExtractions++;
+      if (options.tiktokExtractionError !== undefined) throw options.tiktokExtractionError;
+      return extraction;
+    },
     async extractInstagram(url: string) {
       counts.instagramExtractions++;
       return { ...instagramExtraction, source_url: url };

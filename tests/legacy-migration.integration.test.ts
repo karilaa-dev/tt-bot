@@ -5,7 +5,7 @@ import { LEGACY_REBUILD_MIGRATION_ID, runLegacyMigration } from "../src/db/legac
 const adminUrl = Bun.env.TEST_DB_URL || Bun.env.TEST_DB_ADMIN_URL;
 const integration = adminUrl ? describe : describe.skip;
 
-integration("PostgreSQL 17 legacy rebuild", () => {
+integration("PostgreSQL legacy rebuild", () => {
   let admin: SQL;
   const databases: string[] = [];
 

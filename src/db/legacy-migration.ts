@@ -424,15 +424,17 @@ async function runCopyBatches(sql: SQLType, upperPk: bigint, batchSize: number, 
 }
 
 async function buildFinalConstraints(sql: SQLType): Promise<void> {
-  await ensureConstraint(sql, "videos_new", "videos_new_pkey", "PRIMARY KEY (pk_id)");
-  await ensureConstraint(sql, "videos_new", "videos_new_media_kind_check", "CHECK (media_kind IN ('video', 'images')) NOT VALID");
-  await ensureConstraint(sql, "videos_new", "videos_new_delivery_surface_check", "CHECK (delivery_surface IN ('chat', 'inline')) NOT VALID");
-  await ensureConstraint(sql, "videos_new", "videos_new_delivery_mode_check", "CHECK (delivery_mode IN ('media', 'document')) NOT VALID");
-  await ensureConstraint(sql, "videos_new", "videos_new_user_id_fkey", "FOREIGN KEY (user_id) REFERENCES users(user_id) NOT VALID");
-  await ensureConstraint(sql, "videos_new", "videos_new_video_details_id_fkey", "FOREIGN KEY (video_details_id) REFERENCES video_details(pk_id) NOT VALID");
-  for (const constraint of ["videos_new_media_kind_check", "videos_new_delivery_surface_check", "videos_new_delivery_mode_check", "videos_new_user_id_fkey", "videos_new_video_details_id_fkey"]) {
-    await sql.unsafe(`ALTER TABLE videos_new VALIDATE CONSTRAINT ${constraint}`);
-  }
+  await ensureConstraint(sql, "videos_new_pkey");
+  await ensureConstraint(sql, "videos_new_media_kind_check");
+  await ensureConstraint(sql, "videos_new_delivery_surface_check");
+  await ensureConstraint(sql, "videos_new_delivery_mode_check");
+  await ensureConstraint(sql, "videos_new_user_id_fkey");
+  await ensureConstraint(sql, "videos_new_video_details_id_fkey");
+  await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_media_kind_check`;
+  await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_delivery_surface_check`;
+  await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_delivery_mode_check`;
+  await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_user_id_fkey`;
+  await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_video_details_id_fkey`;
   await sql`CREATE INDEX IF NOT EXISTS videos_new_user_downloaded_idx ON videos_new (user_id, downloaded_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS videos_new_downloaded_brin_idx ON videos_new USING BRIN (downloaded_at)`;
   await sql`CREATE INDEX IF NOT EXISTS videos_new_details_idx ON videos_new (video_details_id) WHERE video_details_id IS NOT NULL`;
@@ -507,9 +509,39 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
   });
 }
 
-async function ensureConstraint(sql: SQLType, table: string, name: string, definition: string): Promise<void> {
-  const found = await sql<Array<{ found: boolean }>>`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = ${name} AND conrelid = to_regclass(${`public.${table}`})) AS found`;
-  if (!found[0]?.found) await sql.unsafe(`ALTER TABLE ${table} ADD CONSTRAINT ${name} ${definition}`);
+type FinalConstraintName =
+  | "videos_new_pkey"
+  | "videos_new_media_kind_check"
+  | "videos_new_delivery_surface_check"
+  | "videos_new_delivery_mode_check"
+  | "videos_new_user_id_fkey"
+  | "videos_new_video_details_id_fkey";
+
+async function ensureConstraint(sql: SQLType, name: FinalConstraintName): Promise<void> {
+  const found = await sql<Array<{ found: boolean }>>`SELECT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = ${name} AND conrelid = 'public.videos_new'::regclass
+  ) AS found`;
+  if (found[0]?.found) return;
+  switch (name) {
+    case "videos_new_pkey":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_pkey PRIMARY KEY (pk_id)`;
+      break;
+    case "videos_new_media_kind_check":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_media_kind_check CHECK (media_kind IN ('video', 'images')) NOT VALID`;
+      break;
+    case "videos_new_delivery_surface_check":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_delivery_surface_check CHECK (delivery_surface IN ('chat', 'inline')) NOT VALID`;
+      break;
+    case "videos_new_delivery_mode_check":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_delivery_mode_check CHECK (delivery_mode IN ('media', 'document')) NOT VALID`;
+      break;
+    case "videos_new_user_id_fkey":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) NOT VALID`;
+      break;
+    case "videos_new_video_details_id_fkey":
+      await sql`ALTER TABLE videos_new ADD CONSTRAINT videos_new_video_details_id_fkey FOREIGN KEY (video_details_id) REFERENCES video_details(pk_id) NOT VALID`;
+      break;
+  }
 }
 
 async function stateFor(sql: SQLType, phase: string): Promise<StateRow | null> {

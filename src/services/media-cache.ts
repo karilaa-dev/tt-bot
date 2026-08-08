@@ -77,12 +77,21 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
     let extraction: TikTokExtraction | null = null;
     let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "tiktok");
     const stale = !details?.metadataRefreshedAt || now - details.metadataRefreshedAt >= TIKTOK_METADATA_TTL_SECONDS;
-    if (options.fileMode || !cachedFiles || stale) {
+    if (options.fileMode || !cachedFiles) {
       extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
-      if (cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
-        await invalidateKnownFiles(options.db, details);
-        cachedFiles = null;
+    } else if (stale) {
+      try {
+        extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
+      } catch (error) {
+        // A stale metadata refresh must not make a working Telegram copy
+        // unavailable. Keep the old refresh timestamp so the next request tries
+        // again, and still fail normally when extraction is required for delivery.
+        logger.warn("TikTok metadata refresh failed; using cached Telegram media", error);
       }
+    }
+    if (extraction && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
+      await invalidateKnownFiles(options.db, details);
+      cachedFiles = null;
     }
     const prepared = tikTokPrepared(options.link, resolution.resolved_url, resolution.source_id, details, extraction, options.fileMode ? null : cachedFiles);
     return perform(options, prepared, details, deliver, async () => {
