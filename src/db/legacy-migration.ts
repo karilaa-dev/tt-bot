@@ -285,7 +285,7 @@ BEGIN
   IF parsed IS NULL THEN RETURN NEXT; RETURN; END IF;
   host := lower(split_part(parsed[1], ':', 1)); path := COALESCE(parsed[2], '/'); query := COALESCE(parsed[3], '');
   IF host = 'tiktok.com' OR host ~ '[.]tiktok[.]com$' THEN
-    parsed := regexp_match(path, '^/@[^/]+/(video|photo)/([0-9]+)(?:/|$)', 'i');
+    parsed := regexp_match(path, '^/@[^/]*/(video|photo)/([0-9]+)(?:/|$)', 'i');
     IF parsed IS NOT NULL THEN kind := CASE WHEN lower(parsed[1]) = 'photo' THEN 'images' ELSE 'video' END; path_id := parsed[2]; END IF;
     IF path_id IS NULL THEN parsed := regexp_match(path, '^/v/([0-9]+)(?:[.]html)?(?:/|$)', 'i'); IF parsed IS NOT NULL THEN path_id := parsed[1]; kind := 'video'; END IF; END IF;
     IF path_id IS NULL THEN parsed := regexp_match(path, '^/embed/(?:v2/)?([0-9]+)(?:/|$)', 'i'); IF parsed IS NOT NULL THEN path_id := parsed[1]; kind := 'video'; END IF; END IF;

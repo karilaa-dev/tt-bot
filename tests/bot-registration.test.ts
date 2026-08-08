@@ -169,6 +169,21 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(scrapCalls.find((call) => call.path === "/v1/tiktok/extractions")?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
 
+    const emptyUsernameUser = { id: 104, is_bot: false, first_name: "ID Link", language_code: "en" };
+    const resolutionsBeforeEmptyUsername = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions").length;
+    await bot.handleUpdate({ update_id: 41, message: {
+      message_id: 41,
+      date: 1,
+      chat: { id: 104, type: "private", first_name: "ID Link" },
+      from: emptyUsernameUser,
+      text: "https://www.tiktok.com/@/video/7520203299816066326",
+    } });
+    const resolutionCalls = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions");
+    expect(resolutionCalls).toHaveLength(resolutionsBeforeEmptyUsername + 1);
+    expect(resolutionCalls.at(-1)?.payload.url).toBe("https://www.tiktok.com/@_/video/7520203299816066326");
+    expect(memory.videos.some((video) => video.userId === emptyUsernameUser.id
+      && video.link === "https://www.tiktok.com/@_/video/7520203299816066326")).toBe(true);
+
     const groupChat = { id: -100500, type: "supergroup" as const, title: "Test Group" };
     const groupUser = { id: 103, is_bot: false, first_name: "Group User", language_code: "en" };
     await bot.handleUpdate({ update_id: 5, message: { message_id: 5, date: 1, chat: groupChat, from: groupUser, text: "ordinary group message" } });

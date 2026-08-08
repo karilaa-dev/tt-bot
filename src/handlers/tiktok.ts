@@ -32,8 +32,14 @@ function matchTikTok(value: string): string | null {
   const host = normalizedTikTokHost(url.hostname);
   const path = url.pathname.replace(/\/+$/u, "") || "/";
   const isShortLink = (host === "vm.tiktok.com" || host === "vt.tiktok.com") && /^\/[A-Za-z0-9_-]+$/u.test(path);
-  const isPostLink = /^\/@[A-Za-z0-9._-]+\/(?:video|photo)\/[0-9]+$/u.test(path)
-    || /^\/t\/[A-Za-z0-9_-]+$/u.test(path)
+  const directPost = path.match(/^\/@([A-Za-z0-9._-]*)\/(video|photo)\/([0-9]+)$/u);
+  if (directPost) {
+    // TikTok sometimes shares an ID-bearing URL without a username segment.
+    // Normalize that otherwise-invalid route so resolutions can use the ID.
+    if (!directPost[1]) return `https://www.tiktok.com/@_/${directPost[2]}/${directPost[3]}`;
+    return canonicalHttpsUrl(url);
+  }
+  const isPostLink = /^\/t\/[A-Za-z0-9_-]+$/u.test(path)
     || /^\/v\/[0-9]+(?:\.html)?$/u.test(path)
     || /^\/embed(?:\/v2)?\/[0-9]+$/u.test(path)
     || /^\/player\/v1\/[0-9]+$/u.test(path)
@@ -46,6 +52,10 @@ function matchTikTok(value: string): string | null {
 export function tikTokExtractionUrl(link: string): string {
   const url = parsePublicUrl(link);
   if (!url || !isTikTokHost(url.hostname)) return link;
+  const directPostMatch = url.pathname.match(/^\/@([^/]*)\/(video|photo)\/([0-9]+)\/?$/u);
+  if (directPostMatch && !directPostMatch[1]) {
+    return `https://www.tiktok.com/@_/${directPostMatch[2]}/${directPostMatch[3]}`;
+  }
   const pathMatch = url.pathname.match(/^\/(?:v|embed(?:\/v2)?|player\/v1|share\/(?:video|item))\/([0-9]+)(?:\.html)?\/?$/u);
   const queryId = url.searchParams.get("item_id") ?? url.searchParams.get("share_item_id");
   const videoId = pathMatch?.[1] ?? (queryId && /^[0-9]+$/u.test(queryId) ? queryId : null);

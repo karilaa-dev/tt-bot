@@ -22,7 +22,7 @@ export function parseLegacyVideoIdentity(value: string): LegacyVideoIdentity {
 function parseTikTok(url: URL): LegacyVideoIdentity {
   let pathId: string | null = null;
   let type: "video" | "images" | null = null;
-  let match = url.pathname.match(/^\/@[^/]+\/(video|photo)\/([0-9]+)(?:\/|$)/iu);
+  let match = url.pathname.match(/^\/@[^/]*\/(video|photo)\/([0-9]+)(?:\/|$)/iu);
   if (match) {
     type = match[1]?.toLowerCase() === "photo" ? "images" : "video";
     pathId = match[2] ?? null;

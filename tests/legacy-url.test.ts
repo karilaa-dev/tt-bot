@@ -4,6 +4,7 @@ import { parseLegacyVideoIdentity } from "../src/db/legacy-url.ts";
 describe("legacy URL identity parsing", () => {
   test.each([
     ["https://www.tiktok.com/@creator/video/123", "tiktok", "123", "video"],
+    ["https://www.tiktok.com/@/video/130", "tiktok", "130", "video"],
     ["https://www.tiktok.com/@creator/photo/124", "tiktok", "124", "images"],
     ["https://m.tiktok.com/v/125.html?tracking=1", "tiktok", "125", "video"],
     ["https://www.tiktok.com/embed/v2/126", "tiktok", "126", "video"],
