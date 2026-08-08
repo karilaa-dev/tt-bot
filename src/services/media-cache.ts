@@ -383,6 +383,9 @@ async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTi
   if (active) {
     const acquired = await waitForMediaLock(active, Math.max(1, waitTimeoutMs));
     if (!acquired) {
+      // A timeout deliberately trades single-flight for progress. Both holders
+      // may eventually persist, but cache_version ensures that the older
+      // identity cannot erase whichever Telegram file set was committed later.
       logger.warn("Media lock wait timed out; replacing the stale coalescing lock", { key, wait_timeout_ms: waitTimeoutMs });
       if (locks.get(key) === active) locks.delete(key);
       return withMediaLock(key, operation, waitTimeoutMs);

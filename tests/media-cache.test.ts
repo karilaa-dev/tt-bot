@@ -4,7 +4,7 @@ import { PartialDeliveryError } from "../src/bot/errors.ts";
 import type { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
 import type { Database } from "../src/db/client.ts";
-import type { TelegramFileReference } from "../src/db/videos.ts";
+import { invalidateTelegramFiles, type TelegramFileReference } from "../src/db/videos.ts";
 import { albumBatches, deliverCachedInstagramToChat, deliverCachedTikTokToChat } from "../src/services/cached-delivery.ts";
 import { executeInstagramMediaRequest, executeTikTokMediaRequest, isConfirmedInvalidFileId, type CacheIdentity } from "../src/services/media-cache.ts";
 
@@ -432,8 +432,13 @@ describe("Telegram media cache", () => {
     expect(second.value).toBe(2);
     expect(deliveries).toBe(2);
     releaseFirst();
-    await first;
+    const firstCompleted = await first;
     expect(scrap.tiktokExtractions).toBe(2);
+    expect(second.prepared.cacheIdentity).toEqual({ detailsId: 1n, cacheVersion: 1n });
+    expect(firstCompleted.prepared.cacheIdentity).toEqual({ detailsId: 1n, cacheVersion: 2n });
+    expect(memory.row.cache_version).toBe(2n);
+    expect(await invalidateTelegramFiles(memory.db, 1n, 1n)).toBe(false);
+    expect(memory.row.telegram_files).toEqual([videoFile]);
   });
 
   test("does not serialize the same post across unrelated requesters", async () => {
