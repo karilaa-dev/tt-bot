@@ -32,7 +32,7 @@ Build and run the bot plus PostgreSQL:
 docker compose up --build
 ```
 
-New databases are initialized with separate download-history (`videos`) and reusable-media (`video_details`) tables. A database from the Python v5.4.6 release must be rebuilt explicitly while the bot is stopped; normal and maintenance-mode startup both refuse to modify that legacy schema. Run the dedicated migration command directly during the outage.
+New databases are initialized with separate download-history (`videos`) and reusable-media (`video_details`) tables. A database from the Python v5.4.6 release must be rebuilt explicitly while the main bot is stopped; normal startup refuses to modify that legacy schema. Maintenance mode does not connect to PostgreSQL and may be used to notify users during the outage.
 
 > [!WARNING]
 > The PostgreSQL 18 image stores its cluster below `/var/lib/postgresql`, so Compose now mounts `pgdata` there. Before upgrading an existing deployment that mounted the volume at `/var/lib/postgresql/data`, export the running database with `docker compose exec db sh -c 'pg_dumpall -U "$POSTGRES_USER"' > ttbot-backup.sql`. Recreate the database service with the new mount, then restore with `docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER"' < ttbot-backup.sql`. The old Postgres 18 mount did not include the image's active `PGDATA`, so recreating that old container without a dump can lose its database.
@@ -77,7 +77,7 @@ Before running it:
 3. Create and verify an external PostgreSQL backup.
 4. Check free bytes on the filesystem containing PostgreSQL data. The command requires a confirmed value and also enforces a conservative minimum of four times the source `videos` relation size.
 
-Do not start `bun run start` or `bun run maintenance` against the legacy schema. Both intentionally exit with instructions to run the offline rebuild, so the only application process during this step should be `bun run db:migrate-legacy`.
+Do not start `bun run start` against the legacy schema; it intentionally exits with instructions to run the offline rebuild. `bun run maintenance` remains available because it does not access PostgreSQL. Aside from that optional notifier, `bun run db:migrate-legacy` must be the only application process accessing the database during the rebuild.
 
 Run:
 
