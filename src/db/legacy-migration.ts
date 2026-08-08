@@ -484,11 +484,15 @@ async function verifyRebuild(sql: SQLType, evidence: Record<string, unknown>): P
 
 async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk: bigint): Promise<void> {
   const source = readObject(evidence.source_audit) as Record<string, string>;
-  await sql.begin(async (tx) => {
+  const cutoverCompleted = await sql.begin(async (tx) => {
     await tx`LOCK TABLE videos, videos_new, users IN ACCESS EXCLUSIVE MODE`;
-    const current = await tx<Array<{ row_count: string; max_pk: string }>>`SELECT COUNT(*)::text AS row_count, COALESCE(MAX(pk_id), 0)::text AS max_pk FROM videos`;
-    if (current[0]?.row_count !== source.row_count || current[0]?.max_pk !== source.max_pk || current[0]?.max_pk !== upperPk.toString()) {
-      throw new Error("Source changed after verification; cutover aborted");
+    // The bot should already be stopped, but enforce that every audited source
+    // value is still identical while writes are excluded. Count/max alone would
+    // miss an in-place link, timestamp, or classification update after copying.
+    const current = await sourceAudit(tx);
+    const sourceUnchanged = Object.entries(source).every(([key, value]) => current[key] === value);
+    if (!sourceUnchanged || current.max_pk !== upperPk.toString()) {
+      return false;
     }
     await tx`ALTER SEQUENCE videos_pk_id_seq OWNED BY NONE`;
     await tx`ALTER TABLE videos RENAME TO videos_legacy_002`;
@@ -511,7 +515,9 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
       evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}::bigint, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE))
       WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
     await upsertState(tx, "cutover", upperPk, { complete: true });
+    return true;
   });
+  if (!cutoverCompleted) throw new Error("Source changed after verification; cutover aborted");
 }
 
 type FinalConstraintName =

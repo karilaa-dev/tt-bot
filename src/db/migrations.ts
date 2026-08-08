@@ -127,17 +127,17 @@ DECLARE
   expected_position INTEGER := 0;
 BEGIN
   IF value IS NULL THEN RETURN TRUE; END IF;
-  IF jsonb_typeof(value) <> 'array' OR jsonb_array_length(value) = 0 THEN RETURN FALSE; END IF;
+  IF jsonb_typeof(value) IS DISTINCT FROM 'array' THEN RETURN FALSE; END IF;
+  IF jsonb_array_length(value) = 0 THEN RETURN FALSE; END IF;
   FOR item IN SELECT element FROM jsonb_array_elements(value) AS entries(element) LOOP
-    IF jsonb_typeof(item) <> 'object'
-      OR jsonb_typeof(item->'position') <> 'number'
-      OR (item->>'position') !~ '^[0-9]+$'
-      OR (item->>'position')::INTEGER <> expected_position
-      OR item->>'media_type' NOT IN ('photo', 'video')
-      OR jsonb_typeof(item->'file_id') <> 'string'
-      OR length(item->>'file_id') = 0
-      OR jsonb_typeof(item->'file_unique_id') <> 'string'
-      OR length(item->>'file_unique_id') = 0
+    IF jsonb_typeof(item) IS DISTINCT FROM 'object' THEN RETURN FALSE; END IF;
+    IF jsonb_typeof(item->'position') IS DISTINCT FROM 'number'
+      OR item->>'position' IS DISTINCT FROM expected_position::TEXT
+      OR COALESCE(item->>'media_type', '') NOT IN ('photo', 'video')
+      OR jsonb_typeof(item->'file_id') IS DISTINCT FROM 'string'
+      OR COALESCE(length(item->>'file_id'), 0) = 0
+      OR jsonb_typeof(item->'file_unique_id') IS DISTINCT FROM 'string'
+      OR COALESCE(length(item->>'file_unique_id'), 0) = 0
     THEN RETURN FALSE; END IF;
     expected_position := expected_position + 1;
   END LOOP;

@@ -61,6 +61,10 @@ integration("PostgreSQL repositories", () => {
       jsonb_typeof(telegram_files) AS json_type, telegram_files FROM video_details
       WHERE platform = 'instagram' AND platform_video_id = 'JSONB123'`;
     expect(storedFiles[0]).toEqual({ json_type: "array", telegram_files: telegramFiles });
+    const validation = await db.sql<Array<{ valid: boolean }>>`SELECT is_valid_telegram_files(
+      '[{"position":0}]'::jsonb
+    ) AS valid`;
+    expect(validation[0]?.valid).toBe(false);
     await addMusic(db, 123, 7669880788879543583n);
     expect(await getUser(db, 123)).toMatchObject({ userId: 123, lang: "uk", link: "ref", fileMode: true });
     expect(await getUserIds(db)).toEqual([123]);

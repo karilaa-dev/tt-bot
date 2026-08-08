@@ -111,6 +111,30 @@ integration("PostgreSQL legacy rebuild", () => {
     expect(completed.status).toBe("complete");
   }, 30_000);
 
+  test("detects in-place source updates under the cutover lock", async () => {
+    const fixture = await createFixture(admin, databases, "source-update");
+    const paused = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "verification" }));
+    expect(paused).toMatchObject({ status: "paused", phase: "verification" });
+
+    const sql = new SQL(fixture.url);
+    try {
+      await sql`UPDATE videos SET video_link = video_link || '?changed=1' WHERE pk_id = 1`;
+    } finally { await sql.close(); }
+
+    const failure = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }))
+      .then(() => null, (error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain("Source changed after verification; cutover aborted");
+    const check = new SQL(fixture.url);
+    try {
+      const legacy = await check<Array<{ exists: boolean }>>`SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'videos' AND column_name = 'video_link'
+      ) AS exists`;
+      expect(legacy[0]?.exists).toBe(true);
+    } finally { await check.close(); }
+  }, 30_000);
+
   test("migrates TypeScript-era users tables without advertising columns", async () => {
     const fixture = await createFixture(admin, databases, "typescript", { advertisingColumns: false });
     const completed = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
