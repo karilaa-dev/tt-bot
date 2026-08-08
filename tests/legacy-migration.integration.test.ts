@@ -119,6 +119,14 @@ integration("PostgreSQL legacy rebuild", () => {
 
   test("resumes both detail aggregation and detail finalization from committed batches", async () => {
     const fixture = await createFixture(admin, databases, "details-batches");
+    const seed = new SQL(fixture.url);
+    try {
+      // The typed URL and later /share/item URL for the same post land in
+      // separate batches. The latter has no canonical candidate and must remain
+      // unknown evidence rather than erase the unambiguous typed candidate.
+      await seed`INSERT INTO videos (pk_id, user_id, downloaded_at, video_link, is_images, is_processed, is_inline)
+        VALUES (3, 1, 103, 'https://www.tiktok.com/@creator/video/126', FALSE, FALSE, FALSE)`;
+    } finally { await seed.close(); }
     await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2, stopAfterPhase: "identity" }));
 
     let sawFinalizeCheckpoint = false;
@@ -153,6 +161,9 @@ integration("PostgreSQL legacy rebuild", () => {
       expect(states.every((state) => state.counters.complete === true)).toBe(true);
       const detailRows = await sql<Array<{ count: string }>>`SELECT COUNT(*)::text AS count FROM video_details`;
       expect(detailRows[0]?.count).toBe("5");
+      const canonical = await sql<Array<{ canonical_link: string | null }>>`SELECT canonical_link FROM video_details
+        WHERE platform = 'tiktok' AND platform_video_id = '126'`;
+      expect(canonical[0]?.canonical_link).toBe("https://www.tiktok.com/@_/video/126");
     } finally { await sql.close(); }
   }, 30_000);
 

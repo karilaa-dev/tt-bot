@@ -392,6 +392,10 @@ async function runDetailAggregateBatches(
     if (boundary[0]?.end_pk === null || boundary[0]?.end_pk === undefined) break;
     const endPk = BigInt(boundary[0].end_pk);
     await sql.begin(async (tx) => {
+      // A null canonical candidate means that this URL did not encode a media
+      // type; it is unknown evidence, not a conflict. Preserve the original
+      // COUNT(DISTINCT canonical_candidate) FILTER (WHERE ... IS NOT NULL)
+      // semantics explicitly while merging evidence across committed batches.
       const metrics = await tx<Array<{ total: number | string; groups: number | string }>>`WITH batch_rows AS (
           SELECT i.*, v.downloaded_at
           FROM legacy_video_identity i JOIN videos v ON v.pk_id = i.legacy_pk
@@ -401,8 +405,8 @@ async function runDetailAggregateBatches(
             MIN(legacy_content_type) AS legacy_content_type_min,
             MAX(legacy_content_type) AS legacy_content_type_max,
             BOOL_OR(url_content_type IS NOT NULL AND url_content_type <> legacy_content_type) AS url_content_conflict,
-            MIN(canonical_candidate) AS canonical_candidate_min,
-            MAX(canonical_candidate) AS canonical_candidate_max,
+            MIN(canonical_candidate) FILTER (WHERE canonical_candidate IS NOT NULL) AS canonical_candidate_min,
+            MAX(canonical_candidate) FILTER (WHERE canonical_candidate IS NOT NULL) AS canonical_candidate_max,
             MIN(downloaded_at) AS first_downloaded_at,
             MAX(downloaded_at) AS last_downloaded_at
           FROM batch_rows GROUP BY platform, platform_video_id
@@ -419,8 +423,16 @@ async function runDetailAggregateBatches(
             legacy_content_type_min = LEAST(legacy_video_detail_aggregate.legacy_content_type_min, EXCLUDED.legacy_content_type_min),
             legacy_content_type_max = GREATEST(legacy_video_detail_aggregate.legacy_content_type_max, EXCLUDED.legacy_content_type_max),
             url_content_conflict = legacy_video_detail_aggregate.url_content_conflict OR EXCLUDED.url_content_conflict,
-            canonical_candidate_min = LEAST(legacy_video_detail_aggregate.canonical_candidate_min, EXCLUDED.canonical_candidate_min),
-            canonical_candidate_max = GREATEST(legacy_video_detail_aggregate.canonical_candidate_max, EXCLUDED.canonical_candidate_max),
+            canonical_candidate_min = CASE
+              WHEN legacy_video_detail_aggregate.canonical_candidate_min IS NULL THEN EXCLUDED.canonical_candidate_min
+              WHEN EXCLUDED.canonical_candidate_min IS NULL THEN legacy_video_detail_aggregate.canonical_candidate_min
+              ELSE LEAST(legacy_video_detail_aggregate.canonical_candidate_min, EXCLUDED.canonical_candidate_min)
+            END,
+            canonical_candidate_max = CASE
+              WHEN legacy_video_detail_aggregate.canonical_candidate_max IS NULL THEN EXCLUDED.canonical_candidate_max
+              WHEN EXCLUDED.canonical_candidate_max IS NULL THEN legacy_video_detail_aggregate.canonical_candidate_max
+              ELSE GREATEST(legacy_video_detail_aggregate.canonical_candidate_max, EXCLUDED.canonical_candidate_max)
+            END,
             first_downloaded_at = LEAST(legacy_video_detail_aggregate.first_downloaded_at, EXCLUDED.first_downloaded_at),
             last_downloaded_at = GREATEST(legacy_video_detail_aggregate.last_downloaded_at, EXCLUDED.last_downloaded_at)
           RETURNING 1
