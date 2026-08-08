@@ -2,11 +2,12 @@ import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, Message } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
 import { PartialDeliveryError, TtScrapError } from "../bot/errors.ts";
-import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { sendAdminDiagnostic } from "../services/admin-diagnostics.ts";
-import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
+import { deliverCachedTikTokToChat } from "../services/cached-delivery.ts";
+import { DeliveryService, allMessages, fileIdFromMessage, lastBatch, telegramFilesFromResult } from "../services/delivery.ts";
+import { executeTikTokMediaRequest } from "../services/media-cache.ts";
 import { resolveDownloadPreferences, resolveLanguage } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
@@ -78,46 +79,60 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
     const status = await beginStatus(ctx, message);
     try {
       const queued = await ctx.queue.withSlot(ctx.chat.id, async () => {
-        const extraction = await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4 });
         if (!status) await setReaction(ctx, message, "👨‍💻");
-        await ctx.api.sendChatAction(ctx.chat.id, extraction.content_type === "video" ? "upload_video" : "upload_photo");
-        const delivery = new DeliveryService(ctx.scrap, ctx.config);
-        let result;
-        if (group && extraction.content_type === "slideshow" && extraction.media.length > 10) {
-          const staged = await delivery.stageTikTok(extraction, link, identity(message), fileMode);
-          const stagedMessages = allMessages(staged).slice(0, 10);
-          const fileIds = stagedMessages.map((item, index) => {
-            const fileId = fileIdFromMessage(item);
-            if (!fileId) throw new Error(`Staged slideshow item ${index} has no Telegram file ID`);
-            return fileId;
-          });
-          const sent = fileMode
-            ? await ctx.api.sendMediaGroup(ctx.chat.id, fileIds.map((media) => ({ type: "document", media, disable_content_type_detection: true } satisfies InputMediaDocument)), { disable_notification: true, reply_parameters: { message_id: message.message_id } })
-            : await ctx.api.sendMediaGroup(ctx.chat.id, fileIds.map((media) => ({ type: "photo", media } satisfies InputMediaPhoto)), { disable_notification: true, reply_parameters: { message_id: message.message_id } });
-          result = { calls: [{ method: "sendMediaGroup", statusCode: 200, result: sent }] };
-        } else {
-          result = await delivery.deliverTikTokToChat(extraction, link, ctx.chat.id, message.message_id, lang, fileMode);
-        }
-        if (extraction.content_type === "slideshow") {
-          const final = lastBatch(result)[0];
-          if (final) await ctx.api.sendMessage(ctx.chat.id, resultCaption(lang, link, group), {
-            parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_parameters: { message_id: final.message_id },
-            reply_markup: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views),
-          });
-        }
+        const completed = await executeTikTokMediaRequest({
+          db: ctx.db, scrap: ctx.scrap, link, userId: ctx.chat.id, botId: ctx.me.id,
+          fileMode, deliverySurface: "chat", retry: { attempts: 4 },
+        }, async (prepared) => {
+          await ctx.api.sendChatAction(ctx.chat.id, prepared.contentType === "video" ? "upload_video" : "upload_photo");
+          const delivery = new DeliveryService(ctx.scrap, ctx.config);
+          let result;
+          let uploadedFiles;
+          if (prepared.cachedFiles) {
+            result = await deliverCachedTikTokToChat({
+              api: ctx.api, files: prepared.cachedFiles, chatId: ctx.chat.id, replyTo: message.message_id,
+              lang, sourceLink: link, group, sourceId: prepared.platformVideoId, contentType: prepared.contentType,
+              likesDisplay: prepared.likesDisplay, viewsDisplay: prepared.viewsDisplay,
+            });
+          } else {
+            const extraction = prepared.extraction;
+            if (!extraction || extraction.platform !== "tiktok") throw new Error("TikTok extraction is required for an upload");
+            if (group && extraction.content_type === "slideshow" && extraction.media.length > 10) {
+              const staged = await delivery.stageTikTok(extraction, link, identity(message), fileMode);
+              const stagedMessages = allMessages(staged).slice(0, 10);
+              const fileIds = stagedMessages.map((item, index) => {
+                const fileId = fileIdFromMessage(item);
+                if (!fileId) throw new Error(`Staged slideshow item ${index} has no Telegram file ID`);
+                return fileId;
+              });
+              const sent = fileMode
+                ? await ctx.api.sendMediaGroup(ctx.chat.id, fileIds.map((media) => ({ type: "document", media, disable_content_type_detection: true } satisfies InputMediaDocument)) as [InputMediaDocument, InputMediaDocument, ...InputMediaDocument[]], { disable_notification: true, reply_parameters: { message_id: message.message_id } })
+                : await ctx.api.sendMediaGroup(ctx.chat.id, fileIds.map((media) => ({ type: "photo", media } satisfies InputMediaPhoto)) as [InputMediaPhoto, InputMediaPhoto, ...InputMediaPhoto[]], { disable_notification: true, reply_parameters: { message_id: message.message_id } });
+              result = { calls: [{ method: "sendMediaGroup", statusCode: 200, result: sent }] };
+              if (!fileMode) uploadedFiles = telegramFilesFromResult(staged);
+            } else {
+              result = await delivery.deliverTikTokToChat(extraction, link, ctx.chat.id, message.message_id, lang, fileMode);
+              if (!fileMode) uploadedFiles = telegramFilesFromResult(result);
+            }
+          }
+          if (prepared.contentType === "slideshow") {
+            const final = lastBatch(result)[0];
+            if (final) await ctx.api.sendMessage(ctx.chat.id, resultCaption(lang, link, group), {
+              parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_parameters: { message_id: final.message_id },
+              reply_markup: musicKeyboard(prepared.platformVideoId, lang, prepared.likesDisplay, prepared.viewsDisplay),
+            });
+          }
+          return { value: result, ...(uploadedFiles ? { telegramFiles: uploadedFiles } : {}) };
+        });
         await clearStatus(ctx, message, status);
-        return extraction;
+        return completed;
       }, { group });
       if (!queued.acquired) {
         await clearStatus(ctx, message, status);
         await replyForQueueRejection(ctx, queued.reason, lang, message.message_id, group);
         return;
       }
-      const extraction = queued.value;
-      try {
-        await addVideo(ctx.db, ctx.chat.id, link, extraction.content_type === "slideshow");
-        logger.info(`Video Download: CHAT ${ctx.chat.id} - VIDEO ${link}`);
-      } catch (error) { logger.error("Can't write video download into database", error); }
+      logger.info(`Video Download: CHAT ${ctx.chat.id} - VIDEO ${link} - CACHE ${queued.value.cacheHit ? "HIT" : "MISS"}`);
     } catch (error) {
       logger.error(`TikTok handler failed for ${link}`, error);
       await clearStatus(ctx, message, status);

@@ -43,6 +43,12 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     const path = new URL(request.url).pathname;
     const payload = await request.json() as Record<string, unknown>;
     scrapCalls.push({ path, payload });
+    if (path === "/v1/tiktok/resolutions") {
+      return Response.json({
+        platform: "tiktok", source_id: "7669880788879543583", source_url: String(payload.url),
+        resolved_url: "https://www.tiktok.com/@_/video/7669880788879543583",
+      });
+    }
     if (path === "/v1/tiktok/extractions") {
       const url = String(payload.url);
       return Response.json({
@@ -52,7 +58,8 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
         source_url: url,
         resolved_url: url,
         content_type: "video",
-        media: [],
+        creator_username: "creator",
+        media: [{ asset_id: "tiktok-video", kind: "video", position: 0, download_url: "/v1/assets/tiktok-video", filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() }],
         expires_at: new Date(Date.now() + 60_000).toISOString(),
         likes: 12,
         views: 34,
@@ -62,6 +69,8 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
       return Response.json({
         extraction_id: `instagram-${scrapCalls.length}`,
         platform: "instagram",
+        source_id: "ABC123",
+        creator_username: "creator",
         source_url: String(payload.url),
         content_type: "video",
         media: [{
@@ -144,7 +153,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(groupChat.id)).toMatchObject({ user_id: groupChat.id, lang: "en" });
     expect(sendMessagesFor(telegramCalls, groupChat.id)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === groupChat.id)).toBe(true);
-    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(2);
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(1);
 
     const instagramGroup = { id: -100501, type: "group" as const, title: "Instagram Group" };
     await bot.handleUpdate({ update_id: 7, message: {
@@ -235,11 +244,27 @@ function memoryDatabase(): {
 } {
   const users = new Map<number, MemoryUserRow>();
   const videos: Array<{ userId: number; link: string }> = [];
+  const details = new Map<string, Record<string, unknown>>();
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const query = strings.join("?").replace(/\s+/gu, " ").trim();
     if (query.startsWith("SELECT user_id, registered_at, lang, link, file_mode FROM users")) {
       const user = users.get(Number(values[0]));
       return user ? [user] : [];
+    }
+    if (query.startsWith("SELECT * FROM video_details")) {
+      const row = details.get(`${values[0]}:${values[1]}`);
+      return row ? [row] : [];
+    }
+    if (query.startsWith("INSERT INTO video_details")) {
+      const row = {
+        pk_id: videos.length + 1, platform: values[0], platform_video_id: values[1], creator_username: values[2],
+        content_type: values[3], canonical_link: values[4], telegram_bot_id: values[5],
+        telegram_files: typeof values[6] === "string" ? JSON.parse(values[6]) : null,
+        likes_display: values[7], views_display: values[8], first_downloaded_at: values[9], last_used_at: values[10],
+        metadata_refreshed_at: values[11], file_ids_updated_at: values[12], cache_version: values[13],
+      };
+      details.set(`${values[0]}:${values[1]}`, row);
+      return [row];
     }
     if (query.startsWith("INSERT INTO users")) {
       const userId = Number(values[0]);
@@ -255,10 +280,11 @@ function memoryDatabase(): {
       return [user];
     }
     if (query.startsWith("INSERT INTO videos")) {
-      videos.push({ userId: Number(values[0]), link: String(values[2]) });
+      videos.push({ userId: Number(values[0]), link: String(values[3]) });
       return [];
     }
     throw new Error(`Unexpected in-memory SQL query: ${query}`);
   };
+  Object.assign(sql, { begin: async (operation: (transaction: typeof sql) => Promise<unknown>) => operation(sql) });
   return { db: { sql } as unknown as Database, users, videos };
 }

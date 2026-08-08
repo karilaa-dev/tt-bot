@@ -9,6 +9,7 @@
   "scripts": {
     "start": "bun run src/main.ts",
     "maintenance": "bun run src/maintenance.ts",
+    "db:migrate-legacy": "bun run scripts/migrate-legacy.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "api:generate": "bun run scripts/generate-tt-scrap-types.ts"

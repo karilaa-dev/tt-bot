@@ -1,6 +1,7 @@
 import type { InlineKeyboard } from "grammy";
 import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
+import type { TelegramFileReference } from "../db/videos.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
 import type { InstagramExtraction, InstagramTelegramMethod, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
 import { text, type Language } from "../locales.ts";
@@ -97,6 +98,19 @@ export function inlineMediaFromMessage(message: Message): InlineMediaReference |
   if (message.video) return { type: "video", fileId: message.video.file_id };
   const photo = message.photo?.at(-1);
   return photo ? { type: "photo", fileId: photo.file_id } : null;
+}
+export function telegramFileFromMessage(message: Message, position: number): TelegramFileReference | null {
+  if (message.video) return { position, media_type: "video", file_id: message.video.file_id, file_unique_id: message.video.file_unique_id };
+  const photo = message.photo?.at(-1);
+  return photo ? { position, media_type: "photo", file_id: photo.file_id, file_unique_id: photo.file_unique_id } : null;
+}
+export function telegramFilesFromResult(result: TelegramDeliveryResult): TelegramFileReference[] {
+  const files = allMessages(result).map(telegramFileFromMessage);
+  if (files.some((file) => file === null)) throw new Error("Standard media delivery returned an item without a reusable Telegram file ID");
+  return files as TelegramFileReference[];
+}
+export function inlineMediaFromFiles(files: TelegramFileReference[]): InlineMediaReference[] {
+  return files.map((file) => ({ type: file.media_type, fileId: file.file_id }));
 }
 export function inlineMediaPayload(media: InlineMediaReference, lang: Language, link: string): InputMediaPhoto | InputMediaVideo {
   const common = { media: media.fileId, caption: resultCaption(lang, link), parse_mode: "HTML" as const };

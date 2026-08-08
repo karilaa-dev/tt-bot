@@ -1,13 +1,17 @@
 import type { Api, Bot } from "grammy";
 import type { InlineKeyboardMarkup } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
+import { invalidateTelegramFiles } from "../db/videos.ts";
 import type { Language } from "../locales.ts";
 import { logger } from "../logging.ts";
-import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayload, type InlineMediaReference } from "../services/delivery.ts";
+import { DeliveryService, allMessages, inlineMediaFromFiles, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult, type InlineMediaReference } from "../services/delivery.ts";
+import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../services/media-cache.ts";
+import { isConfirmedInvalidFileId } from "../services/media-cache.ts";
 import { resolveLanguage } from "../services/registration.ts";
 import { statsRow } from "../ui/stats.ts";
+import type { DisplayStat } from "../ui/stats.ts";
 import { findInstagramUrl } from "./links.ts";
-import { findTikTokUrl, tikTokExtractionUrl } from "./tiktok.ts";
+import { findTikTokUrl } from "./tiktok.ts";
 
 interface SlideshowSession {
   media: InlineMediaReference[];
@@ -17,17 +21,19 @@ interface SlideshowSession {
   userId: number;
   username?: string;
   fullName: string;
-  likes?: number | null;
-  views?: number | null;
+  likes?: DisplayStat | null;
+  views?: DisplayStat | null;
   timer: ReturnType<typeof setTimeout>;
   loading: Set<number>;
+  detailsId?: bigint;
+  cacheVersion?: bigint;
 }
 
 const sessions = new Map<string, SlideshowSession>();
 const refreshing = new Set<string>();
 const TTL_MS = 600_000;
 
-export function createInlineSlideshow(api: Api, inlineMessageId: string, media: InlineMediaReference[], lang: Language, sourceLink: string, identity: { userId: number; username?: string; fullName: string }, likes?: number | null, views?: number | null): InlineKeyboardMarkup {
+export function createInlineSlideshow(api: Api, inlineMessageId: string, media: InlineMediaReference[], lang: Language, sourceLink: string, identity: { userId: number; username?: string; fullName: string }, likes?: DisplayStat | null, views?: DisplayStat | null, cacheIdentity?: { detailsId: bigint; cacheVersion: bigint }): InlineKeyboardMarkup {
   if (!media.length) throw new Error("Slideshow delivery returned no inline-compatible Telegram media");
   const old = sessions.get(inlineMessageId);
   if (old) clearTimeout(old.timer);
@@ -38,6 +44,7 @@ export function createInlineSlideshow(api: Api, inlineMessageId: string, media: 
   if (identity.username) session.username = identity.username;
   if (likes !== undefined) session.likes = likes;
   if (views !== undefined) session.views = views;
+  if (cacheIdentity) { session.detailsId = cacheIdentity.detailsId; session.cacheVersion = cacheIdentity.cacheVersion; }
   sessions.set(inlineMessageId, session);
   return navigationKeyboard(0, media.length, likes, views);
 }
@@ -59,7 +66,15 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(session.media[index]!, session.lang, session.sourceLink), reply_markup: navigationKeyboard(index, session.media.length, session.likes, session.views) });
       session.currentIndex = index;
       resetTimer(ctx.api, id, session);
-    } catch (error) { logger.warn("Inline slideshow edit failed", error); }
+    } catch (error) {
+      logger.warn("Inline slideshow edit failed", error);
+      if (isConfirmedInvalidFileId(error) && session.detailsId !== undefined && session.cacheVersion !== undefined) {
+        try {
+          await invalidateTelegramFiles(ctx.db, session.detailsId, session.cacheVersion);
+          await recoverInvalidSession(ctx, id, session, index);
+        } catch (recoveryError) { logger.error("Inline slideshow invalid-file recovery failed", recoveryError); }
+      }
+    }
     finally { session.loading.delete(index); }
   });
 
@@ -84,21 +99,33 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       const identity = { userId: ctx.from.id, fullName: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" "), ...(ctx.from.username ? { username: ctx.from.username } : {}) };
       const service = new DeliveryService(ctx.scrap, ctx.config);
       const queued = await ctx.queue.withSlot(ctx.from.id, async () => {
-        let media: InlineMediaReference[];
-        let likes: number | null | undefined;
-        let views: number | null | undefined;
-        if (instagramLink) {
-          const extraction = await ctx.scrap.extractInstagram(link, { attempts: 4 });
-          media = inlineMedia(await service.stageInstagram(extraction, link, identity));
-        } else {
-          const extraction = await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4 });
-          media = inlineMedia(await service.stageTikTok(extraction, link, identity));
-          likes = extraction.likes; views = extraction.views;
-        }
-        createInlineSlideshow(ctx.api, id, media, lang, link, identity, likes, views);
-        const session = sessions.get(id)!;
-        session.currentIndex = Math.max(0, Math.min(saved, media.length - 1));
-        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[session.currentIndex]!, lang, link), reply_markup: navigationKeyboard(session.currentIndex, media.length, likes, views) });
+        const options = {
+          db: ctx.db, scrap: ctx.scrap, link, userId: ctx.from.id, botId: ctx.me.id,
+          fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 },
+        };
+        const execute = instagramLink ? executeInstagramMediaRequest : executeTikTokMediaRequest;
+        await execute(options, async (prepared) => {
+          let media: InlineMediaReference[];
+          let telegramFiles;
+          if (prepared.cachedFiles) media = inlineMediaFromFiles(prepared.cachedFiles);
+          else {
+            const extraction = prepared.extraction;
+            if (!extraction) throw new Error("Extraction is required to refresh inline media");
+            const result = extraction.platform === "instagram"
+              ? await service.stageInstagram(extraction, link, identity)
+              : await service.stageTikTok(extraction, link, identity);
+            telegramFiles = telegramFilesFromResult(result);
+            media = inlineMedia(result);
+          }
+          const likes = prepared.platform === "tiktok" ? prepared.likesDisplay : undefined;
+          const views = prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined;
+          createInlineSlideshow(ctx.api, id, media, lang, link, identity, likes, views,
+            prepared.detailsId !== null && prepared.cacheVersion !== null ? { detailsId: prepared.detailsId, cacheVersion: prepared.cacheVersion } : undefined);
+          const session = sessions.get(id)!;
+          session.currentIndex = Math.max(0, Math.min(saved, media.length - 1));
+          await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[session.currentIndex]!, lang, link), reply_markup: navigationKeyboard(session.currentIndex, media.length, likes, views) });
+          return { value: media, ...(telegramFiles ? { telegramFiles } : {}) };
+        });
       });
       if (!queued.acquired) {
         if (queued.reason === "capacity") logger.warn(`Inline refresh queue filled for user ${ctx.from.id}`);
@@ -106,6 +133,39 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       }
     } catch (error) { logger.error("Inline slideshow refresh failed", error); }
     finally { refreshing.delete(id); }
+  });
+}
+
+async function recoverInvalidSession(ctx: BotContext, id: string, old: SlideshowSession, requestedIndex: number): Promise<void> {
+  const instagram = findInstagramUrl(old.sourceLink) !== null;
+  const identity = { userId: old.userId, fullName: old.fullName, ...(old.username ? { username: old.username } : {}) };
+  const options = {
+    db: ctx.db, scrap: ctx.scrap, link: old.sourceLink, userId: old.userId, botId: ctx.me.id,
+    fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 },
+  };
+  const execute = instagram ? executeInstagramMediaRequest : executeTikTokMediaRequest;
+  await execute(options, async (prepared) => {
+    let media: InlineMediaReference[];
+    let telegramFiles;
+    if (prepared.cachedFiles) media = inlineMediaFromFiles(prepared.cachedFiles);
+    else {
+      const extraction = prepared.extraction;
+      if (!extraction) throw new Error("Extraction is required after an invalid inline file ID");
+      const service = new DeliveryService(ctx.scrap, ctx.config);
+      const delivered = extraction.platform === "instagram"
+        ? await service.stageInstagram(extraction, old.sourceLink, identity)
+        : await service.stageTikTok(extraction, old.sourceLink, identity);
+      telegramFiles = telegramFilesFromResult(delivered);
+      media = inlineMedia(delivered);
+    }
+    const likes = prepared.platform === "tiktok" ? prepared.likesDisplay : undefined;
+    const views = prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined;
+    createInlineSlideshow(ctx.api, id, media, old.lang, old.sourceLink, identity, likes, views,
+      prepared.detailsId !== null && prepared.cacheVersion !== null ? { detailsId: prepared.detailsId, cacheVersion: prepared.cacheVersion } : undefined);
+    const current = sessions.get(id)!;
+    current.currentIndex = Math.max(0, Math.min(requestedIndex, media.length - 1));
+    await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[current.currentIndex]!, old.lang, old.sourceLink), reply_markup: navigationKeyboard(current.currentIndex, media.length, likes, views) });
+    return { value: media, ...(telegramFiles ? { telegramFiles } : {}) };
   });
 }
 
@@ -117,7 +177,7 @@ export function cleanupInlineSlideshows(): void {
 function inlineMedia(result: Awaited<ReturnType<DeliveryService["stageTikTok"]>>): InlineMediaReference[] {
   return allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
 }
-function navigationKeyboard(index: number, total: number, likes?: number | null, views?: number | null): InlineKeyboardMarkup {
+function navigationKeyboard(index: number, total: number, likes?: DisplayStat | null, views?: DisplayStat | null): InlineKeyboardMarkup {
   const rows: InlineKeyboardMarkup["inline_keyboard"] = [];
   const stats = statsRow(likes, views);
   if (stats.length) rows.push(stats);

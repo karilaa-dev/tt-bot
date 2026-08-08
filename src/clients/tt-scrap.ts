@@ -11,6 +11,7 @@ import type {
   TelegramDeliveryResult,
   TikTokDeliveryRequest,
   TikTokExtraction,
+  TikTokResolution,
 } from "./tt-scrap-types.ts";
 
 interface ErrorEnvelope { error: { code: string; message: string; request_id: string } }
@@ -36,6 +37,10 @@ export class TtScrapClient {
 
   extractTikTok(url: string, options: RetryOptions = {}): Promise<TikTokExtraction> {
     return this.extractWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
+  }
+
+  resolveTikTok(url: string): Promise<TikTokResolution> {
+    return this.post("/v1/tiktok/resolutions", { url }, this.config.ttScrapRequestTimeoutMs, isTikTokResolution);
   }
 
   extractInstagram(url: string, options: RetryOptions = {}): Promise<InstagramExtraction> {
@@ -202,10 +207,20 @@ function isTikTokExtraction(value: unknown): value is TikTokExtraction {
     && typeof value.expires_at === "string";
 }
 
+function isTikTokResolution(value: unknown): value is TikTokResolution {
+  return isRecord(value)
+    && value.platform === "tiktok"
+    && typeof value.source_id === "string"
+    && /^[0-9]+$/u.test(value.source_id)
+    && typeof value.source_url === "string"
+    && typeof value.resolved_url === "string";
+}
+
 function isInstagramExtraction(value: unknown): value is InstagramExtraction {
   if (!isRecord(value)) return false;
   return value.platform === "instagram"
     && typeof value.extraction_id === "string"
+    && typeof value.source_id === "string"
     && typeof value.source_url === "string"
     && ["video", "image", "carousel"].includes(String(value.content_type))
     && Array.isArray(value.media)

@@ -32,7 +32,7 @@ Build and run the bot plus PostgreSQL:
 docker compose up --build
 ```
 
-The database migration is idempotent and retains the existing `users`, `videos`, and `music` schema.
+New databases are initialized with separate download-history (`videos`) and reusable-media (`video_details`) tables. A database from the Python v5.4.6 release must be rebuilt explicitly while the bot is stopped; normal startup refuses to modify that legacy schema.
 
 > [!WARNING]
 > The PostgreSQL 18 image stores its cluster below `/var/lib/postgresql`, so Compose now mounts `pgdata` there. Before upgrading an existing deployment that mounted the volume at `/var/lib/postgresql/data`, export the running database with `docker compose exec db sh -c 'pg_dumpall -U "$POSTGRES_USER"' > ttbot-backup.sql`. Recreate the database service with the new mount, then restore with `docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER"' < ttbot-backup.sql`. The old Postgres 18 mount did not include the image's active `PGDATA`, so recreating that old container without a dump can lose its database.
@@ -59,6 +59,48 @@ Refresh generated OpenAPI types from a running `tt-scrap` instance with:
 ```bash
 TT_SCRAP_BASE_URL=http://127.0.0.1:8000 bun run api:generate
 ```
+
+For a checked-out adjacent `tt-scrap` repository, generation can use its exported schema without starting a server:
+
+```bash
+TT_SCRAP_OPENAPI_FILE=../tt-scrap/openapi.json bun run api:generate
+```
+
+## Offline v5.4.6 database rebuild
+
+The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. It is resumable in 100,000-primary-key batches and records its source audit, parsing totals, checksums, verification, and cutover status in `migration_audit`.
+
+Before running it:
+
+1. Deploy the matching `tt-scrap` API.
+2. Stop the bot and any legacy stats process.
+3. Create and verify an external PostgreSQL backup.
+4. Check free bytes on the filesystem containing PostgreSQL data. The command requires a confirmed value and also enforces a conservative minimum of four times the source `videos` relation size.
+
+Run:
+
+```bash
+LEGACY_MIGRATION_BACKUP_CONFIRMED=yes \
+LEGACY_MIGRATION_BOT_STOPPED=yes \
+LEGACY_MIGRATION_AVAILABLE_BYTES=30000000000 \
+bun run db:migrate-legacy
+```
+
+Re-running the same command resumes the last committed batch. After exact verification, cutover is atomic and the old table is dropped in that transaction. Post-commit rollback therefore uses the required external backup.
+
+Review the durable evidence before starting the bot:
+
+```sql
+SELECT status, started_at, completed_at, evidence
+FROM migration_audit
+WHERE migration_id = '002_media_cache_rebuild';
+```
+
+## Telegram media cache
+
+Standard video/photo deliveries store ordered, bot-scoped Telegram `file_id` and `file_unique_id` values. TikTok always resolves a link before lookup. Fresh TikTok cache hits avoid extraction for 24 hours; stale hits refresh creator and rounded likes/views while reusing IDs if the media shape is unchanged. Instagram cache hits skip extraction without the TikTok refresh rule.
+
+Document mode always extracts and uploads, records history and refreshed details, never stores document IDs, and never erases a standard-media cache. A confirmed invalid Telegram file identifier invalidates that exact cache version and permits one extraction/upload retry; ambiguous transport errors and partially delivered albums are never blindly resent.
 
 ## Instagram delivery
 

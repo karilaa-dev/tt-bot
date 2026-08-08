@@ -3,7 +3,7 @@ import { SQL } from "bun";
 import { Database } from "../src/db/client.ts";
 import { addMusic } from "../src/db/music.ts";
 import { createUser, getUser, getUserIds, toggleUserMode, updateUserLanguage } from "../src/db/users.ts";
-import { addVideo } from "../src/db/videos.ts";
+import { recordDownload } from "../src/db/videos.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import { QueueManager } from "../src/services/queue.ts";
@@ -40,10 +40,14 @@ integration("PostgreSQL repositories", () => {
     await admin.unsafe(`DROP DATABASE "${databaseName}"`);
     await admin.close();
   });
-  test("retains the legacy schema and full-width IDs", async () => {
+  test("uses the media-cache schema and retains full-width IDs", async () => {
     await Promise.all([createUser(db, 123, "en", "ref"), createUser(db, 123, "en", "ref")]);
     await toggleUserMode(db, 123); await updateUserLanguage(db, 123, "uk");
-    await addVideo(db, 123, "https://tiktok.test/1", false); await addMusic(db, 123, 7669880788879543583n);
+    await recordDownload(db, {
+      userId: 123, platform: "tiktok", platformVideoId: "1", sharedLink: "https://tiktok.test/1",
+      mediaKind: "video", deliverySurface: "chat", deliveryMode: "media", cacheHit: false,
+    });
+    await addMusic(db, 123, 7669880788879543583n);
     expect(await getUser(db, 123)).toMatchObject({ userId: 123, lang: "uk", link: "ref", fileMode: true });
     expect(await getUserIds(db)).toEqual([123]);
     const rows = await db.sql<Array<{ video_id: bigint | string }>>`SELECT video_id FROM music`;
@@ -68,10 +72,15 @@ integration("PostgreSQL repositories", () => {
       const path = new URL(request.url).pathname;
       const rawPayload = await request.text();
       const payload = JSON.parse(rawPayload) as Record<string, unknown>;
+      if (path.endsWith("/resolutions")) return Response.json({
+        platform: "tiktok", source_id: "7669880788879543583", source_url: String(payload.url),
+        resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      });
       if (path.endsWith("/extractions")) return Response.json({
         extraction_id: `extract-${deliveries.length + 1}`, platform: "tiktok", source_id: "7669880788879543583",
         source_url: "https://www.tiktok.com/@creator/video/7669880788879543583", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583",
-        content_type: "video", media: [], expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 12, views: 34,
+        creator_username: "creator", content_type: "video", media: [{ asset_id: "asset-video", kind: "video", position: 0, download_url: "/v1/assets/video", filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() }],
+        expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 12, views: 34,
       });
       deliveries.push(payload);
       deliveryBodies.push(rawPayload);
@@ -142,7 +151,7 @@ integration("PostgreSQL repositories", () => {
       const payload = await request.json() as Record<string, unknown>;
       scrapCalls.push({ path, payload });
       if (path === "/v1/instagram/extractions") return Response.json({
-        extraction_id: "instagram-e2e", platform: "instagram", source_url: "https://www.instagram.com/reel/ABC123", content_type: "video",
+        extraction_id: "instagram-e2e", platform: "instagram", source_id: "ABC123", creator_username: "creator", source_url: "https://www.instagram.com/reel/ABC123", content_type: "video",
         media: [{ position: 0, media_type: "video", asset: { asset_id: "asset-1", kind: "video", position: 0, download_url: "/v1/assets/asset-1", filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() } }],
         expires_at: new Date(Date.now() + 60_000).toISOString(),
       });
@@ -158,7 +167,7 @@ integration("PostgreSQL repositories", () => {
 
       expect(scrapCalls.map((call) => call.path)).toEqual(["/v1/instagram/extractions", "/v1/instagram/telegram-deliveries"]);
       expect(scrapCalls[1]?.payload).toMatchObject({ source: { extraction_id: "instagram-e2e" }, delivery: "media", telegram: { chat_id: 601, supports_streaming: true, reply_parameters: { message_id: 10 } } });
-      const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 601 AND video_link LIKE '%instagram.com%'`;
+      const rows = await db.sql<Array<{ count: number | bigint | string }>>`SELECT COUNT(*) AS count FROM videos WHERE user_id = 601 AND shared_link LIKE '%instagram.com%'`;
       expect(Number(rows[0]?.count)).toBe(1);
     } finally {
       telegram.stop(true);
@@ -184,12 +193,17 @@ integration("PostgreSQL repositories", () => {
     const scrapServer = Bun.serve({ port: 0, async fetch(request) {
       const path = new URL(request.url).pathname;
       const payload = await request.json() as Record<string, any>;
+      if (path === "/v1/tiktok/resolutions") return Response.json({
+        platform: "tiktok", source_id: String(new URL(String(payload.url)).pathname.split("/").at(-1)),
+        source_url: String(payload.url), resolved_url: String(payload.url),
+      });
       if (path === "/v1/tiktok/extractions") {
         extractions++;
         if (extractions === 1) await firstGate;
         return Response.json({
           extraction_id: `queue-${extractions}`, platform: "tiktok", source_id: String(7_000 + extractions),
-          source_url: String(payload.url), resolved_url: String(payload.url), content_type: "video", media: [],
+          source_url: String(payload.url), resolved_url: String(payload.url), content_type: "video",
+          media: [{ asset_id: `queue-asset-${extractions}`, kind: "video", position: 0, download_url: `/v1/assets/${extractions}`, filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() }],
           expires_at: new Date(Date.now() + 60_000).toISOString(), likes: 1, views: 1,
         });
       }

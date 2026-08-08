@@ -15,6 +15,17 @@ function start(handler: (request: Request) => Response | Promise<Response>): TtS
 const message: Message = { message_id: 42, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, video: { file_id: "video-file", file_unique_id: "u", width: 1, height: 1, duration: 1 } };
 
 describe("TtScrapClient", () => {
+  test("resolves TikTok links before extraction with the stable source ID", async () => {
+    let path = "";
+    const client = start((request) => {
+      path = new URL(request.url).pathname;
+      return Response.json({ platform: "tiktok", source_id: "7669880788879543583", source_url: "https://vm.tiktok.com/token", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583" });
+    });
+    const resolved = await client.resolveTikTok("https://vm.tiktok.com/token");
+    expect(path).toBe("/v1/tiktok/resolutions");
+    expect(resolved.source_id).toBe("7669880788879543583");
+  });
+
   test("hydrates a raw Telegram result without wrapping or copying it", async () => {
     const client = start(async (request) => {
       expect(request.headers.get("authorization")).toBe("Bearer test-api-key-that-is-long-enough");

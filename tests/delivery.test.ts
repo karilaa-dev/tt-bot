@@ -19,7 +19,7 @@ const videoMessage: Message = { message_id: 43, date: 1, chat: { id: 7, type: "p
 
 function instagramExtraction(contentType: InstagramExtraction["content_type"], mediaTypes: Array<"image" | "video">): InstagramExtraction {
   return {
-    extraction_id: "instagram-1", platform: "instagram", source_url: "https://www.instagram.com/p/ABC123",
+    extraction_id: "instagram-1", platform: "instagram", source_id: "ABC123", source_url: "https://www.instagram.com/p/ABC123",
     content_type: contentType,
     media: mediaTypes.map((mediaType, position) => ({
       position, media_type: mediaType,
