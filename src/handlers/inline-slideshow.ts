@@ -5,7 +5,7 @@ import { invalidateTelegramFiles } from "../db/videos.ts";
 import type { Language } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, inlineMediaFromFiles, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult, type InlineMediaReference } from "../services/delivery.ts";
-import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../services/media-cache.ts";
+import { executeInstagramMediaRequest, executeTikTokMediaRequest, type CacheIdentity } from "../services/media-cache.ts";
 import { isConfirmedInvalidFileId } from "../services/media-cache.ts";
 import { resolveLanguage } from "../services/registration.ts";
 import { statsRow } from "../ui/stats.ts";
@@ -25,15 +25,14 @@ interface SlideshowSession {
   views?: DisplayStat | null;
   timer: ReturnType<typeof setTimeout>;
   loading: Set<number>;
-  detailsId?: bigint;
-  cacheVersion?: bigint;
+  cacheIdentity?: CacheIdentity;
 }
 
 const sessions = new Map<string, SlideshowSession>();
 const refreshing = new Set<string>();
 const TTL_MS = 600_000;
 
-export function createInlineSlideshow(api: Api, inlineMessageId: string, media: InlineMediaReference[], lang: Language, sourceLink: string, identity: { userId: number; username?: string; fullName: string }, likes?: DisplayStat | null, views?: DisplayStat | null, cacheIdentity?: { detailsId: bigint; cacheVersion: bigint }): InlineKeyboardMarkup {
+export function createInlineSlideshow(api: Api, inlineMessageId: string, media: InlineMediaReference[], lang: Language, sourceLink: string, identity: { userId: number; username?: string; fullName: string }, likes?: DisplayStat | null, views?: DisplayStat | null, cacheIdentity?: CacheIdentity): InlineKeyboardMarkup {
   if (!media.length) throw new Error("Slideshow delivery returned no inline-compatible Telegram media");
   const old = sessions.get(inlineMessageId);
   if (old) clearTimeout(old.timer);
@@ -44,7 +43,7 @@ export function createInlineSlideshow(api: Api, inlineMessageId: string, media: 
   if (identity.username) session.username = identity.username;
   if (likes !== undefined) session.likes = likes;
   if (views !== undefined) session.views = views;
-  if (cacheIdentity) { session.detailsId = cacheIdentity.detailsId; session.cacheVersion = cacheIdentity.cacheVersion; }
+  if (cacheIdentity) session.cacheIdentity = cacheIdentity;
   sessions.set(inlineMessageId, session);
   return navigationKeyboard(0, media.length, likes, views);
 }
@@ -68,9 +67,11 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       resetTimer(ctx.api, id, session);
     } catch (error) {
       logger.warn("Inline slideshow edit failed", error);
-      if (isConfirmedInvalidFileId(error) && session.detailsId !== undefined && session.cacheVersion !== undefined) {
+      const cacheIdentity = session.cacheIdentity;
+      if (isConfirmedInvalidFileId(error) && cacheIdentity?.detailsId !== null && cacheIdentity?.detailsId !== undefined
+        && cacheIdentity.cacheVersion !== null && cacheIdentity.cacheVersion !== undefined) {
         try {
-          await invalidateTelegramFiles(ctx.db, session.detailsId, session.cacheVersion);
+          await invalidateTelegramFiles(ctx.db, cacheIdentity.detailsId, cacheIdentity.cacheVersion);
           await recoverInvalidSession(ctx, id, session, index);
         } catch (recoveryError) { logger.error("Inline slideshow invalid-file recovery failed", recoveryError); }
       }
@@ -120,7 +121,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
           const likes = prepared.platform === "tiktok" ? prepared.likesDisplay : undefined;
           const views = prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined;
           createInlineSlideshow(ctx.api, id, media, lang, link, identity, likes, views,
-            prepared.detailsId !== null && prepared.cacheVersion !== null ? { detailsId: prepared.detailsId, cacheVersion: prepared.cacheVersion } : undefined);
+            prepared.cacheIdentity);
           const session = sessions.get(id)!;
           session.currentIndex = Math.max(0, Math.min(saved, media.length - 1));
           await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[session.currentIndex]!, lang, link), reply_markup: navigationKeyboard(session.currentIndex, media.length, likes, views) });
@@ -161,7 +162,7 @@ async function recoverInvalidSession(ctx: BotContext, id: string, old: Slideshow
     const likes = prepared.platform === "tiktok" ? prepared.likesDisplay : undefined;
     const views = prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined;
     createInlineSlideshow(ctx.api, id, media, old.lang, old.sourceLink, identity, likes, views,
-      prepared.detailsId !== null && prepared.cacheVersion !== null ? { detailsId: prepared.detailsId, cacheVersion: prepared.cacheVersion } : undefined);
+      prepared.cacheIdentity);
     const current = sessions.get(id)!;
     current.currentIndex = Math.max(0, Math.min(requestedIndex, media.length - 1));
     await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[current.currentIndex]!, old.lang, old.sourceLink), reply_markup: navigationKeyboard(current.currentIndex, media.length, likes, views) });

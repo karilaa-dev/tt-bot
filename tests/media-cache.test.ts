@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type { Api } from "grammy";
+import { PartialDeliveryError } from "../src/bot/errors.ts";
 import type { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
 import type { Database } from "../src/db/client.ts";
 import type { TelegramFileReference } from "../src/db/videos.ts";
-import { albumBatches } from "../src/services/cached-delivery.ts";
-import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../src/services/media-cache.ts";
+import { albumBatches, deliverCachedTikTokToChat } from "../src/services/cached-delivery.ts";
+import { executeInstagramMediaRequest, executeTikTokMediaRequest, type CacheIdentity } from "../src/services/media-cache.ts";
 
 const now = 2_000_000;
 const videoFile: TelegramFileReference = { position: 0, media_type: "video", file_id: "cached-video", file_unique_id: "cached-unique" };
@@ -45,6 +47,29 @@ describe("Telegram media cache", () => {
       return { value: "uploaded", telegramFiles: [videoFile] };
     });
     expect(scrap.tiktokExtractions).toBe(1);
+  });
+
+  test("updates the shared cache identity after first uploads and replacements", async () => {
+    const memory = fakeDatabase(null);
+    const scrap = fakeScrap();
+    let firstIdentity: CacheIdentity | undefined;
+    const first = await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      firstIdentity = prepared.cacheIdentity;
+      expect(firstIdentity).toEqual({ detailsId: null, cacheVersion: null });
+      return { value: "first", telegramFiles: [videoFile] };
+    });
+    expect(firstIdentity).toBe(first.prepared.cacheIdentity);
+    expect(firstIdentity).toEqual({ detailsId: 1n, cacheVersion: 1n });
+
+    memory.row.telegram_bot_id = 111;
+    let replacementIdentity: CacheIdentity | undefined;
+    const replacement = await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      replacementIdentity = prepared.cacheIdentity;
+      expect(replacementIdentity).toEqual({ detailsId: 1n, cacheVersion: 1n });
+      return { value: "replacement", telegramFiles: [{ ...videoFile, file_id: "replacement" }] };
+    });
+    expect(replacementIdentity).toBe(replacement.prepared.cacheIdentity);
+    expect(replacementIdentity).toEqual({ detailsId: 1n, cacheVersion: 2n });
   });
 
   test("document mode always extracts, never stores document IDs, and preserves standard IDs", async () => {
@@ -98,6 +123,44 @@ describe("Telegram media cache", () => {
     })).rejects.toMatchObject({ error_code: 429 });
     expect(attempts).toBe(1);
     expect(memory.invalidations).toBe(0);
+    expect(scrap.tiktokExtractions).toBe(0);
+  });
+
+  test("preserves cached albums after a transient partial delivery", async () => {
+    const files = photoFiles(11);
+    const memory = fakeDatabase(detailsRow({ content_type: "slideshow", telegram_files: files }));
+    const scrap = fakeScrap();
+    const failure = { error_code: 429, description: "Too Many Requests" };
+    let batches = 0;
+    const api = { async sendMediaGroup() {
+      batches++;
+      if (batches === 2) throw failure;
+      return [{ message_id: 1, date: 1, chat: { id: 7, type: "private", first_name: "Test" } }];
+    } } as unknown as Api;
+    await expect(executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => ({
+      value: await deliverCachedTikTokToChat({
+        api, files: prepared.cachedFiles!, chatId: 7, replyTo: 1, lang: "en", sourceLink: prepared.sourceLink,
+        group: false, sourceId: prepared.platformVideoId, contentType: prepared.contentType,
+        likesDisplay: prepared.likesDisplay, viewsDisplay: prepared.viewsDisplay,
+      }),
+    }))).rejects.toMatchObject({ name: "PartialDeliveryError", deliveryError: failure });
+    expect(batches).toBe(2);
+    expect(memory.invalidations).toBe(0);
+    expect(memory.row.telegram_files).toEqual(files);
+    expect(scrap.tiktokExtractions).toBe(0);
+  });
+
+  test("invalidates but never retries a partially delivered album with a confirmed bad file ID", async () => {
+    const files = photoFiles(11);
+    const memory = fakeDatabase(detailsRow({ content_type: "slideshow", telegram_files: files }));
+    const scrap = fakeScrap();
+    let deliveries = 0;
+    await expect(executeTikTokMediaRequest(request(memory.db, scrap.client), async () => {
+      deliveries++;
+      throw new PartialDeliveryError(1, "telegram-file-cache", { error_code: 400, description: "Bad Request: wrong file identifier" });
+    })).rejects.toBeInstanceOf(PartialDeliveryError);
+    expect(deliveries).toBe(1);
+    expect(memory.invalidations).toBe(1);
     expect(scrap.tiktokExtractions).toBe(0);
   });
 
@@ -163,6 +226,33 @@ describe("Telegram media cache", () => {
     expect([first.cacheHit, second.cacheHit]).toEqual([false, true]);
   });
 
+  test("bounds lock waits and proceeds independently when the holder is stuck", async () => {
+    const memory = fakeDatabase(null);
+    const scrap = fakeScrap();
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    let deliveries = 0;
+    const deliver = async () => {
+      deliveries++;
+      if (deliveries === 1) {
+        markStarted();
+        await firstGate;
+      }
+      return { value: deliveries, telegramFiles: [videoFile] };
+    };
+    const options = { ...request(memory.db, scrap.client), lockWaitTimeoutMs: 5 };
+    const first = executeTikTokMediaRequest(options, deliver);
+    await firstStarted;
+    const second = await executeTikTokMediaRequest(options, deliver);
+    expect(second.value).toBe(2);
+    expect(deliveries).toBe(2);
+    releaseFirst();
+    await first;
+    expect(scrap.tiktokExtractions).toBe(2);
+  });
+
   test("partitions eleven-item albums as 9+2", () => {
     expect(albumBatches(Array.from({ length: 11 }, (_, index) => index)).map((batch) => batch.length)).toEqual([9, 2]);
   });
@@ -170,6 +260,10 @@ describe("Telegram media cache", () => {
 
 function request(db: Database, scrap: TtScrapClient) {
   return { db, scrap, link: "https://www.tiktok.com/t/SHORT/", userId: 7, botId: 999, fileMode: false, deliverySurface: "chat" as const, now };
+}
+
+function photoFiles(count: number): TelegramFileReference[] {
+  return Array.from({ length: count }, (_, position) => ({ position, media_type: "photo", file_id: `photo-${position}`, file_unique_id: `photo-unique-${position}` }));
 }
 
 function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {

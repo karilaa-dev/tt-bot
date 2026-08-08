@@ -15,6 +15,7 @@ import { formatStat } from "../ui/stats.ts";
 import { PartialDeliveryError, TtScrapError } from "../bot/errors.ts";
 
 const TIKTOK_METADATA_TTL_SECONDS = 24 * 60 * 60;
+const DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
 const locks = new Map<string, Promise<void>>();
 
 interface BaseRequestOptions {
@@ -27,6 +28,12 @@ interface BaseRequestOptions {
   deliverySurface: DeliverySurface;
   retry?: RetryOptions;
   now?: number;
+  lockWaitTimeoutMs?: number;
+}
+
+export interface CacheIdentity {
+  detailsId: bigint | null;
+  cacheVersion: bigint | null;
 }
 
 export interface PreparedMedia {
@@ -40,8 +47,7 @@ export interface PreparedMedia {
   creatorUsername: string | null;
   likesDisplay: string | null;
   viewsDisplay: string | null;
-  cacheVersion: bigint | null;
-  detailsId: bigint | null;
+  cacheIdentity: CacheIdentity;
 }
 
 export interface MediaDeliveryOutcome<T> {
@@ -81,7 +87,7 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       const refreshed = extraction ?? await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
       return tikTokPrepared(options.link, resolution.resolved_url, resolution.source_id, details, refreshed, null);
     }, now);
-  });
+  }, options.lockWaitTimeoutMs);
 }
 
 export async function executeInstagramMediaRequest<T>(options: BaseRequestOptions, deliver: MediaDeliverer<T>): Promise<CompletedMediaRequest<T>> {
@@ -104,7 +110,7 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
       validateInstagramSourceId(refreshed.source_id, localId);
       return instagramPrepared(options.link, localId, details, refreshed, null);
     }, now);
-  });
+  }, options.lockWaitTimeoutMs);
 }
 
 async function perform<T>(
@@ -122,12 +128,11 @@ async function perform<T>(
     outcome = await deliver(prepared);
   } catch (error) {
     if (!usedCache) throw error;
-    if (error instanceof PartialDeliveryError) {
-      await invalidateKnownFiles(options.db, details);
-      throw error;
-    }
     if (!isConfirmedInvalidFileId(error)) throw error;
     await invalidateKnownFiles(options.db, details);
+    // A partially delivered album must never be retried because that would
+    // duplicate the batches that already succeeded.
+    if (error instanceof PartialDeliveryError) throw error;
     prepared = await refresh();
     usedCache = false;
     // Exactly one upload attempt follows a confirmed unusable Telegram file ID.
@@ -138,7 +143,7 @@ async function perform<T>(
   const mediaKind = prepared.contentType === "video" ? "video" : "images";
   const metadataRefreshedAt = extraction ? now : undefined;
   try {
-    await recordDownload(options.db, {
+    const persisted = await recordDownload(options.db, {
       userId: options.userId,
       platform: prepared.platform,
       platformVideoId: prepared.platformVideoId,
@@ -156,6 +161,11 @@ async function perform<T>(
       ...(options.fileMode || !outcome.telegramFiles ? {} : { telegramBotId: options.botId, telegramFiles: outcome.telegramFiles }),
       downloadedAt: now,
     });
+    // Inline slideshow sessions retain this small object by reference. Update it
+    // only after the transaction commits so invalid-file recovery uses the exact
+    // row/version corresponding to the stored Telegram file IDs.
+    prepared.cacheIdentity.detailsId = persisted.id;
+    prepared.cacheIdentity.cacheVersion = persisted.cacheVersion;
   } catch (error) {
     // Delivery has already succeeded. Reporting a media failure here could invite
     // a user retry and duplicate the Telegram upload, so retain the old behavior
@@ -184,8 +194,7 @@ function tikTokPrepared(
     creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
     likesDisplay: extraction?.likes == null ? details?.likesDisplay ?? null : formatStat(extraction.likes),
     viewsDisplay: extraction?.views == null ? details?.viewsDisplay ?? null : formatStat(extraction.views),
-    cacheVersion: details?.cacheVersion ?? null,
-    detailsId: details?.id ?? null,
+    cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
 
@@ -207,8 +216,7 @@ function instagramPrepared(
     creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
     likesDisplay: null,
     viewsDisplay: null,
-    cacheVersion: details?.cacheVersion ?? null,
-    detailsId: details?.id ?? null,
+    cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
 
@@ -245,6 +253,7 @@ async function invalidateKnownFiles(db: Database, details: VideoDetailsRecord | 
 }
 
 export function isConfirmedInvalidFileId(error: unknown): boolean {
+  if (error instanceof PartialDeliveryError) return isConfirmedInvalidFileId(error.deliveryError);
   if (typeof error !== "object" || error === null) return false;
   const value = error as { error_code?: unknown; description?: unknown; message?: unknown };
   if (value.error_code !== 400) return false;
@@ -276,15 +285,33 @@ function validateInstagramSourceId(actual: string, expected: string): void {
   );
 }
 
-async function withMediaLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
-  const previous = locks.get(key) ?? Promise.resolve();
+async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTimeoutMs = DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS): Promise<T> {
+  const active = locks.get(key);
+  if (active) {
+    const acquired = await waitForMediaLock(active, Math.max(1, waitTimeoutMs));
+    if (!acquired) {
+      logger.warn("Media lock wait timed out; replacing the stale coalescing lock", { key, wait_timeout_ms: waitTimeoutMs });
+      if (locks.get(key) === active) locks.delete(key);
+      return withMediaLock(key, operation, waitTimeoutMs);
+    }
+    return withMediaLock(key, operation, waitTimeoutMs);
+  }
   let release!: () => void;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  locks.set(key, current);
-  await previous;
+  const completion = new Promise<void>((resolve) => { release = resolve; });
+  locks.set(key, completion);
   try { return await operation(); }
   finally {
     release();
-    if (locks.get(key) === current) locks.delete(key);
+    if (locks.get(key) === completion) locks.delete(key);
   }
+}
+
+function waitForMediaLock(active: Promise<void>, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), timeoutMs);
+    void active.then(() => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
 }

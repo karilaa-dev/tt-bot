@@ -98,7 +98,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
           const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity,
             prepared.platform === "tiktok" ? prepared.likesDisplay : undefined,
             prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined,
-            prepared.detailsId !== null && prepared.cacheVersion !== null ? { detailsId: prepared.detailsId, cacheVersion: prepared.cacheVersion } : undefined);
+            prepared.cacheIdentity);
           await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
         }
         return { value: media, ...(telegramFiles ? { telegramFiles } : {}) };

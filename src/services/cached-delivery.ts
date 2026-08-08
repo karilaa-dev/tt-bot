@@ -77,7 +77,7 @@ async function sendAlbum(api: Api, chatId: number, files: TelegramFileReference[
       });
       calls.push({ method: "sendMediaGroup", statusCode: 200, result });
     } catch (error) {
-      if (calls.length) throw new PartialDeliveryError(calls.length, "telegram-file-cache");
+      if (calls.length) throw new PartialDeliveryError(calls.length, "telegram-file-cache", error);
       throw error;
     }
   }
