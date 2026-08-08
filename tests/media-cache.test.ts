@@ -205,17 +205,29 @@ describe("Telegram media cache", () => {
     expect(memory.row.telegram_files).toEqual(mixed);
   });
 
-  test("rejects a mismatched Instagram extraction ID before delivery or persistence", async () => {
+  test("delivers a mismatched Instagram extraction ID without caching its Telegram file ID", async () => {
     const memory = fakeDatabase(null);
     const scrap = fakeScrap({ instagramSourceId: "DIFFERENT" });
     let deliveries = 0;
-    await expect(executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async () => {
+    const completed = await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async (prepared) => {
       deliveries++;
+      expect(prepared.telegramFileCacheAllowed).toBe(false);
       return { value: "sent", telegramFiles: [videoFile] };
-    })).rejects.toMatchObject({ code: "invalid_response", status: 502 });
-    expect(deliveries).toBe(0);
-    expect(memory.history).toHaveLength(0);
-    expect(memory.row).toEqual({});
+    });
+    expect(completed.value).toBe("sent");
+    expect(deliveries).toBe(1);
+    expect(memory.history).toHaveLength(1);
+    expect(memory.row).toMatchObject({
+      platform_video_id: "ABC123",
+      telegram_bot_id: null,
+      telegram_files: null,
+    });
+
+    await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async () => ({
+      value: "sent-again",
+      telegramFiles: [videoFile],
+    }));
+    expect(scrap.instagramExtractions).toBe(2);
   });
 
   test("coalesces concurrent misses so only the first request uploads", async () => {

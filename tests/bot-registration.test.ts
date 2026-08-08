@@ -217,6 +217,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     expect(scrapCalls).toHaveLength(callsBeforeUnauthorizedRetries);
 
+    const historyBeforeSlideshowRefresh = memory.videos.length;
     await bot.handleUpdate({ update_id: 13, callback_query: {
       id: "slideshow-refresh",
       chat_instance: "inline-instance",
@@ -226,6 +227,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").at(-1)?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
+    expect(memory.videos).toHaveLength(historyBeforeSlideshowRefresh);
   } finally {
     cleanupInlineSlideshows();
     telegram.stop(true);

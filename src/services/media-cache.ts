@@ -12,7 +12,7 @@ import {
 } from "../db/videos.ts";
 import { logger } from "../logging.ts";
 import { formatStat } from "../ui/stats.ts";
-import { PartialDeliveryError, TtScrapError } from "../bot/errors.ts";
+import { PartialDeliveryError } from "../bot/errors.ts";
 
 const TIKTOK_METADATA_TTL_SECONDS = 24 * 60 * 60;
 const DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -48,6 +48,7 @@ export interface PreparedMedia {
   creatorUsername: string | null;
   likesDisplay: string | null;
   viewsDisplay: string | null;
+  telegramFileCacheAllowed: boolean;
   cacheIdentity: CacheIdentity;
 }
 
@@ -100,16 +101,16 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
     let extraction: InstagramExtraction | null = null;
     let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "instagram");
     if (options.fileMode || !cachedFiles) extraction = await options.scrap.extractInstagram(options.link, options.retry);
-    if (extraction) validateInstagramSourceId(extraction.source_id, localId);
+    const telegramFileCacheAllowed = extraction ? instagramSourceIdMatches(extraction.source_id, localId) : true;
     if (extraction && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
-    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles);
+    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles, telegramFileCacheAllowed);
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractInstagram(options.link, options.retry);
-      validateInstagramSourceId(refreshed.source_id, localId);
-      return instagramPrepared(options.link, localId, details, refreshed, null);
+      const refreshedCacheAllowed = instagramSourceIdMatches(refreshed.source_id, localId);
+      return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed);
     }, now);
   }, options.lockWaitTimeoutMs);
 }
@@ -159,7 +160,9 @@ async function perform<T>(
       likesDisplay: extraction?.platform === "tiktok" ? prepared.likesDisplay : undefined,
       viewsDisplay: extraction?.platform === "tiktok" ? prepared.viewsDisplay : undefined,
       metadataRefreshedAt,
-      ...(options.fileMode || !outcome.telegramFiles ? {} : { telegramBotId: options.botId, telegramFiles: outcome.telegramFiles }),
+      ...(options.fileMode || !prepared.telegramFileCacheAllowed || !outcome.telegramFiles
+        ? {}
+        : { telegramBotId: options.botId, telegramFiles: outcome.telegramFiles }),
       downloadedAt: now,
       recordHistory: options.recordHistory,
     });
@@ -196,6 +199,7 @@ function tikTokPrepared(
     creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
     likesDisplay: extraction?.likes == null ? details?.likesDisplay ?? null : formatStat(extraction.likes),
     viewsDisplay: extraction?.views == null ? details?.viewsDisplay ?? null : formatStat(extraction.views),
+    telegramFileCacheAllowed: true,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
@@ -206,6 +210,7 @@ function instagramPrepared(
   details: VideoDetailsRecord | null,
   extraction: InstagramExtraction | null,
   cachedFiles: TelegramFileReference[] | null,
+  telegramFileCacheAllowed: boolean,
 ): PreparedMedia {
   return {
     platform: "instagram",
@@ -218,6 +223,7 @@ function instagramPrepared(
     creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
     likesDisplay: null,
     viewsDisplay: null,
+    telegramFileCacheAllowed,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
@@ -277,14 +283,13 @@ function canonicalInstagramUrl(value: string): string {
   return `https://www.instagram.com/${route}/${parts[1]}/`;
 }
 
-function validateInstagramSourceId(actual: string, expected: string): void {
-  if (actual === expected) return;
-  throw new TtScrapError(
-    "invalid_response",
-    "tt-scrap returned an Instagram source ID that does not match the requested post",
-    "unknown",
-    502,
-  );
+function instagramSourceIdMatches(actual: string, expected: string): boolean {
+  if (actual === expected) return true;
+  logger.warn("tt-scrap returned a different Instagram source ID; delivering without caching Telegram file IDs", {
+    expected_source_id: expected,
+    actual_source_id: actual,
+  });
+  return false;
 }
 
 async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTimeoutMs = DEFAULT_MEDIA_LOCK_WAIT_TIMEOUT_MS): Promise<T> {

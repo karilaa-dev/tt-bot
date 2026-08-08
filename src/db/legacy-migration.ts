@@ -139,7 +139,10 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
 async function validateLegacyShape(sql: SQLType): Promise<void> {
   const required: Record<string, string[]> = {
     videos: ["pk_id", "user_id", "downloaded_at", "video_link", "is_images", "is_processed", "is_inline"],
-    users: ["user_id", "registered_at", "lang", "link", "file_mode", "ad_count", "ad_cooldown"],
+    // ad_count/ad_cooldown existed in the Python schema but not in databases
+    // created by the TypeScript bot. Audit either column when it is present,
+    // while allowing both legacy variants to use the same offline rebuild.
+    users: ["user_id", "registered_at", "lang", "link", "file_mode"],
     music: ["pk_id", "user_id", "downloaded_at", "video_id"],
   };
   const rows = await sql<Array<{ table_name: string; column_name: string }>>`SELECT table_name, column_name FROM information_schema.columns
@@ -191,11 +194,39 @@ async function sourceAudit(sql: SQLType): Promise<Record<string, string>> {
 }
 
 async function userAudit(sql: SQLType): Promise<Record<string, string>> {
-  const rows = await sql<Array<Record<string, string>>>`SELECT
-    COUNT(*) FILTER (WHERE ad_count <> 0)::text AS nonzero_ad_count,
-    COUNT(*) FILTER (WHERE ad_cooldown <> 0)::text AS nonzero_ad_cooldown_count
-    FROM users`;
-  return rows[0] ?? {};
+  const columns = await sql<Array<{ column_name: string }>>`SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users'
+      AND column_name IN ('ad_count', 'ad_cooldown')`;
+  const present = new Set(columns.map((row) => row.column_name));
+  const hasAdCount = present.has("ad_count");
+  const hasAdCooldown = present.has("ad_cooldown");
+  let counts: Record<string, string>;
+  if (hasAdCount && hasAdCooldown) {
+    const rows = await sql<Array<Record<string, string>>>`SELECT
+      COUNT(*) FILTER (WHERE ad_count <> 0)::text AS nonzero_ad_count,
+      COUNT(*) FILTER (WHERE ad_cooldown <> 0)::text AS nonzero_ad_cooldown_count
+      FROM users`;
+    counts = rows[0] ?? {};
+  } else if (hasAdCount) {
+    const rows = await sql<Array<Record<string, string>>>`SELECT
+      COUNT(*) FILTER (WHERE ad_count <> 0)::text AS nonzero_ad_count,
+      '0'::text AS nonzero_ad_cooldown_count FROM users`;
+    counts = rows[0] ?? {};
+  } else if (hasAdCooldown) {
+    const rows = await sql<Array<Record<string, string>>>`SELECT
+      '0'::text AS nonzero_ad_count,
+      COUNT(*) FILTER (WHERE ad_cooldown <> 0)::text AS nonzero_ad_cooldown_count
+      FROM users`;
+    counts = rows[0] ?? {};
+  } else {
+    counts = { nonzero_ad_count: "0", nonzero_ad_cooldown_count: "0" };
+  }
+  return {
+    ...counts,
+    ad_count_column_present: String(hasAdCount),
+    ad_cooldown_column_present: String(hasAdCooldown),
+  };
 }
 
 async function createIdentityParser(sql: SQLType): Promise<void> {

@@ -103,7 +103,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
       const queued = await ctx.queue.withSlot(ctx.from.id, async () => {
         const options = {
           db: ctx.db, scrap: ctx.scrap, link, userId: ctx.from.id, botId: ctx.me.id,
-          fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 },
+          fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4 }, recordHistory: false,
         };
         const execute = instagramLink ? executeInstagramMediaRequest : executeTikTokMediaRequest;
         await execute(options, async (prepared) => {

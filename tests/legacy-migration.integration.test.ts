@@ -86,13 +86,38 @@ integration("PostgreSQL 17 legacy rebuild", () => {
       expect(columns).toHaveLength(1);
     } finally { await check.close(); }
   }, 30_000);
+
+  test("migrates TypeScript-era users tables without advertising columns", async () => {
+    const fixture = await createFixture(admin, databases, "typescript", { advertisingColumns: false });
+    const completed = await runLegacyMigration(fixture.url, migrationOptions({ batchSize: 2 }));
+    expect(completed.status).toBe("complete");
+
+    const sql = new SQL(fixture.url);
+    try {
+      const audit = await sql<Array<{ evidence: Record<string, any> }>>`SELECT evidence FROM migration_audit
+        WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
+      expect(audit[0]?.evidence.removed_user_columns).toMatchObject({
+        nonzero_ad_count: "0",
+        nonzero_ad_cooldown_count: "0",
+        ad_count_column_present: "false",
+        ad_cooldown_column_present: "false",
+      });
+      const history = await sql<Array<{ count: string }>>`SELECT COUNT(*)::text AS count FROM videos`;
+      expect(history[0]?.count).toBe("7");
+    } finally { await sql.close(); }
+  }, 30_000);
 });
 
 function migrationOptions(overrides: Record<string, unknown> = {}) {
   return { backupConfirmed: true, botStopped: true, availableBytes: 10_000_000_000n, ...overrides } as Parameters<typeof runLegacyMigration>[1];
 }
 
-async function createFixture(admin: SQL, databases: string[], suffix: string): Promise<{ url: string }> {
+async function createFixture(
+  admin: SQL,
+  databases: string[],
+  suffix: string,
+  options: { advertisingColumns?: boolean } = {},
+): Promise<{ url: string }> {
   const name = `ttbot_legacy_${suffix}_${process.pid}_${Date.now()}`;
   databases.push(name);
   await admin.unsafe(`CREATE DATABASE "${name}"`);
@@ -111,6 +136,10 @@ async function createFixture(admin: SQL, databases: string[], suffix: string): P
     pk_id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(user_id), downloaded_at BIGINT, video_id BIGINT NOT NULL
   )`;
   await sql`INSERT INTO users (user_id, registered_at, ad_count, ad_cooldown) VALUES (1, 1, 2, 0), (2, 2, 0, 10)`;
+  if (options.advertisingColumns === false) {
+    await sql`ALTER TABLE users DROP COLUMN ad_count`;
+    await sql`ALTER TABLE users DROP COLUMN ad_cooldown`;
+  }
   const longQuery = "x".repeat(700);
   await sql`INSERT INTO videos (pk_id, user_id, downloaded_at, video_link, is_images, is_processed, is_inline) VALUES
     (1, 1, 100, 'https://vm.tiktok.com/EXPIRED/', FALSE, FALSE, FALSE),

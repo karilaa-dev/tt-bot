@@ -40,13 +40,27 @@ integration("PostgreSQL repositories", () => {
     await admin.unsafe(`DROP DATABASE "${databaseName}"`);
     await admin.close();
   });
-  test("uses the media-cache schema and retains full-width IDs", async () => {
+  test("uses the media-cache schema, round-trips JSONB files, and retains full-width IDs", async () => {
     await Promise.all([createUser(db, 123, "en", "ref"), createUser(db, 123, "en", "ref")]);
     await toggleUserMode(db, 123); await updateUserLanguage(db, 123, "uk");
     await recordDownload(db, {
       userId: 123, platform: "tiktok", platformVideoId: "1", sharedLink: "https://tiktok.test/1",
       mediaKind: "video", deliverySurface: "chat", deliveryMode: "media", cacheHit: false,
     });
+    const telegramFiles = [
+      { position: 0, media_type: "photo" as const, file_id: "photo-file", file_unique_id: "photo-unique" },
+      { position: 1, media_type: "video" as const, file_id: "video-file", file_unique_id: "video-unique" },
+    ];
+    const cached = await recordDownload(db, {
+      userId: 123, platform: "instagram", platformVideoId: "JSONB123", sharedLink: "https://instagram.test/p/JSONB123",
+      mediaKind: "images", deliverySurface: "chat", deliveryMode: "media", cacheHit: false,
+      contentType: "carousel", telegramBotId: 999, telegramFiles,
+    });
+    expect(cached.telegramFiles).toEqual(telegramFiles);
+    const storedFiles = await db.sql<Array<{ json_type: string; telegram_files: unknown }>>`SELECT
+      jsonb_typeof(telegram_files) AS json_type, telegram_files FROM video_details
+      WHERE platform = 'instagram' AND platform_video_id = 'JSONB123'`;
+    expect(storedFiles[0]).toEqual({ json_type: "array", telegram_files: telegramFiles });
     await addMusic(db, 123, 7669880788879543583n);
     expect(await getUser(db, 123)).toMatchObject({ userId: 123, lang: "uk", link: "ref", fileMode: true });
     expect(await getUserIds(db)).toEqual([123]);
