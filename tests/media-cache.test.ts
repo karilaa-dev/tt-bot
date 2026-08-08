@@ -231,6 +231,23 @@ describe("Telegram media cache", () => {
     expect(completed.cacheHit).toBe(false);
   });
 
+  test("re-extracts after stale metadata refresh before invalid-file recovery", async () => {
+    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 86_400, telegram_files: [videoFile] }));
+    const scrap = fakeScrap();
+    let attempts = 0;
+    await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      attempts++;
+      if (prepared.cachedFiles) {
+        expect(prepared.extraction?.extraction_id).toBe("extraction");
+        throw { error_code: 400, description: "Bad Request: wrong remote file identifier specified" };
+      }
+      return { value: "recovered", telegramFiles: [videoFile] };
+    });
+    expect(attempts).toBe(2);
+    expect(scrap.tiktokExtractions).toBe(2);
+    expect(memory.invalidations).toBe(1);
+  });
+
   test("does not invalidate or retry rate limits and ambiguous cache-send failures", async () => {
     const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] }));
     const scrap = fakeScrap();

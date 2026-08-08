@@ -113,11 +113,10 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
     );
     return perform(options, prepared, details, deliver, async () => {
-      // Never reuse an untrusted refresh after the correct cached file ID fails.
-      // Re-extract once, then refuse delivery rather than sending another post.
-      const refreshed = extraction && extractionCacheAllowed
-        ? extraction
-        : await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
+      // Extraction references are short-lived. Always obtain a new one after a
+      // cached Telegram delivery fails instead of reusing a metadata refresh
+      // that may have expired during a slow Telegram round-trip.
+      const refreshed = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
       const trustedRefreshed = requireMatchingRecoveryExtraction("tiktok", resolution.source_id, refreshed);
       return tikTokPrepared(
         options.link,
@@ -173,9 +172,9 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
       !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
     );
     return perform(options, prepared, details, deliver, async () => {
-      const refreshed = extraction && extractionCacheAllowed
-        ? extraction
-        : await options.scrap.extractInstagram(options.link, options.retry);
+      // As with TikTok, invalid-ID recovery needs a newly issued extraction
+      // reference; a validation extraction may expire while Telegram responds.
+      const refreshed = await options.scrap.extractInstagram(options.link, options.retry);
       const trustedRefreshed = requireMatchingRecoveryExtraction("instagram", localId, refreshed);
       return instagramPrepared(options.link, localId, details, trustedRefreshed, null, true, true);
     }, now);
