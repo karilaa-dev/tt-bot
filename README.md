@@ -123,7 +123,7 @@ Standard video/photo deliveries store ordered, bot-scoped Telegram `file_id` and
 
 Document mode always extracts and uploads, records history and refreshed details, never stores document IDs, and never erases a standard-media cache. If that extraction reveals a changed media shape, the retained cache is marked stale so the next standard-media request validates and replaces it. A confirmed invalid Telegram file identifier invalidates that exact cache version and permits one extraction/upload retry; ambiguous transport errors and partially delivered albums are never blindly resent.
 
-Cached albums intentionally mirror tt-scrap's `_album_batches` delivery contract: Telegram groups contain 2-10 items, batches prefer 10 items, and an 11-item tail splits as 9+2. Changes to that cross-service contract must update and deploy tt-scrap and the bot together; `tests/media-cache.test.ts` locks the bot side to the agreed boundary cases.
+Cached albums intentionally mirror tt-scrap's `_album_batches` delivery contract: Telegram groups contain 2-10 items, batches prefer 10 items, and an 11-item tail splits as 9+2. The matching tt-scrap slideshow handler must also select `sendPhoto` for one standard image and `sendDocument` for one document so captions and controls stay on that item. Changes to either cross-service contract must update and deploy tt-scrap and the bot together; the bot's delivery/cache tests lock its side to the agreed behavior.
 
 ## Instagram delivery
 

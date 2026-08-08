@@ -15,6 +15,9 @@ export class DeliveryService {
   constructor(private readonly scrap: TtScrapClient, private readonly config: AppConfig) {}
 
   deliverTikTokToChat(extraction: TikTokExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean, disableNotification = false): Promise<TelegramDeliveryResult> {
+    // Matching tt-scrap contract: its slideshow handler selects sendPhoto for
+    // one standard image (sendDocument in document mode), so these top-level
+    // caption/control fields are valid and are not passed to sendMediaGroup.
     const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
     return this.scrap.deliverTikTok({
       source: { extraction_id: extraction.extraction_id },

@@ -43,7 +43,7 @@ describe("DeliveryService", () => {
     expect(payload.telegram).not.toHaveProperty("parse_mode");
   });
 
-  test("attaches the caption and controls to a one-image TikTok slideshow", async () => {
+  test("attaches caption and controls for tt-scrap's one-image sendPhoto contract", async () => {
     let payload: Record<string, any> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: message }); } });
     const config = testConfig(`http://127.0.0.1:${server.port}`);
