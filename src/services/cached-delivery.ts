@@ -33,7 +33,7 @@ export async function deliverCachedTikTokToChat(options: CachedChatOptions & {
     });
     return singleCall("sendVideo", result);
   }
-  const files = options.group ? options.files.slice(0, 10) : options.files;
+  const files = chatAlbumFiles(options.files, options.group);
   return sendAlbum(options.api, options.chatId, files, options.replyTo, true);
 }
 
@@ -53,7 +53,7 @@ export async function deliverCachedInstagramToChat(options: CachedChatOptions & 
     const result = await options.api.sendPhoto(options.chatId, file.file_id, { disable_notification: true, reply_parameters: { message_id: options.replyTo } });
     return singleCall("sendPhoto", result);
   }
-  const files = options.group ? options.files.slice(0, 10) : options.files;
+  const files = chatAlbumFiles(options.files, options.group);
   return sendAlbum(options.api, options.chatId, files, options.replyTo, true);
 }
 
@@ -84,7 +84,12 @@ async function sendAlbum(api: Api, chatId: number, files: TelegramFileReference[
   return { calls };
 }
 
-/** Split albums into Telegram's 2-10 range without leaving a final singleton. */
+/**
+ * Mirror tt-scrap's `_album_batches`: use ten-item batches, except split an
+ * eleven-item tail as 9+2 so every Telegram media group remains in the 2-10
+ * range. Keeping this contract aligned makes cache hits group media exactly
+ * like fresh tt-scrap deliveries.
+ */
 export function albumBatches<T>(items: T[]): T[][] {
   if (items.length < 2) return items.length ? [items] : [];
   const result: T[][] = [];
@@ -97,6 +102,13 @@ export function albumBatches<T>(items: T[]): T[][] {
   }
   result.push(items.slice(offset));
   return result;
+}
+
+function chatAlbumFiles(files: TelegramFileReference[], group: boolean): TelegramFileReference[] {
+  // Fresh group deliveries in the TikTok and Instagram handlers stage the post
+  // and forward only its first Telegram-sized album. Cache hits retain that
+  // established group behavior; private chats use every tt-scrap-style batch.
+  return group ? files.slice(0, 10) : files;
 }
 
 function singleCall(method: string, result: Message): TelegramDeliveryResult {

@@ -69,7 +69,8 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
     } catch (error) {
       logger.warn("Inline slideshow edit failed", error);
       const cacheIdentity = session.cacheIdentity;
-      if (isConfirmedInvalidFileId(error) && cacheIdentity?.detailsId !== null && cacheIdentity?.detailsId !== undefined
+      if (ctx.from.id === session.userId && isConfirmedInvalidFileId(error)
+        && cacheIdentity?.detailsId !== null && cacheIdentity?.detailsId !== undefined
         && cacheIdentity.cacheVersion !== null && cacheIdentity.cacheVersion !== undefined) {
         await queueInvalidSessionRecovery(ctx, id, session, index, {
           detailsId: cacheIdentity.detailsId,

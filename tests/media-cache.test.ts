@@ -6,7 +6,7 @@ import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-sc
 import type { Database } from "../src/db/client.ts";
 import type { TelegramFileReference } from "../src/db/videos.ts";
 import { albumBatches, deliverCachedTikTokToChat } from "../src/services/cached-delivery.ts";
-import { executeInstagramMediaRequest, executeTikTokMediaRequest, type CacheIdentity } from "../src/services/media-cache.ts";
+import { executeInstagramMediaRequest, executeTikTokMediaRequest, isConfirmedInvalidFileId, type CacheIdentity } from "../src/services/media-cache.ts";
 
 const now = 2_000_000;
 const videoFile: TelegramFileReference = { position: 0, media_type: "video", file_id: "cached-video", file_unique_id: "cached-unique" };
@@ -135,6 +135,13 @@ describe("Telegram media cache", () => {
     expect(attempts).toBe(1);
     expect(memory.invalidations).toBe(0);
     expect(scrap.tiktokExtractions).toBe(0);
+  });
+
+  test("recognizes Telegram's remote file identifier wording", () => {
+    expect(isConfirmedInvalidFileId({
+      error_code: 400,
+      description: "Bad Request: wrong remote file identifier specified: Wrong string length",
+    })).toBe(true);
   });
 
   test("preserves cached albums after a transient partial delivery", async () => {
@@ -299,8 +306,18 @@ describe("Telegram media cache", () => {
     expect(scrap.tiktokExtractions).toBe(2);
   });
 
-  test("partitions eleven-item albums as 9+2", () => {
-    expect(albumBatches(Array.from({ length: 11 }, (_, index) => index)).map((batch) => batch.length)).toEqual([9, 2]);
+  test("mirrors tt-scrap's valid album partitioning contract", () => {
+    const expected = new Map<number, number[]>([
+      [2, [2]],
+      [10, [10]],
+      [11, [9, 2]],
+      [12, [10, 2]],
+      [20, [10, 10]],
+      [21, [10, 9, 2]],
+    ]);
+    for (const [count, sizes] of expected) {
+      expect(albumBatches(Array.from({ length: count }, (_, index) => index)).map((batch) => batch.length)).toEqual(sizes);
+    }
   });
 });
 

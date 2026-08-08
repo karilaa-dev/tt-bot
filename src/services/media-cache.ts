@@ -266,7 +266,7 @@ export function isConfirmedInvalidFileId(error: unknown): boolean {
   const value = error as { error_code?: unknown; description?: unknown; message?: unknown };
   if (value.error_code !== 400) return false;
   const description = String(value.description ?? value.message ?? "").toLowerCase();
-  return /(?:wrong|invalid|unusable) file (?:id|identifier)|file_id.*(?:invalid|wrong)|failed to get http url content/u.test(description);
+  return /(?:wrong|invalid|unusable)(?: remote)? file (?:id|identifier)|file_id.*(?:invalid|wrong)|failed to get http url content/u.test(description);
 }
 
 export function instagramIdFromUrl(value: string): string | null {

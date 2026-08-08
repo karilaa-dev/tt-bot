@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Database } from "../src/db/client.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
-import { cleanupInlineSlideshows } from "../src/handlers/inline-slideshow.ts";
+import { cleanupInlineSlideshows, createInlineSlideshow } from "../src/handlers/inline-slideshow.ts";
 import { inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { QueueManager } from "../src/services/queue.ts";
 import { testConfig } from "./helpers.ts";
@@ -31,6 +31,9 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
     telegramCalls.push({ method, payload });
     if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+    if (method === "editMessageMedia" && payload.inline_message_id === "viewer-invalid-slideshow") {
+      return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
+    }
     if (["answerCallbackQuery", "answerInlineQuery", "editMessageMedia", "sendChatAction", "setMessageReaction"].includes(method)) return Response.json({ ok: true, result: true });
     const chatId = Number(payload.chat_id ?? 0);
     const chat = chatId < 0
@@ -228,6 +231,25 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").at(-1)?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
     expect(memory.videos).toHaveLength(historyBeforeSlideshowRefresh);
+
+    createInlineSlideshow(bot.api, "viewer-invalid-slideshow", [
+      { type: "photo", fileId: "broken-photo-1" },
+      { type: "photo", fileId: "broken-photo-2" },
+    ], "en", "https://www.tiktok.com/@creator/photo/7669880788879543583", {
+      userId: groupUser.id,
+      fullName: groupUser.first_name,
+    }, null, null, { detailsId: 1n, cacheVersion: 1n });
+    const invalidationsBeforeViewerNavigation = memory.invalidations;
+    const scrapCallsBeforeViewerNavigation = scrapCalls.length;
+    await bot.handleUpdate({ update_id: 14, callback_query: {
+      id: "viewer-navigation",
+      chat_instance: "inline-instance",
+      from: firstLinkUser,
+      data: "slide:next",
+      inline_message_id: "viewer-invalid-slideshow",
+    } });
+    expect(memory.invalidations).toBe(invalidationsBeforeViewerNavigation);
+    expect(scrapCalls).toHaveLength(scrapCallsBeforeViewerNavigation);
   } finally {
     cleanupInlineSlideshows();
     telegram.stop(true);
@@ -243,10 +265,12 @@ function memoryDatabase(): {
   db: Database;
   users: Map<number, MemoryUserRow>;
   videos: Array<{ userId: number; link: string }>;
+  readonly invalidations: number;
 } {
   const users = new Map<number, MemoryUserRow>();
   const videos: Array<{ userId: number; link: string }> = [];
   const details = new Map<string, Record<string, unknown>>();
+  let invalidations = 0;
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const query = strings.join("?").replace(/\s+/gu, " ").trim();
     if (query.startsWith("SELECT user_id, registered_at, lang, link, file_mode FROM users")) {
@@ -285,8 +309,12 @@ function memoryDatabase(): {
       videos.push({ userId: Number(values[0]), link: String(values[3]) });
       return [];
     }
+    if (query.startsWith("UPDATE video_details SET telegram_bot_id = NULL")) {
+      invalidations++;
+      return [{ pk_id: values[0] }];
+    }
     throw new Error(`Unexpected in-memory SQL query: ${query}`);
   };
   Object.assign(sql, { begin: async (operation: (transaction: typeof sql) => Promise<unknown>) => operation(sql) });
-  return { db: { sql } as unknown as Database, users, videos };
+  return { db: { sql } as unknown as Database, users, videos, get invalidations() { return invalidations; } };
 }
