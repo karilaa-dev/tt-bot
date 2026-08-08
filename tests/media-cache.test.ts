@@ -372,6 +372,24 @@ describe("Telegram media cache", () => {
     });
   });
 
+  test("never delivers a mismatched extraction after a cached ID becomes invalid", async () => {
+    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 86_400, telegram_files: [videoFile] }));
+    const scrap = fakeScrap({ tiktokSourceId: "DIFFERENT" });
+    let deliveries = 0;
+
+    await expect(executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      deliveries++;
+      if (prepared.cachedFiles) {
+        throw { error_code: 400, description: "Bad Request: wrong remote file identifier specified" };
+      }
+      return { value: "wrong-post" };
+    })).rejects.toThrow("different tiktok source ID during invalid-file recovery");
+
+    expect(deliveries).toBe(1);
+    expect(scrap.tiktokExtractions).toBe(2);
+    expect(memory.invalidations).toBe(1);
+  });
+
   test("coalesces concurrent misses so only the first request uploads", async () => {
     const memory = fakeDatabase(null);
     const scrap = fakeScrap();

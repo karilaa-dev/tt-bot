@@ -109,15 +109,20 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
       !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
     );
     return perform(options, prepared, details, deliver, async () => {
-      const refreshed = extraction ?? await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
+      // Never reuse an untrusted refresh after the correct cached file ID fails.
+      // Re-extract once, then refuse delivery rather than sending another post.
+      const refreshed = extraction && extractionCacheAllowed
+        ? extraction
+        : await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
+      const trustedRefreshed = requireMatchingRecoveryExtraction("tiktok", resolution.source_id, refreshed);
       return tikTokPrepared(
         options.link,
         resolution.resolved_url,
         resolution.source_id,
         details,
-        refreshed,
+        trustedRefreshed,
         null,
-        extractionSourceIdMatches("tiktok", refreshed.source_id, resolution.source_id),
+        true,
         true,
       );
     }, now);
@@ -134,9 +139,10 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
     let extraction: InstagramExtraction | null = null;
     const storedFiles = validStoredFiles(details, options.botId, "instagram");
     let cachedFiles = options.fileMode ? null : storedFiles;
-    // Instagram intentionally has no periodic TTL. A null timestamp alongside
-    // usable files is a one-shot validation marker written when document mode
-    // observed a changed media shape without deleting the standard-media IDs.
+    // Product contract: Instagram has no periodic or manual cache refresh. A
+    // null timestamp alongside usable files is only a one-shot validation marker
+    // written when document mode observes a changed media shape; otherwise IDs
+    // remain cached until Telegram confirms that they are unusable.
     const validationRequired = cachedFiles !== null && details?.metadataRefreshedAt === null;
     if (options.fileMode || !cachedFiles) {
       extraction = await options.scrap.extractInstagram(options.link, options.retry);
@@ -163,9 +169,11 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
       !(options.fileMode && extractionCacheAllowed && !storedFilesMatchExtraction),
     );
     return perform(options, prepared, details, deliver, async () => {
-      const refreshed = extraction ?? await options.scrap.extractInstagram(options.link, options.retry);
-      const refreshedCacheAllowed = extractionSourceIdMatches("instagram", refreshed.source_id, localId);
-      return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed, true);
+      const refreshed = extraction && extractionCacheAllowed
+        ? extraction
+        : await options.scrap.extractInstagram(options.link, options.retry);
+      const trustedRefreshed = requireMatchingRecoveryExtraction("instagram", localId, refreshed);
+      return instagramPrepared(options.link, localId, details, trustedRefreshed, null, true, true);
     }, now);
   }, lockWaitTimeoutMs);
 }
@@ -359,6 +367,15 @@ function extractionSourceIdMatches(platform: VideoPlatform, actual: string, expe
     actual_source_id: actual,
   });
   return false;
+}
+
+function requireMatchingRecoveryExtraction<T extends TikTokExtraction | InstagramExtraction>(
+  platform: VideoPlatform,
+  expected: string,
+  extraction: T,
+): T {
+  if (extractionSourceIdMatches(platform, extraction.source_id, expected)) return extraction;
+  throw new Error(`tt-scrap returned a different ${platform} source ID during invalid-file recovery`);
 }
 
 async function withMediaLock<T>(key: string, operation: () => Promise<T>, waitTimeoutMs: number): Promise<T> {

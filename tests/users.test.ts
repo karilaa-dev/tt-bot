@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Database } from "../src/db/client.ts";
+import type { Database } from "../src/db/client.ts";
 import { getUserIds } from "../src/db/users.ts";
 
 test("user exports include private and group chat IDs by default", async () => {

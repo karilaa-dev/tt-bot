@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
 import type { SQL } from "bun";
+import { assertLegacySourceAudit } from "../src/db/legacy-migration.ts";
 import { LEGACY_MIGRATION_COMMAND, runMigrations } from "../src/db/migrations.ts";
+
+test("legacy rebuild refuses audited NULL links before its copy phase", () => {
+  expect(() => assertLegacySourceAudit({ video_link_null_count: "0" })).not.toThrow();
+  expect(() => assertLegacySourceAudit({ video_link_null_count: "3" }))
+    .toThrow("source audit found 3 videos rows with a NULL video_link");
+  expect(() => assertLegacySourceAudit({})).toThrow("source audit has no valid video_link NULL count");
+});
 
 test("normal startup rejects a legacy rebuild without mutating it", async () => {
   const statements: string[] = [];

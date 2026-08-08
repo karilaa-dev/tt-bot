@@ -93,9 +93,11 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
     await mergeEvidence(sql, { source_audit: source, removed_user_columns: user });
     evidence = await auditEvidence(sql);
   }
+  const source = readObject(evidence.source_audit);
+  assertLegacySourceAudit(source);
   if (options.stopAfterPhase === "audit") return paused("audit", evidence);
 
-  const upperPk = BigInt(readObject(evidence.source_audit).max_pk as string);
+  const upperPk = BigInt(source.max_pk as string);
   await createIdentityParser(sql);
   await sql`CREATE TABLE IF NOT EXISTS legacy_video_identity (
     legacy_pk BIGINT PRIMARY KEY,
@@ -202,6 +204,19 @@ async function sourceAudit(sql: SQLType): Promise<Record<string, string>> {
       COALESCE(MAX(length(video_link)), 0)::text AS max_shared_link_length
     FROM videos`;
   return rows[0] ?? {};
+}
+
+export function assertLegacySourceAudit(source: Record<string, unknown>): void {
+  const nullLinks = source.video_link_null_count;
+  if (typeof nullLinks !== "string" || !/^\d+$/u.test(nullLinks)) {
+    throw new Error("Refusing migration: source audit has no valid video_link NULL count");
+  }
+  if (BigInt(nullLinks) > 0n) {
+    throw new Error(
+      `Refusing migration: source audit found ${nullLinks} videos rows with a NULL video_link; `
+      + "shared_link is required and legacy history rows cannot be discarded",
+    );
+  }
 }
 
 async function userAudit(sql: SQLType): Promise<Record<string, string>> {
