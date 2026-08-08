@@ -48,7 +48,7 @@ export interface PreparedMedia {
   creatorUsername: string | null;
   likesDisplay: string | null;
   viewsDisplay: string | null;
-  telegramFileCacheAllowed: boolean;
+  extractionCacheAllowed: boolean;
   cacheIdentity: CacheIdentity;
 }
 
@@ -90,14 +90,31 @@ export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, 
         logger.warn("TikTok metadata refresh failed; using cached Telegram media", error);
       }
     }
-    if (extraction && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
+    const extractionCacheAllowed = extraction ? extractionSourceIdMatches("tiktok", extraction.source_id, resolution.source_id) : true;
+    if (extraction && extractionCacheAllowed && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
-    const prepared = tikTokPrepared(options.link, resolution.resolved_url, resolution.source_id, details, extraction, options.fileMode ? null : cachedFiles);
+    const prepared = tikTokPrepared(
+      options.link,
+      resolution.resolved_url,
+      resolution.source_id,
+      details,
+      extraction,
+      options.fileMode ? null : cachedFiles,
+      extractionCacheAllowed,
+    );
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
-      return tikTokPrepared(options.link, resolution.resolved_url, resolution.source_id, details, refreshed, null);
+      return tikTokPrepared(
+        options.link,
+        resolution.resolved_url,
+        resolution.source_id,
+        details,
+        refreshed,
+        null,
+        extractionSourceIdMatches("tiktok", refreshed.source_id, resolution.source_id),
+      );
     }, now);
   }, lockWaitTimeoutMs);
 }
@@ -112,15 +129,15 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
     let extraction: InstagramExtraction | null = null;
     let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "instagram");
     if (options.fileMode || !cachedFiles) extraction = await options.scrap.extractInstagram(options.link, options.retry);
-    const telegramFileCacheAllowed = extraction ? instagramSourceIdMatches(extraction.source_id, localId) : true;
-    if (extraction && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
+    const extractionCacheAllowed = extraction ? extractionSourceIdMatches("instagram", extraction.source_id, localId) : true;
+    if (extraction && extractionCacheAllowed && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
-    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles, telegramFileCacheAllowed);
+    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles, extractionCacheAllowed);
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractInstagram(options.link, options.retry);
-      const refreshedCacheAllowed = instagramSourceIdMatches(refreshed.source_id, localId);
+      const refreshedCacheAllowed = extractionSourceIdMatches("instagram", refreshed.source_id, localId);
       return instagramPrepared(options.link, localId, details, refreshed, null, refreshedCacheAllowed);
     }, now);
   }, lockWaitTimeoutMs);
@@ -152,7 +169,7 @@ async function perform<T>(
     outcome = await deliver(prepared);
   }
 
-  const extraction = prepared.extraction;
+  const extraction = prepared.extractionCacheAllowed ? prepared.extraction : null;
   const mediaKind = prepared.contentType === "video" ? "video" : "images";
   const metadataRefreshedAt = extraction ? now : undefined;
   try {
@@ -171,7 +188,7 @@ async function perform<T>(
       likesDisplay: extraction?.platform === "tiktok" ? prepared.likesDisplay : undefined,
       viewsDisplay: extraction?.platform === "tiktok" ? prepared.viewsDisplay : undefined,
       metadataRefreshedAt,
-      ...(options.fileMode || !prepared.telegramFileCacheAllowed || !outcome.telegramFiles
+      ...(options.fileMode || !prepared.extractionCacheAllowed || !outcome.telegramFiles
         ? {}
         : { telegramBotId: options.botId, telegramFiles: outcome.telegramFiles }),
       downloadedAt: now,
@@ -198,7 +215,10 @@ function tikTokPrepared(
   details: VideoDetailsRecord | null,
   extraction: TikTokExtraction | null,
   cachedFiles: TelegramFileReference[] | null,
+  extractionCacheAllowed: boolean,
 ): PreparedMedia {
+  const trustedExtraction = extractionCacheAllowed ? extraction : null;
+  const deliveryExtraction = extractionCacheAllowed || !cachedFiles ? extraction : null;
   return {
     platform: "tiktok",
     platformVideoId,
@@ -206,11 +226,11 @@ function tikTokPrepared(
     canonicalLink: resolvedUrl,
     extraction,
     cachedFiles,
-    contentType: extraction?.content_type ?? details?.contentType ?? inferContentType(cachedFiles),
-    creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
-    likesDisplay: extraction?.likes == null ? details?.likesDisplay ?? null : formatStat(extraction.likes),
-    viewsDisplay: extraction?.views == null ? details?.viewsDisplay ?? null : formatStat(extraction.views),
-    telegramFileCacheAllowed: true,
+    contentType: deliveryExtraction?.content_type ?? details?.contentType ?? inferContentType(cachedFiles),
+    creatorUsername: trustedExtraction?.creator_username ?? details?.creatorUsername ?? null,
+    likesDisplay: trustedExtraction?.likes == null ? details?.likesDisplay ?? null : formatStat(trustedExtraction.likes),
+    viewsDisplay: trustedExtraction?.views == null ? details?.viewsDisplay ?? null : formatStat(trustedExtraction.views),
+    extractionCacheAllowed,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
@@ -221,8 +241,10 @@ function instagramPrepared(
   details: VideoDetailsRecord | null,
   extraction: InstagramExtraction | null,
   cachedFiles: TelegramFileReference[] | null,
-  telegramFileCacheAllowed: boolean,
+  extractionCacheAllowed: boolean,
 ): PreparedMedia {
+  const trustedExtraction = extractionCacheAllowed ? extraction : null;
+  const deliveryExtraction = extractionCacheAllowed || !cachedFiles ? extraction : null;
   return {
     platform: "instagram",
     platformVideoId,
@@ -230,11 +252,11 @@ function instagramPrepared(
     canonicalLink: canonicalInstagramUrl(sourceLink),
     extraction,
     cachedFiles,
-    contentType: extraction?.content_type ?? details?.contentType ?? inferContentType(cachedFiles),
-    creatorUsername: extraction?.creator_username ?? details?.creatorUsername ?? null,
+    contentType: deliveryExtraction?.content_type ?? details?.contentType ?? inferContentType(cachedFiles),
+    creatorUsername: trustedExtraction?.creator_username ?? details?.creatorUsername ?? null,
     likesDisplay: null,
     viewsDisplay: null,
-    telegramFileCacheAllowed,
+    extractionCacheAllowed,
     cacheIdentity: { cacheVersion: details?.cacheVersion ?? null, detailsId: details?.id ?? null },
   };
 }
@@ -294,9 +316,10 @@ function canonicalInstagramUrl(value: string): string {
   return `https://www.instagram.com/${route}/${parts[1]}/`;
 }
 
-function instagramSourceIdMatches(actual: string, expected: string): boolean {
+function extractionSourceIdMatches(platform: VideoPlatform, actual: string, expected: string): boolean {
   if (actual === expected) return true;
-  logger.warn("tt-scrap returned a different Instagram source ID; delivering without caching Telegram file IDs", {
+  logger.warn("tt-scrap returned a different source ID; delivering without caching extraction data", {
+    platform,
     expected_source_id: expected,
     actual_source_id: actual,
   });

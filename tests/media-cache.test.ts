@@ -269,13 +269,14 @@ describe("Telegram media cache", () => {
     expect(memory.row.telegram_files).toEqual(mixed);
   });
 
-  test("delivers a mismatched Instagram extraction ID without caching its Telegram file ID", async () => {
+  test("delivers a mismatched Instagram extraction ID without caching its metadata or Telegram file ID", async () => {
     const memory = fakeDatabase(null);
     const scrap = fakeScrap({ instagramSourceId: "DIFFERENT" });
     let deliveries = 0;
     const completed = await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async (prepared) => {
       deliveries++;
-      expect(prepared.telegramFileCacheAllowed).toBe(false);
+      expect(prepared.extractionCacheAllowed).toBe(false);
+      expect(prepared.creatorUsername).toBeNull();
       return { value: "sent", telegramFiles: [videoFile] };
     });
     expect(completed.value).toBe("sent");
@@ -283,6 +284,9 @@ describe("Telegram media cache", () => {
     expect(memory.history).toHaveLength(1);
     expect(memory.row).toMatchObject({
       platform_video_id: "ABC123",
+      creator_username: null,
+      content_type: null,
+      metadata_refreshed_at: null,
       telegram_bot_id: null,
       telegram_files: null,
     });
@@ -292,6 +296,30 @@ describe("Telegram media cache", () => {
       telegramFiles: [videoFile],
     }));
     expect(scrap.instagramExtractions).toBe(2);
+  });
+
+  test("does not replace valid TikTok cache data when extraction returns another post", async () => {
+    const refreshedAt = now - 86_400;
+    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: refreshedAt, telegram_files: [videoFile] }));
+    const scrap = fakeScrap({ tiktokSourceId: "DIFFERENT", tiktokContentType: "slideshow" });
+    const completed = await executeTikTokMediaRequest(request(memory.db, scrap.client), async (prepared) => {
+      expect(prepared.extractionCacheAllowed).toBe(false);
+      expect(prepared.cachedFiles).toEqual([videoFile]);
+      expect(prepared.contentType).toBe("video");
+      expect(prepared.creatorUsername).toBe("old-creator");
+      expect(prepared.likesDisplay).toBe("1.2K");
+      return { value: "sent" };
+    });
+    expect(completed.cacheHit).toBe(true);
+    expect(memory.invalidations).toBe(0);
+    expect(memory.row).toMatchObject({
+      creator_username: "old-creator",
+      content_type: "video",
+      likes_display: "1.2K",
+      views_display: "1M",
+      metadata_refreshed_at: refreshedAt,
+      telegram_files: [videoFile],
+    });
   });
 
   test("coalesces concurrent misses so only the first request uploads", async () => {
@@ -386,11 +414,11 @@ function photoFiles(count: number): TelegramFileReference[] {
   return Array.from({ length: count }, (_, position) => ({ position, media_type: "photo", file_id: `photo-${position}`, file_unique_id: `photo-unique-${position}` }));
 }
 
-function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; tiktokExtractionError?: unknown; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
+function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; tiktokExtractionError?: unknown; tiktokSourceId?: string; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
   const counts = { resolutions: 0, tiktokExtractions: 0, instagramExtractions: 0 };
   const tiktokContentType = options.tiktokContentType ?? "video";
   const extraction: TikTokExtraction = {
-    extraction_id: "extraction", platform: "tiktok", source_id: "123", source_url: "source",
+    extraction_id: "extraction", platform: "tiktok", source_id: options.tiktokSourceId ?? "123", source_url: "source",
     resolved_url: `https://www.tiktok.com/@creator/${tiktokContentType === "video" ? "video" : "photo"}/123`, creator_username: "creator", content_type: tiktokContentType,
     likes: 1_234, views: 999_950, media: tiktokContentType === "video"
       ? [{ asset_id: "a", kind: "video", position: 0, download_url: "/a", filename: "a.mp4", expires_at: new Date().toISOString() }]
