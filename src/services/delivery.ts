@@ -104,9 +104,9 @@ export function telegramFileFromMessage(message: Message, position: number): Tel
   const photo = message.photo?.at(-1);
   return photo ? { position, media_type: "photo", file_id: photo.file_id, file_unique_id: photo.file_unique_id } : null;
 }
-export function telegramFilesFromResult(result: TelegramDeliveryResult): TelegramFileReference[] {
+export function telegramFilesFromResult(result: TelegramDeliveryResult): TelegramFileReference[] | undefined {
   const files = allMessages(result).map(telegramFileFromMessage);
-  if (files.some((file) => file === null)) throw new Error("Standard media delivery returned an item without a reusable Telegram file ID");
+  if (files.length === 0 || files.some((file) => file === null)) return undefined;
   return files as TelegramFileReference[];
 }
 export function inlineMediaFromFiles(files: TelegramFileReference[]): InlineMediaReference[] {

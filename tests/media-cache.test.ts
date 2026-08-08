@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TtScrapClient } from "../src/clients/tt-scrap.ts";
-import type { TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
+import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
 import type { Database } from "../src/db/client.ts";
 import type { TelegramFileReference } from "../src/db/videos.ts";
 import { albumBatches } from "../src/services/cached-delivery.ts";
@@ -60,6 +60,18 @@ describe("Telegram media cache", () => {
     expect(memory.history[0]).toMatchObject({ cacheHit: false, mode: "document" });
   });
 
+  test("TikTok document mode preserves standard IDs when the extracted media shape changed", async () => {
+    const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] }));
+    const scrap = fakeScrap({ tiktokContentType: "slideshow" });
+    await executeTikTokMediaRequest({ ...request(memory.db, scrap.client), fileMode: true }, async (prepared) => {
+      expect(prepared.cachedFiles).toBeNull();
+      expect(prepared.contentType).toBe("slideshow");
+      return { value: "document-sent" };
+    });
+    expect(memory.invalidations).toBe(0);
+    expect(memory.row.telegram_files).toEqual([videoFile]);
+  });
+
   test("confirmed invalid IDs are invalidated and retried through extraction exactly once", async () => {
     const memory = fakeDatabase(detailsRow({ metadata_refreshed_at: now - 10, telegram_files: [videoFile] }));
     const scrap = fakeScrap();
@@ -103,6 +115,35 @@ describe("Telegram media cache", () => {
     expect(scrap.instagramExtractions).toBe(0);
   });
 
+  test("Instagram document mode preserves standard IDs when the extracted media shape changed", async () => {
+    const mixed: TelegramFileReference[] = [
+      { position: 0, media_type: "photo", file_id: "p", file_unique_id: "pu" },
+      { position: 1, media_type: "video", file_id: "v", file_unique_id: "vu" },
+    ];
+    const memory = fakeDatabase(detailsRow({ platform: "instagram", platform_video_id: "ABC123", content_type: "carousel", telegram_files: mixed }));
+    const scrap = fakeScrap();
+    await executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/", fileMode: true }, async (prepared) => {
+      expect(prepared.cachedFiles).toBeNull();
+      expect(prepared.contentType).toBe("video");
+      return { value: "document-sent" };
+    });
+    expect(memory.invalidations).toBe(0);
+    expect(memory.row.telegram_files).toEqual(mixed);
+  });
+
+  test("rejects a mismatched Instagram extraction ID before delivery or persistence", async () => {
+    const memory = fakeDatabase(null);
+    const scrap = fakeScrap({ instagramSourceId: "DIFFERENT" });
+    let deliveries = 0;
+    await expect(executeInstagramMediaRequest({ ...request(memory.db, scrap.client), link: "https://www.instagram.com/p/ABC123/" }, async () => {
+      deliveries++;
+      return { value: "sent", telegramFiles: [videoFile] };
+    })).rejects.toMatchObject({ code: "invalid_response", status: 502 });
+    expect(deliveries).toBe(0);
+    expect(memory.history).toHaveLength(0);
+    expect(memory.row).toEqual({});
+  });
+
   test("coalesces concurrent misses so only the first request uploads", async () => {
     const memory = fakeDatabase(null);
     const scrap = fakeScrap();
@@ -131,20 +172,27 @@ function request(db: Database, scrap: TtScrapClient) {
   return { db, scrap, link: "https://www.tiktok.com/t/SHORT/", userId: 7, botId: 999, fileMode: false, deliverySurface: "chat" as const, now };
 }
 
-function fakeScrap(): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
+function fakeScrap(options: { tiktokContentType?: TikTokExtraction["content_type"]; instagramSourceId?: string } = {}): { client: TtScrapClient; resolutions: number; tiktokExtractions: number; instagramExtractions: number } {
   const counts = { resolutions: 0, tiktokExtractions: 0, instagramExtractions: 0 };
+  const tiktokContentType = options.tiktokContentType ?? "video";
   const extraction: TikTokExtraction = {
     extraction_id: "extraction", platform: "tiktok", source_id: "123", source_url: "source",
-    resolved_url: "https://www.tiktok.com/@creator/video/123", creator_username: "creator", content_type: "video",
-    likes: 1_234, views: 999_950, media: [{ asset_id: "a", kind: "video", position: 0, download_url: "/a", filename: "a.mp4", expires_at: new Date().toISOString() }],
+    resolved_url: `https://www.tiktok.com/@creator/${tiktokContentType === "video" ? "video" : "photo"}/123`, creator_username: "creator", content_type: tiktokContentType,
+    likes: 1_234, views: 999_950, media: tiktokContentType === "video"
+      ? [{ asset_id: "a", kind: "video", position: 0, download_url: "/a", filename: "a.mp4", expires_at: new Date().toISOString() }]
+      : [0, 1].map((position) => ({ asset_id: `a-${position}`, kind: "image" as const, position, download_url: `/a-${position}`, filename: `a-${position}.jpg`, expires_at: new Date().toISOString() })),
     expires_at: new Date().toISOString(),
+  };
+  const instagramExtraction: InstagramExtraction = {
+    extraction_id: "ig", platform: "instagram", source_id: options.instagramSourceId ?? "ABC123", source_url: "https://www.instagram.com/p/ABC123/",
+    creator_username: "creator", content_type: "video", media: [{ position: 0, media_type: "video", asset: extraction.media[0]! }], expires_at: new Date().toISOString(),
   };
   const client = {
     async resolveTikTok(url: string) { counts.resolutions++; return { platform: "tiktok" as const, source_id: "123", source_url: url, resolved_url: extraction.resolved_url }; },
     async extractTikTok() { counts.tiktokExtractions++; return extraction; },
     async extractInstagram(url: string) {
       counts.instagramExtractions++;
-      return { extraction_id: "ig", platform: "instagram" as const, source_id: "ABC123", source_url: url, creator_username: "creator", content_type: "video" as const, media: [{ position: 0, media_type: "video" as const, asset: extraction.media[0]! }], expires_at: new Date().toISOString() };
+      return { ...instagramExtraction, source_url: url };
     },
   } as unknown as TtScrapClient;
   return Object.assign(counts, { client });

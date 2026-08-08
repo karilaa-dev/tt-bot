@@ -26,6 +26,23 @@ describe("TtScrapClient", () => {
     expect(resolved.source_id).toBe("7669880788879543583");
   });
 
+  test("retries retryable TikTok resolution failures with the configured callback", async () => {
+    let requests = 0;
+    const retries: Array<[number, number]> = [];
+    const client = start(() => {
+      requests++;
+      if (requests === 1) return Response.json({ error: { code: "upstream_timeout", message: "timed out", request_id: "request-1" } }, { status: 504 });
+      return Response.json({ platform: "tiktok", source_id: "7669880788879543583", source_url: "https://vm.tiktok.com/token", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583" });
+    });
+    const resolved = await client.resolveTikTok("https://vm.tiktok.com/token", {
+      attempts: 2,
+      onRetry: async (attempt, maxRetries) => { retries.push([attempt, maxRetries]); },
+    });
+    expect(resolved.source_id).toBe("7669880788879543583");
+    expect(requests).toBe(2);
+    expect(retries).toEqual([[1, 1]]);
+  });
+
   test("hydrates a raw Telegram result without wrapping or copying it", async () => {
     const client = start(async (request) => {
       expect(request.headers.get("authorization")).toBe("Bearer test-api-key-that-is-long-enough");

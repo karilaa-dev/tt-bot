@@ -12,7 +12,7 @@ import {
 } from "../db/videos.ts";
 import { logger } from "../logging.ts";
 import { formatStat } from "../ui/stats.ts";
-import { PartialDeliveryError } from "../bot/errors.ts";
+import { PartialDeliveryError, TtScrapError } from "../bot/errors.ts";
 
 const TIKTOK_METADATA_TTL_SECONDS = 24 * 60 * 60;
 const locks = new Map<string, Promise<void>>();
@@ -61,13 +61,13 @@ export type MediaDeliverer<T> = (prepared: PreparedMedia) => Promise<MediaDelive
 export async function executeTikTokMediaRequest<T>(options: BaseRequestOptions, deliver: MediaDeliverer<T>): Promise<CompletedMediaRequest<T>> {
   // Resolution is intentionally always first. It is cheap and gives the stable ID
   // needed for a database lookup before any extraction/download work.
-  const resolution = await options.scrap.resolveTikTok(options.link);
+  const resolution = await options.scrap.resolveTikTok(options.link, options.retry);
   const key = `tiktok:${resolution.source_id}`;
   return withMediaLock(key, async () => {
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "tiktok", resolution.source_id);
     let extraction: TikTokExtraction | null = null;
-    let cachedFiles = validStoredFiles(details, options.botId, "tiktok");
+    let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "tiktok");
     const stale = !details?.metadataRefreshedAt || now - details.metadataRefreshedAt >= TIKTOK_METADATA_TTL_SECONDS;
     if (options.fileMode || !cachedFiles || stale) {
       extraction = await options.scrap.extractTikTok(resolution.resolved_url, options.retry);
@@ -91,17 +91,18 @@ export async function executeInstagramMediaRequest<T>(options: BaseRequestOption
     const now = options.now ?? Math.floor(Date.now() / 1000);
     const details = await getVideoDetails(options.db, "instagram", localId);
     let extraction: InstagramExtraction | null = null;
-    let cachedFiles = validStoredFiles(details, options.botId, "instagram");
+    let cachedFiles = options.fileMode ? null : validStoredFiles(details, options.botId, "instagram");
     if (options.fileMode || !cachedFiles) extraction = await options.scrap.extractInstagram(options.link, options.retry);
+    if (extraction) validateInstagramSourceId(extraction.source_id, localId);
     if (extraction && cachedFiles && !filesMatchExtraction(cachedFiles, extraction)) {
       await invalidateKnownFiles(options.db, details);
       cachedFiles = null;
     }
-    const platformId = extraction?.source_id ?? localId;
-    const prepared = instagramPrepared(options.link, platformId, details, extraction, options.fileMode ? null : cachedFiles);
+    const prepared = instagramPrepared(options.link, localId, details, extraction, cachedFiles);
     return perform(options, prepared, details, deliver, async () => {
       const refreshed = extraction ?? await options.scrap.extractInstagram(options.link, options.retry);
-      return instagramPrepared(options.link, refreshed.source_id, details, refreshed, null);
+      validateInstagramSourceId(refreshed.source_id, localId);
+      return instagramPrepared(options.link, localId, details, refreshed, null);
     }, now);
   });
 }
@@ -263,6 +264,16 @@ function canonicalInstagramUrl(value: string): string {
   const parts = url.pathname.split("/").filter(Boolean);
   const route = parts[0]?.toLowerCase() === "reels" ? "reel" : parts[0]?.toLowerCase();
   return `https://www.instagram.com/${route}/${parts[1]}/`;
+}
+
+function validateInstagramSourceId(actual: string, expected: string): void {
+  if (actual === expected) return;
+  throw new TtScrapError(
+    "invalid_response",
+    "tt-scrap returned an Instagram source ID that does not match the requested post",
+    "unknown",
+    502,
+  );
 }
 
 async function withMediaLock<T>(key: string, operation: () => Promise<T>): Promise<T> {

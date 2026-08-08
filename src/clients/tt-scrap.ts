@@ -36,15 +36,15 @@ export class TtScrapClient {
   }
 
   extractTikTok(url: string, options: RetryOptions = {}): Promise<TikTokExtraction> {
-    return this.extractWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
+    return this.requestWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
   }
 
-  resolveTikTok(url: string): Promise<TikTokResolution> {
-    return this.post("/v1/tiktok/resolutions", { url }, this.config.ttScrapRequestTimeoutMs, isTikTokResolution);
+  resolveTikTok(url: string, options: RetryOptions = {}): Promise<TikTokResolution> {
+    return this.requestWithRetry("/v1/tiktok/resolutions", { url }, isTikTokResolution, options);
   }
 
   extractInstagram(url: string, options: RetryOptions = {}): Promise<InstagramExtraction> {
-    return this.extractWithRetry("/v1/instagram/extractions", { url, refresh: false }, isInstagramExtraction, options);
+    return this.requestWithRetry("/v1/instagram/extractions", { url, refresh: false }, isInstagramExtraction, options);
   }
 
   deliverTikTok(request: TikTokDeliveryRequest): Promise<TelegramDeliveryResult> {
@@ -55,7 +55,7 @@ export class TtScrapClient {
     return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, expectedMethod);
   }
 
-  private async extractWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {
+  private async requestWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {
     const attempts = Math.max(1, options.attempts ?? 1);
     let last: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -63,7 +63,7 @@ export class TtScrapClient {
         return await this.post(path, body, this.config.ttScrapRequestTimeoutMs, validate);
       } catch (error) {
         last = error;
-        if (attempt >= attempts || !isRetryableExtractionError(error)) throw error;
+        if (attempt >= attempts || !isRetryableRequestError(error)) throw error;
         await options.onRetry?.(attempt, attempts - 1);
         await Bun.sleep(Math.min(4_000, 500 * 2 ** (attempt - 1)));
       }
@@ -181,7 +181,7 @@ async function parseJson(response: Response): Promise<unknown> {
   try { return await response.json(); }
   catch { throw new TtScrapError("invalid_response", "tt-scrap returned invalid JSON", response.headers.get("x-request-id") || "unknown", response.status); }
 }
-function isRetryableExtractionError(error: unknown): boolean {
+function isRetryableRequestError(error: unknown): boolean {
   return error instanceof TtScrapError && (
     ["upstream_network_error", "upstream_extraction_error", "upstream_timeout", "upstream_rate_limited"].includes(error.code)
     || [429, 502, 503, 504].includes(error.status)

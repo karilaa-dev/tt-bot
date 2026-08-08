@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Message } from "grammy/types";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
-import { DeliveryService, inlineMediaFromMessage, inlineMediaPayload } from "../src/services/delivery.ts";
+import { DeliveryService, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult } from "../src/services/delivery.ts";
 import { testConfig } from "./helpers.ts";
 
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -16,6 +16,7 @@ const extraction: TikTokExtraction = {
 };
 const message: Message = { message_id: 42, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, photo: [{ file_id: "p", file_unique_id: "pu", width: 1, height: 1, file_size: 1 }] };
 const videoMessage: Message = { message_id: 43, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, video: { file_id: "v", file_unique_id: "vu", width: 1, height: 1, duration: 1 } };
+const documentMessage: Message = { message_id: 44, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, document: { file_id: "d", file_unique_id: "du" } };
 
 function instagramExtraction(contentType: InstagramExtraction["content_type"], mediaTypes: Array<"image" | "video">): InstagramExtraction {
   return {
@@ -93,5 +94,17 @@ describe("DeliveryService", () => {
     expect(video).toEqual({ type: "video", fileId: "v" });
     expect(inlineMediaPayload(photo!, "en", "https://www.instagram.com/p/ABC123").type).toBe("photo");
     expect(inlineMediaPayload(video!, "en", "https://www.instagram.com/p/ABC123")).toMatchObject({ type: "video", supports_streaming: true });
+  });
+
+  test("collects complete ordered reusable file IDs", () => {
+    expect(telegramFilesFromResult({ calls: [{ method: "sendMediaGroup", statusCode: 200, result: [message, videoMessage] }] })).toEqual([
+      { position: 0, media_type: "photo", file_id: "p", file_unique_id: "pu" },
+      { position: 1, media_type: "video", file_id: "v", file_unique_id: "vu" },
+    ]);
+  });
+
+  test("skips file-ID caching when a successful delivery has no reusable standard-media ID", () => {
+    expect(telegramFilesFromResult({ calls: [{ method: "sendVideo", statusCode: 200, result: documentMessage }] })).toBeUndefined();
+    expect(telegramFilesFromResult({ calls: [] })).toBeUndefined();
   });
 });
