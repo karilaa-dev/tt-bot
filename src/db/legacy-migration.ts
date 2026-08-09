@@ -40,18 +40,31 @@ export async function runLegacyMigration(databaseUrl: string, options: LegacyMig
   if (!Number.isSafeInteger(batchSize) || batchSize <= 0) throw new Error("Migration batch size must be a positive integer");
   const progress = options.onProgress ?? (() => undefined);
   const sql = new SQL({ url: databaseUrl, max: 4, idleTimeout: 60, connectionTimeout: 15, maxLifetime: 0 });
-  const lock = await sql.reserve();
+  return withReservedMigrationConnection(sql, async (lock) => {
+    try {
+      const acquired = await lock<Array<{ locked: boolean }>>`SELECT pg_try_advisory_lock(hashtextextended(${ADVISORY_LOCK_KEY}, 0)) AS locked`;
+      if (!acquired[0]?.locked) throw new Error("Another legacy migration holds the PostgreSQL advisory lock");
+      // Run every phase on the reserved session that owns the advisory lock. If
+      // that session is lost, the migration fails with it instead of continuing
+      // on another pooled connection after PostgreSQL has released the lock.
+      return await migrate(lock, options, batchSize, progress);
+    } finally {
+      try { await lock`SELECT pg_advisory_unlock(hashtextextended(${ADVISORY_LOCK_KEY}, 0))`; } catch { /* connection may already be gone */ }
+      await lock.release();
+    }
+  });
+}
+
+/** Keep pool cleanup outside reservation so initial connection failures cannot leak it. */
+export async function withReservedMigrationConnection<Connection, Result>(
+  pool: { reserve: () => Promise<Connection>; close: () => Promise<void> },
+  operation: (connection: Connection) => Promise<Result>,
+): Promise<Result> {
   try {
-    const acquired = await lock<Array<{ locked: boolean }>>`SELECT pg_try_advisory_lock(hashtextextended(${ADVISORY_LOCK_KEY}, 0)) AS locked`;
-    if (!acquired[0]?.locked) throw new Error("Another legacy migration holds the PostgreSQL advisory lock");
-    // Run every phase on the reserved session that owns the advisory lock. If
-    // that session is lost, the migration fails with it instead of continuing
-    // on another pooled connection after PostgreSQL has released the lock.
-    return await migrate(lock, options, batchSize, progress);
+    const connection = await pool.reserve();
+    return await operation(connection);
   } finally {
-    try { await lock`SELECT pg_advisory_unlock(hashtextextended(${ADVISORY_LOCK_KEY}, 0))`; } catch { /* connection may already be gone */ }
-    await lock.release();
-    await sql.close();
+    await pool.close();
   }
 }
 

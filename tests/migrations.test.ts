@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { assertLegacySourceAudit, runLegacyMigration } from "../src/db/legacy-migration.ts";
+import { assertLegacySourceAudit, runLegacyMigration, withReservedMigrationConnection } from "../src/db/legacy-migration.ts";
 import { LEGACY_MIGRATION_COMMAND, runMigrations } from "../src/db/migrations.ts";
 
 test("legacy rebuild requires a production-copy rehearsal before connecting", async () => {
@@ -10,6 +10,20 @@ test("legacy rebuild requires a production-copy rehearsal before connecting", as
     productionCopyRehearsalConfirmed: false,
     availableBytes: 1n,
   })).rejects.toThrow("production-sized database copy");
+});
+
+test("legacy rebuild closes its pool when the initial connection reservation fails", async () => {
+  const connectionError = new Error("database unavailable");
+  let closes = 0;
+  let operations = 0;
+  const pool = {
+    async reserve(): Promise<never> { throw connectionError; },
+    async close(): Promise<void> { closes++; },
+  };
+  await expect(withReservedMigrationConnection(pool, async () => { operations++; }))
+    .rejects.toBe(connectionError);
+  expect(operations).toBe(0);
+  expect(closes).toBe(1);
 });
 
 test("legacy rebuild refuses audited NULL links before its copy phase", () => {
