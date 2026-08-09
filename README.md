@@ -48,6 +48,78 @@ bun run start
 
 The test suite is self-contained and does not connect to PostgreSQL. Exercise the offline migration against a verified database copy during rollout rather than from automated tests.
 
+### Real tt-scrap integration tests
+
+The opt-in integration suite runs the real bot handlers against a real tt-scrap
+process. It starts a local fake Telegram Bot API so no messages reach real users and
+uses an in-memory database boundary, so it does not connect to PostgreSQL. Media
+resolution, extraction, downloads, preparation, and tt-scrap delivery are real and
+therefore require live public posts and the upstream credentials used by tt-scrap.
+
+Create the ignored local fixture manifest and replace every placeholder with a live
+post. `expectedMediaTypes` must describe every item in source order; use `photo` for
+images and `video` for videos:
+
+```bash
+cp tests/integration/tt-scrap.fixtures.example.json \
+  tests/integration/tt-scrap.fixtures.local.json
+```
+
+By default the test starts the adjacent `../tt-scrap` checkout on port `18180`,
+using that checkout's `.env` for TikTok/Instagram credentials. It overrides only
+the tt-scrap API key and Telegram settings with test-only values:
+
+```bash
+bun run test:integration:tt-scrap
+```
+
+Set `TT_SCRAP_REPO` when the checkout is elsewhere. Ports and the fixture path may
+also be changed:
+
+```bash
+TT_SCRAP_REPO=/path/to/tt-scrap \
+TT_SCRAP_INTEGRATION_SERVER_PORT=19180 \
+TT_SCRAP_INTEGRATION_TELEGRAM_PORT=19181 \
+TT_SCRAP_INTEGRATION_FIXTURES=/path/to/fixtures.json \
+bun run test:integration:tt-scrap
+```
+
+To use an already running service, it must use the same bot token as the test and
+must point its `TELEGRAM_API_BASE_URL` to the fake Telegram port before it starts.
+The default test token is
+`123456789:integration-test-token-not-a-real-secret`; override it on both sides with
+`TT_SCRAP_INTEGRATION_BOT_TOKEN` if needed. Then run:
+
+```bash
+TT_SCRAP_INTEGRATION_EXTERNAL_BASE_URL=http://127.0.0.1:8000 \
+TT_SCRAP_API_KEY=your-api-key \
+bun run test:integration:tt-scrap
+```
+
+The matrix covers TikTok video, one-image slideshow, and multi-image slideshow plus
+Instagram video, image, and mixed carousel. For every fixture it verifies:
+
+- A never-downloaded chat request uploads through tt-scrap, stores ordered file IDs,
+  and records `cache_hit = false`.
+- A repeated request reuses the stored IDs and records `cache_hit = true` without a
+  new extraction or tt-scrap delivery.
+- A TikTok cache older than 24 hours performs a real metadata extraction, refreshes
+  its rounded stats, and still records a cache hit while reusing valid IDs.
+- A confirmed invalid cached ID is invalidated once, re-extracted, uploaded again
+  through tt-scrap, and recorded as a cache miss with replacement IDs.
+- Document mode always extracts and uploads, records `delivery_mode = document`, and
+  leaves standard-media file IDs unchanged.
+- A first inline request stages through tt-scrap and persists its IDs; the next inline
+  request uses the cache. Multi-item inline results show one item with navigation,
+  while single-item results have no slideshow navigation.
+- Videos and one-image posts carry the caption on the media message. A gallery uses
+  Telegram media groups followed by one caption text message in chat. Inline results
+  always edit one inline media message and put its caption on that media.
+- TikTok ID-bearing route variants (`/@/video`, `/v`, `/embed`, `/player/v1`, and
+  `item_id`) and Instagram host/tracking variants map back to the same cache record.
+
+Normal `bun test` does not make live tt-scrap calls; it reports this suite as skipped.
+
 Instagram standard-media cache entries intentionally have no periodic expiry. They are refreshed only after Telegram rejects a stored file ID or after document delivery detects a changed media shape; the 24-hour metadata refresh applies only to TikTok.
 
 Maintenance mode is available separately:
