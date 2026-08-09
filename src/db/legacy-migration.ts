@@ -10,6 +10,8 @@ export interface LegacyMigrationOptions {
   preflightConfirmed: boolean;
   /** Optional exact free bytes on the PostgreSQL data filesystem. */
   availableBytes?: bigint;
+  /** Container startup may continue when the database is already current or empty. */
+  skipWhenMigrationNotNeeded?: boolean;
   batchSize?: number;
   /** Test hook: return after a committed phase without cutting over. */
   stopAfterPhase?: "audit" | "identity" | "details" | "copy" | "constraints" | "verification";
@@ -28,6 +30,15 @@ interface StateRow { last_pk: bigint | string; counters: Record<string, unknown>
 interface BoundaryRow { end_pk: bigint | string | null }
 interface EvidenceRow { status: string; evidence: Record<string, unknown> | string }
 type MigrationConnection = Awaited<ReturnType<SQLType["reserve"]>>;
+export type LegacyVideosSchema = "legacy" | "final" | "absent" | "unknown";
+
+export function classifyLegacyVideosSchema(columnNames: Iterable<string>): LegacyVideosSchema {
+  const columns = new Set(columnNames);
+  if (columns.size === 0) return "absent";
+  if (["video_link", "is_images", "is_processed", "is_inline"].every((name) => columns.has(name))) return "legacy";
+  if (["shared_link", "video_details_id", "media_kind"].every((name) => columns.has(name))) return "final";
+  return "unknown";
+}
 
 export async function runLegacyMigration(databaseUrl: string, options: LegacyMigrationOptions): Promise<LegacyMigrationResult> {
   if (!options.preflightConfirmed) {
@@ -71,13 +82,14 @@ export async function withReservedMigrationConnection<Connection, Result>(
 }
 
 async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions, batchSize: number, progress: (message: string) => void): Promise<LegacyMigrationResult> {
-  const shape = await sql<Array<{ column_name: string; data_type: string }>>`SELECT column_name, data_type
+  const shape = await sql<Array<{ column_name: string }>>`SELECT column_name
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'videos'`;
-  const columns = new Map(shape.map((row) => [row.column_name, row.data_type]));
-  const legacy = columns.has("video_link") && columns.has("is_images") && columns.has("is_processed") && columns.has("is_inline");
-  const final = columns.has("shared_link") && columns.has("video_details_id") && columns.has("media_kind");
-  if (final && !legacy) {
+  const schema = classifyLegacyVideosSchema(shape.map((row) => row.column_name));
+  if (schema === "final") {
     const completed = await completedEvidence(sql);
+    if (!completed && options.skipWhenMigrationNotNeeded) {
+      return { status: "complete", phase: "not-needed", evidence: { reason: "videos schema is already current" } };
+    }
     if (!completed) throw new Error("Final videos schema exists but the legacy migration has no completed audit row");
     // Repair the only safe partial-cutover remainder without rebuilding history.
     // The explicit offline command still provides the backup/stopped-process
@@ -85,7 +97,10 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
     await recoverFinalUserColumns(sql);
     return { status: "complete", phase: "cutover", evidence: await completedEvidence(sql) ?? completed };
   }
-  if (!legacy) throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
+  if (schema === "absent" && options.skipWhenMigrationNotNeeded) {
+    return { status: "complete", phase: "not-needed", evidence: { reason: "videos table does not exist yet" } };
+  }
+  if (schema !== "legacy") throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
   await validateLegacyShape(sql);
   await createControlTables(sql);
   const conflicting = await sql<Array<{ migration_id: string }>>`SELECT migration_id FROM migration_audit
@@ -224,10 +239,10 @@ async function sourceAudit(sql: SQLType): Promise<Record<string, string>> {
       COALESCE(SUM(user_id::numeric), 0)::text AS user_id_sum,
       COALESCE(SUM(COALESCE(downloaded_at, 0)::numeric), 0)::text AS downloaded_at_sum,
       COALESCE(SUM(hashtextextended(jsonb_build_array(
-        pk_id, user_id, downloaded_at, video_link,
-        CASE WHEN is_images THEN 'images' ELSE 'video' END,
-        CASE WHEN is_inline THEN 'inline' ELSE 'chat' END,
-        NULL, FALSE
+        pk_id::bigint, user_id::bigint, downloaded_at::bigint, video_link::text,
+        (CASE WHEN is_images THEN 'images' ELSE 'video' END)::varchar,
+        (CASE WHEN is_inline THEN 'inline' ELSE 'chat' END)::varchar,
+        NULL::varchar, FALSE::boolean
       )::text, 0)::numeric), 0)::text AS row_fingerprint,
       COALESCE(MAX(length(video_link)), 0)::text AS max_shared_link_length
     FROM videos`;
@@ -695,7 +710,10 @@ async function verifyRebuild(sql: SQLType, evidence: Record<string, unknown>): P
       COALESCE(SUM(pk_id::numeric), 0)::text AS pk_sum,
       COALESCE(SUM(user_id::numeric), 0)::text AS user_id_sum,
       COALESCE(SUM(COALESCE(downloaded_at, 0)::numeric), 0)::text AS downloaded_at_sum,
-      COALESCE(SUM(hashtextextended(jsonb_build_array(pk_id, user_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit)::text, 0)::numeric), 0)::text AS row_fingerprint,
+      COALESCE(SUM(hashtextextended(jsonb_build_array(
+        pk_id::bigint, user_id::bigint, downloaded_at::bigint, shared_link::text,
+        media_kind::varchar, delivery_surface::varchar, delivery_mode::varchar, cache_hit::boolean
+      )::text, 0)::numeric), 0)::text AS row_fingerprint,
       COUNT(*) FILTER (WHERE media_kind = 'images')::text AS images_count,
       COUNT(*) FILTER (WHERE delivery_surface = 'inline')::text AS inline_count,
       COUNT(*) FILTER (WHERE video_details_id IS NOT NULL)::text AS linked_details_count

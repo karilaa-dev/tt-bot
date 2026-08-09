@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { SQL } from "bun";
-import { assertLegacySourceAudit, runLegacyMigration, withReservedMigrationConnection } from "../src/db/legacy-migration.ts";
+import {
+  assertLegacySourceAudit,
+  classifyLegacyVideosSchema,
+  runLegacyMigration,
+  withReservedMigrationConnection,
+} from "../src/db/legacy-migration.ts";
 import { LEGACY_MIGRATION_COMMAND, runMigrations } from "../src/db/migrations.ts";
 
 test("legacy rebuild requires one explicit preflight acknowledgement before connecting", async () => {
@@ -28,6 +33,15 @@ test("legacy rebuild closes its pool when the initial connection reservation fai
     .rejects.toBe(connectionError);
   expect(operations).toBe(0);
   expect(closes).toBe(1);
+});
+
+test("classifies fresh, legacy, current, and malformed videos schemas", () => {
+  expect(classifyLegacyVideosSchema([])).toBe("absent");
+  expect(classifyLegacyVideosSchema(["pk_id", "video_link", "is_images", "is_processed", "is_inline"]))
+    .toBe("legacy");
+  expect(classifyLegacyVideosSchema(["pk_id", "shared_link", "video_details_id", "media_kind"]))
+    .toBe("final");
+  expect(classifyLegacyVideosSchema(["pk_id", "video_link"])).toBe("unknown");
 });
 
 test("legacy rebuild refuses audited NULL links before its copy phase", () => {

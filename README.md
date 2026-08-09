@@ -168,6 +168,7 @@ The production image includes the migration code. In Dokploy:
 4. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
 
 If the container is interrupted, leave the old bot stopped and redeploy with the same variable; completed batches are not repeated. Do not run multiple migration replicas.
+On a brand-new database or one that already has the current schema, this startup mode skips the legacy rebuild and continues with normal bot initialization. An unrecognized partial `videos` schema still fails safely.
 
 If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
 
