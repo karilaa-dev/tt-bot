@@ -10,4 +10,4 @@ COPY scripts ./scripts
 COPY src ./src
 
 USER bun
-CMD ["bun", "run", "start"]
+CMD ["bun", "run", "scripts/start.ts"]
