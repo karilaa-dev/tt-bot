@@ -158,14 +158,15 @@ bun run db:migrate-legacy --confirm
 
 `--confirm` acknowledges that the processes are stopped and a restorable backup is available. Re-running the same command resumes the last committed batch. On a fresh database or one already using the current schema, it exits successfully without rebuilding anything; an unrecognized partial schema still fails. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup.
 
-### Run the migration from Dokploy
+### Run the migration from a Dokploy Railpack application
 
-The production image includes the migration code. In Dokploy:
+The repository's `railpack.json` makes Railpack start `scripts/start.ts` directly, so no custom start command or Dockerfile build is needed. In Dokploy:
 
-1. Stop the existing bot deployment (and any separate stats process), then create and verify the database backup.
-2. Add `MIGRATE_LEGACY_ON_START=confirmed` to the bot's environment.
-3. Deploy the new image with one replica and watch its logs. The container runs the resumable migration and starts the bot only after it completes.
-4. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
+1. Set the application build type to **Railpack** and use one replica.
+2. Stop the existing bot application (and any separate stats process), then create and verify the database backup.
+3. Add `MIGRATE_LEGACY_ON_START=confirmed` to the application's environment.
+4. Deploy this revision and watch its logs. The Railpack container runs the resumable migration and starts the bot only after it completes.
+5. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
 
 If the container is interrupted, leave the old bot stopped and redeploy with the same variable; completed batches are not repeated. Do not run multiple migration replicas.
 On a brand-new database or one that already has the current schema, this startup mode skips the legacy rebuild and continues with normal bot initialization. An unrecognized partial `videos` schema still fails safely.
