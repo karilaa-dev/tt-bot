@@ -11,7 +11,7 @@ const startupConfirmed = Bun.env.MIGRATE_LEGACY_ON_START?.trim().toLowerCase() =
 const result = await runLegacyMigration(databaseUrl, {
   preflightConfirmed: commandConfirmed || startupConfirmed,
   availableBytes: availableRaw ? BigInt(availableRaw) : undefined,
-  skipWhenMigrationNotNeeded: startupConfirmed,
+  skipWhenMigrationNotNeeded: true,
   onProgress: (message) => console.log(`[legacy-migration] ${message}`),
 });
 console.log(JSON.stringify(result, null, 2));

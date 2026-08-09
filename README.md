@@ -156,7 +156,7 @@ Run from a shell with the deployment's existing `DB_URL`:
 bun run db:migrate-legacy --confirm
 ```
 
-`--confirm` acknowledges that the processes are stopped and a restorable backup is available. Re-running the same command resumes the last committed batch. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup.
+`--confirm` acknowledges that the processes are stopped and a restorable backup is available. Re-running the same command resumes the last committed batch. On a fresh database or one already using the current schema, it exits successfully without rebuilding anything; an unrecognized partial schema still fails. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup.
 
 ### Run the migration from Dokploy
 
