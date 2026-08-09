@@ -144,29 +144,30 @@ TT_SCRAP_OPENAPI_FILE=../tt-scrap/openapi.json bun run api:generate
 
 The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. Identity parsing, detail aggregation/finalization, and history copying are resumable in 100,000-primary-key batches. The rebuild records its source audit, parsing totals, checksums, verification, and cutover status in `migration_audit`.
 
-Before running it:
-
-1. Deploy the matching `tt-scrap` API.
-2. Stop the bot and any legacy stats process.
-3. Create and verify an external PostgreSQL backup.
-4. Rehearse the complete rebuild and destructive cutover on a production-sized copy, including audit review and restore from the verified backup.
-5. Check free bytes on the filesystem containing PostgreSQL data. The command requires a confirmed value and also enforces a conservative minimum of four times the source `videos` relation size.
+Before running it, deploy the matching `tt-scrap` API, stop the bot and any legacy stats process, and create a verified external PostgreSQL backup. A rehearsal on a production-sized copy is recommended. The migration prints its conservative free-space requirement (four times the source `videos` relation size); when you know the database filesystem's exact free bytes, set `LEGACY_MIGRATION_AVAILABLE_BYTES` and it will enforce that limit too.
 
 Do not start `bun run start` against the legacy schema; it intentionally exits with instructions to run the offline rebuild. `bun run maintenance` remains available because it does not access PostgreSQL. Aside from that optional notifier, `bun run db:migrate-legacy` must be the only application process accessing the database during the rebuild.
 
 If startup finds an already rebuilt `videos` table but legacy `users.ad_count` or `users.ad_cooldown` columns remain, the same offline command audits their exact nonzero counts, removes only those columns, and records the recovery in `migration_audit`; it does not rebuild history again.
 
-Run:
+Run from a shell with the deployment's existing `DB_URL`:
 
 ```bash
-LEGACY_MIGRATION_BACKUP_CONFIRMED=yes \
-LEGACY_MIGRATION_BOT_STOPPED=yes \
-LEGACY_MIGRATION_PRODUCTION_COPY_REHEARSAL_CONFIRMED=yes \
-LEGACY_MIGRATION_AVAILABLE_BYTES=30000000000 \
-bun run db:migrate-legacy
+bun run db:migrate-legacy --confirm
 ```
 
-Re-running the same command resumes the last committed batch. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup and the command refuses to run without explicit confirmation of a production-copy rehearsal.
+`--confirm` acknowledges that the processes are stopped and a restorable backup is available. Re-running the same command resumes the last committed batch. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup.
+
+### Run the migration from Dokploy
+
+The production image includes the migration code. In Dokploy:
+
+1. Stop the existing bot deployment (and any separate stats process), then create and verify the database backup.
+2. Add `MIGRATE_LEGACY_ON_START=confirmed` to the bot's environment.
+3. Deploy the new image with one replica and watch its logs. The container runs the resumable migration and starts the bot only after it completes.
+4. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
+
+If the container is interrupted, leave the old bot stopped and redeploy with the same variable; completed batches are not repeated. Do not run multiple migration replicas.
 
 If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
 

@@ -6,10 +6,10 @@ const DEFAULT_BATCH_SIZE = 100_000;
 const ADVISORY_LOCK_KEY = "tt-bot:002-media-cache-rebuild";
 
 export interface LegacyMigrationOptions {
-  backupConfirmed: boolean;
-  botStopped: boolean;
-  productionCopyRehearsalConfirmed: boolean;
-  availableBytes: bigint;
+  /** Acknowledges that writers are stopped and a restorable backup exists. */
+  preflightConfirmed: boolean;
+  /** Optional exact free bytes on the PostgreSQL data filesystem. */
+  availableBytes?: bigint;
   batchSize?: number;
   /** Test hook: return after a committed phase without cutting over. */
   stopAfterPhase?: "audit" | "identity" | "details" | "copy" | "constraints" | "verification";
@@ -30,12 +30,14 @@ interface EvidenceRow { status: string; evidence: Record<string, unknown> | stri
 type MigrationConnection = Awaited<ReturnType<SQLType["reserve"]>>;
 
 export async function runLegacyMigration(databaseUrl: string, options: LegacyMigrationOptions): Promise<LegacyMigrationResult> {
-  if (!options.backupConfirmed) throw new Error("Refusing migration: a completed and verified external backup must be confirmed");
-  if (!options.botStopped) throw new Error("Refusing migration: confirm that the bot and legacy stats processes are stopped");
-  if (!options.productionCopyRehearsalConfirmed) {
-    throw new Error("Refusing migration: rehearse the complete rebuild and destructive cutover on a production-sized database copy first");
+  if (!options.preflightConfirmed) {
+    throw new Error(
+      "Refusing migration: pass --confirm only after stopping the bot and stats processes and verifying a restorable backup",
+    );
   }
-  if (options.availableBytes <= 0n) throw new Error("Refusing migration: available database-filesystem bytes must be supplied");
+  if (options.availableBytes !== undefined && options.availableBytes <= 0n) {
+    throw new Error("Refusing migration: LEGACY_MIGRATION_AVAILABLE_BYTES must be greater than zero when supplied");
+  }
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   if (!Number.isSafeInteger(batchSize) || batchSize <= 0) throw new Error("Migration batch size must be a positive integer");
   const progress = options.onProgress ?? (() => undefined);
@@ -92,15 +94,19 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   const sizes = await sql<Array<{ source_bytes: bigint | string }>>`SELECT pg_total_relation_size('public.videos')::bigint AS source_bytes`;
   const sourceBytes = BigInt(sizes[0]?.source_bytes ?? 0);
   const requiredBytes = sourceBytes * 4n;
-  if (options.availableBytes < requiredBytes) {
+  if (options.availableBytes !== undefined && options.availableBytes < requiredBytes) {
     throw new Error(`Insufficient confirmed free space: ${options.availableBytes} bytes available, at least ${requiredBytes} required`);
   }
+  if (options.availableBytes === undefined) {
+    progress(`Ensure the PostgreSQL data filesystem has at least ${requiredBytes} free bytes (4x the videos relation)`);
+  }
+  const confirmedAvailableBytes = options.availableBytes?.toString() ?? null;
   const now = Math.floor(Date.now() / 1000);
   await sql`INSERT INTO migration_audit (migration_id, started_at, status, evidence)
     VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${now}, 'running', jsonb_build_object(
       'source_relation_bytes', ${sourceBytes.toString()}::text, 'required_free_bytes', ${requiredBytes.toString()}::text,
-      'confirmed_available_bytes', ${options.availableBytes.toString()}::text, 'batch_size', ${batchSize}::integer,
-      'production_copy_rehearsal_confirmed', TRUE
+      'confirmed_available_bytes', ${confirmedAvailableBytes}::text, 'batch_size', ${batchSize}::integer,
+      'operator_preflight_confirmed', TRUE
     )) ON CONFLICT (migration_id) DO NOTHING`;
 
   let evidence = await auditEvidence(sql);

@@ -6,7 +6,8 @@ RUN bun install --frozen-lockfile --production
 
 COPY tsconfig.json ./
 COPY locales ./locales
+COPY scripts ./scripts
 COPY src ./src
 
 USER bun
-CMD ["bun", "run", "src/main.ts"]
+CMD ["bun", "run", "start"]

@@ -3,13 +3,17 @@ import type { SQL } from "bun";
 import { assertLegacySourceAudit, runLegacyMigration, withReservedMigrationConnection } from "../src/db/legacy-migration.ts";
 import { LEGACY_MIGRATION_COMMAND, runMigrations } from "../src/db/migrations.ts";
 
-test("legacy rebuild requires a production-copy rehearsal before connecting", async () => {
+test("legacy rebuild requires one explicit preflight acknowledgement before connecting", async () => {
   await expect(runLegacyMigration("postgresql://unused", {
-    backupConfirmed: true,
-    botStopped: true,
-    productionCopyRehearsalConfirmed: false,
-    availableBytes: 1n,
-  })).rejects.toThrow("production-sized database copy");
+    preflightConfirmed: false,
+  })).rejects.toThrow("pass --confirm");
+});
+
+test("legacy rebuild rejects an invalid optional free-space value before connecting", async () => {
+  await expect(runLegacyMigration("postgresql://unused", {
+    preflightConfirmed: true,
+    availableBytes: 0n,
+  })).rejects.toThrow("LEGACY_MIGRATION_AVAILABLE_BYTES must be greater than zero");
 });
 
 test("legacy rebuild closes its pool when the initial connection reservation fails", async () => {

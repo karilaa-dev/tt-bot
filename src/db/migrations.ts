@@ -1,7 +1,7 @@
 import type { SQL } from "bun";
 
 export const MEDIA_CACHE_SCHEMA_VERSION = "002_media_cache";
-export const LEGACY_MIGRATION_COMMAND = "bun run db:migrate-legacy";
+export const LEGACY_MIGRATION_COMMAND = "bun run db:migrate-legacy --confirm";
 
 const expectedColumns: Record<string, Record<string, string>> = {
   users: { user_id: "bigint", registered_at: "bigint", lang: "character varying", link: "character varying", file_mode: "boolean" },
