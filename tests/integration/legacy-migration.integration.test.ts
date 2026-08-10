@@ -57,6 +57,8 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       ${1}, ${detailsId}, ${40}, ${"https://vm.tiktok.com/ONLINE/"},
       ${"video"}, ${"chat"}, ${"document"}, ${true}
     )`;
+    await live`UPDATE videos SET is_processed = TRUE
+      WHERE video_link = 'https://vm.tiktok.com/ONLINE/'`;
 
     const paused = await firstRun;
     expect(paused).toMatchObject({ status: "paused", phase: "identity" });

@@ -188,8 +188,6 @@ async function migrate(
   await ensureConstraint(sql, "videos_new_pkey");
   await createLegacyVideoSync(sql);
   await createRecordDownloadHistoryFunction(sql);
-  options.onBotReady?.();
-  if (options.signal?.aborted) return paused("audit", await auditEvidence(sql));
 
   // The safety audit predates the trigger by design. Capture a distinct,
   // durable upper bound only after trigger installation: earlier rows are now
@@ -210,6 +208,8 @@ async function migrate(
     throw new Error("Refusing migration: backfill evidence has no valid upper primary key");
   }
   const upperPk = BigInt(upperPkValue);
+  options.onBotReady?.();
+  if (options.signal?.aborted) return paused("audit", await auditEvidence(sql));
   await mergeEvidence(sql, {
     identity_parser_self_test: { case_count: 15, verified_at: Math.floor(Date.now() / 1000) },
   });
@@ -538,7 +538,7 @@ BEGIN
   )
   ON CONFLICT (pk_id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
-    video_details_id = EXCLUDED.video_details_id,
+    video_details_id = COALESCE(EXCLUDED.video_details_id, videos_new.video_details_id),
     downloaded_at = EXCLUDED.downloaded_at,
     shared_link = EXCLUDED.shared_link,
     media_kind = EXCLUDED.media_kind,
@@ -816,7 +816,8 @@ async function runDetailFinalizeBatches(
     progress(`Details finalization: completed through aggregate pk ${lastPk}`);
   }
   if (signal?.aborted) return false;
-  await sql`CREATE INDEX IF NOT EXISTS video_details_last_used_idx ON video_details (last_used_at DESC)`;
+  await dropInvalidConcurrentIndex(sql, "video_details_last_used_idx");
+  await sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS video_details_last_used_idx ON video_details (last_used_at DESC)`;
   await upsertState(sql, "details", lastPk, { ...counters, complete: true });
   return true;
 }
@@ -902,7 +903,11 @@ async function buildFinalConstraints(sql: SQLType): Promise<void> {
   await sql`ANALYZE videos_new`;
 }
 
-type ConcurrentIndexName = "videos_new_user_downloaded_idx" | "videos_new_downloaded_brin_idx" | "videos_new_details_idx";
+type ConcurrentIndexName =
+  | "video_details_last_used_idx"
+  | "videos_new_user_downloaded_idx"
+  | "videos_new_downloaded_brin_idx"
+  | "videos_new_details_idx";
 
 async function dropInvalidConcurrentIndex(sql: SQLType, name: ConcurrentIndexName): Promise<void> {
   const rows = await sql<Array<{ valid: boolean }>>`SELECT index_state.indisvalid AS valid
