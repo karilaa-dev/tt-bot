@@ -11,6 +11,8 @@ export interface RunBotOptions {
   allowLegacyMigration?: boolean;
   /** A rejection is fatal; successful background work leaves the bot running. */
   backgroundTasks?: Promise<unknown>[];
+  /** Ask background work to stop before closing shared process resources. */
+  onShutdown?: () => void;
 }
 
 export async function runBot(options: RunBotOptions = {}): Promise<void> {
@@ -32,6 +34,12 @@ export async function runBot(options: RunBotOptions = {}): Promise<void> {
     },
   });
   let shutdownPromise: Promise<void> | null = null;
+  let shutdownNotified = false;
+  function notifyShutdown(): void {
+    if (shutdownNotified) return;
+    shutdownNotified = true;
+    options.onShutdown?.();
+  }
   async function shutdown(reason: string): Promise<void> {
     logger.info(`Received ${reason}; stopping bot`);
     queue.shutdown();
@@ -40,6 +48,7 @@ export async function runBot(options: RunBotOptions = {}): Promise<void> {
     await db.close();
   }
   function requestShutdown(reason: string): void {
+    notifyShutdown();
     shutdownPromise ??= shutdown(reason);
   }
   process.once("SIGINT", () => requestShutdown("SIGINT"));
@@ -59,6 +68,7 @@ export async function runBot(options: RunBotOptions = {}): Promise<void> {
   }
   if (shutdownPromise) await shutdownPromise;
   else {
+    notifyShutdown();
     queue.shutdown();
     cleanupInlineSlideshows();
     await db.close();

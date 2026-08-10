@@ -21,6 +21,13 @@ test("legacy rebuild rejects an invalid optional free-space value before connect
   })).rejects.toThrow("LEGACY_MIGRATION_AVAILABLE_BYTES must be greater than zero");
 });
 
+test("legacy rebuild rejects an invalid live-table batch size before connecting", async () => {
+  await expect(runLegacyMigration("postgresql://unused", {
+    preflightConfirmed: true,
+    liveTableBatchSize: 0,
+  })).rejects.toThrow("Migration live-table batch size must be a positive integer");
+});
+
 test("legacy rebuild closes its pool when the initial connection reservation fails", async () => {
   const connectionError = new Error("database unavailable");
   let closes = 0;

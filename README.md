@@ -149,11 +149,11 @@ TT_SCRAP_OPENAPI_FILE=../tt-scrap/openapi.json bun run api:generate
 
 ## Online v5.4.6 database rebuild
 
-The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. It first creates the final cache and shadow-history tables, then installs a trigger that mirrors every legacy insert, update, and delete in the writer's transaction. Once that bridge is ready, the bot starts and identity parsing, detail aggregation/finalization, and history copying continue in resumable 100,000-primary-key batches.
+The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. It first performs a read-only source safety audit, then creates the final cache and shadow-history tables and installs always-enabled triggers that mirror every legacy insert, update, and delete while rejecting `TRUNCATE`. Once that bridge is ready, the bot starts and identity parsing, detail aggregation, and history copying continue in resumable 100,000-primary-key batches. Finalization into the live `video_details` cache uses smaller 1,000-row transactions to limit lock contention with bot requests.
 
 Before running it, deploy the matching `tt-scrap` API and create a verified external PostgreSQL backup. Stop or upgrade any separate legacy stats process before cutover because its old `videos` queries are not compatible with the final schema. A rehearsal on a production-sized copy is recommended. The migration prints its conservative free-space requirement (four times the source `videos` relation size); when you know the database filesystem's exact free bytes, set `LEGACY_MIGRATION_AVAILABLE_BYTES` and it will enforce that limit too.
 
-Ordinary `bun run start` still exits on a legacy schema. Set `MIGRATE_LEGACY_ON_START=confirmed` to use the guarded online path: startup waits only for the live-write bridge, then the bot serves while the rebuild continues. A migration error is fatal to the serving process so it cannot silently outrun a broken shadow copy.
+Ordinary `bun run start` still exits on a legacy schema. Set `MIGRATE_LEGACY_ON_START=confirmed` to use the guarded online path: startup waits for the read-only safety audit and live-write bridge, then the bot serves while the rebuild continues. A migration error is fatal to the serving process so it cannot silently outrun a broken shadow copy. On shutdown, the migration finishes only its current transaction, records no partial batch, closes its pool, and resumes from the last checkpoint on the next deployment.
 
 If startup finds an already rebuilt `videos` table but legacy `users.ad_count` or `users.ad_cooldown` columns remain, the same command audits their exact nonzero counts, removes only those columns, and records the recovery in `migration_audit`; it does not rebuild history again.
 
@@ -177,7 +177,7 @@ The repository's `railpack.json` makes Railpack start `scripts/start.ts` directl
 4. Deploy this revision and watch its logs. The bot starts as soon as live-write sync is ready, while the resumable history backfill continues in the same container.
 5. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
 
-If the container is interrupted, redeploy with the same variable; completed batches are not repeated and the durable trigger keeps the shadow table synchronized. Do not run multiple migration replicas.
+If the container is interrupted, redeploy with the same variable; completed batches are not repeated and the durable triggers keep the shadow table synchronized and protected from truncation. Do not run multiple migration replicas.
 On a brand-new database or one that already has the current schema, this startup mode skips the legacy rebuild and continues with normal bot initialization. An unrecognized partial `videos` schema still fails safely.
 
 If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:

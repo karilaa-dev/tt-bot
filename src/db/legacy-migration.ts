@@ -8,6 +8,7 @@ import {
 
 export const LEGACY_REBUILD_MIGRATION_ID = "002_media_cache_rebuild";
 const DEFAULT_BATCH_SIZE = 100_000;
+const DEFAULT_LIVE_TABLE_BATCH_SIZE = 1_000;
 const ADVISORY_LOCK_KEY = "tt-bot:002-media-cache-rebuild";
 
 export interface LegacyMigrationOptions {
@@ -18,6 +19,10 @@ export interface LegacyMigrationOptions {
   /** Container startup may continue when the database is already current or empty. */
   skipWhenMigrationNotNeeded?: boolean;
   batchSize?: number;
+  /** Smaller batches for upserts into tables used by the running bot. */
+  liveTableBatchSize?: number;
+  /** Stop after the current committed batch when the serving process shuts down. */
+  signal?: AbortSignal;
   /** Test hook: return after a committed phase without cutting over. */
   stopAfterPhase?: "audit" | "identity" | "details" | "copy" | "constraints" | "verification";
   /** Test hook for proving in-phase resumption after committed batches. */
@@ -60,6 +65,10 @@ export async function runLegacyMigration(databaseUrl: string, options: LegacyMig
   }
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   if (!Number.isSafeInteger(batchSize) || batchSize <= 0) throw new Error("Migration batch size must be a positive integer");
+  const liveTableBatchSize = options.liveTableBatchSize ?? DEFAULT_LIVE_TABLE_BATCH_SIZE;
+  if (!Number.isSafeInteger(liveTableBatchSize) || liveTableBatchSize <= 0) {
+    throw new Error("Migration live-table batch size must be a positive integer");
+  }
   const progress = options.onProgress ?? (() => undefined);
   const sql = new SQL({ url: databaseUrl, max: 4, idleTimeout: 60, connectionTimeout: 15, maxLifetime: 0 });
   return withReservedMigrationConnection(sql, async (lock) => {
@@ -69,7 +78,7 @@ export async function runLegacyMigration(databaseUrl: string, options: LegacyMig
       // Run every phase on the reserved session that owns the advisory lock. If
       // that session is lost, the migration fails with it instead of continuing
       // on another pooled connection after PostgreSQL has released the lock.
-      return await migrate(lock, options, batchSize, progress);
+      return await migrate(lock, options, batchSize, liveTableBatchSize, progress);
     } finally {
       try { await lock`SELECT pg_advisory_unlock(hashtextextended(${ADVISORY_LOCK_KEY}, 0))`; } catch { /* connection may already be gone */ }
       await lock.release();
@@ -90,7 +99,13 @@ export async function withReservedMigrationConnection<Connection, Result>(
   }
 }
 
-async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions, batchSize: number, progress: (message: string) => void): Promise<LegacyMigrationResult> {
+async function migrate(
+  sql: MigrationConnection,
+  options: LegacyMigrationOptions,
+  batchSize: number,
+  liveTableBatchSize: number,
+  progress: (message: string) => void,
+): Promise<LegacyMigrationResult> {
   const shape = await sql<Array<{ column_name: string }>>`SELECT column_name
     FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'videos'`;
   const schema = classifyLegacyVideosSchema(shape.map((row) => row.column_name));
@@ -114,6 +129,20 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   }
   if (schema !== "legacy") throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
   await validateLegacyShape(sql);
+
+  // Refuse unsafe source data before creating any migration artifacts or live
+  // triggers. A resumed migration reuses its immutable initial source audit.
+  let evidence = await existingAuditEvidence(sql) ?? {};
+  let initialAudit: { source: Record<string, string>; user: Record<string, string> } | null = null;
+  if (!("source_audit" in evidence)) {
+    progress("Running exact source audit (one full server-side scan)");
+    initialAudit = { source: await sourceAudit(sql), user: await userAudit(sql) };
+    assertLegacySourceAudit(initialAudit.source);
+  } else {
+    assertLegacySourceAudit(readObject(evidence.source_audit));
+  }
+  if (options.signal?.aborted) return paused("audit", evidence);
+
   await createControlTables(sql);
   const conflicting = await sql<Array<{ migration_id: string }>>`SELECT migration_id FROM migration_audit
     WHERE migration_id <> ${LEGACY_REBUILD_MIGRATION_ID} AND status NOT IN ('complete', 'failed') LIMIT 1`;
@@ -133,8 +162,17 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
     VALUES (${LEGACY_REBUILD_MIGRATION_ID}, ${now}, 'running', jsonb_build_object(
       'source_relation_bytes', ${sourceBytes.toString()}::text, 'required_free_bytes', ${requiredBytes.toString()}::text,
       'confirmed_available_bytes', ${confirmedAvailableBytes}::text, 'batch_size', ${batchSize}::integer,
+      'live_table_batch_size', ${liveTableBatchSize}::integer,
       'operator_preflight_confirmed', TRUE
     )) ON CONFLICT (migration_id) DO NOTHING`;
+
+  if (initialAudit) {
+    await mergeEvidence(sql, { source_audit: initialAudit.source, removed_user_columns: initialAudit.user });
+    evidence = await auditEvidence(sql);
+  }
+  const source = readObject(evidence.source_audit);
+  assertLegacySourceAudit(source);
+  if (options.stopAfterPhase === "audit" || options.signal?.aborted) return paused("audit", evidence);
 
   // Install the final cache schema and a trigger-backed shadow write path before
   // the long scans. From this point onward the bot can serve against the legacy
@@ -148,18 +186,7 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   await createLegacyVideoSync(sql);
   await createRecordDownloadHistoryFunction(sql);
   options.onBotReady?.();
-
-  let evidence = await auditEvidence(sql);
-  if (!("source_audit" in evidence)) {
-    progress("Running exact source audit (one full server-side scan)");
-    const source = await sourceAudit(sql);
-    const user = await userAudit(sql);
-    await mergeEvidence(sql, { source_audit: source, removed_user_columns: user });
-    evidence = await auditEvidence(sql);
-  }
-  const source = readObject(evidence.source_audit);
-  assertLegacySourceAudit(source);
-  if (options.stopAfterPhase === "audit") return paused("audit", evidence);
+  if (options.signal?.aborted) return paused("audit", await auditEvidence(sql));
 
   const upperPk = BigInt(source.max_pk as string);
   await mergeEvidence(sql, {
@@ -173,33 +200,50 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
     legacy_content_type VARCHAR NOT NULL,
     canonical_candidate TEXT
   )`;
-  const identityComplete = await runIdentityBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
+  const identityComplete = await runIdentityBatches(
+    sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun, options.signal,
+  );
   if (!identityComplete) return paused("identity", await auditEvidence(sql));
   await sql`CREATE INDEX IF NOT EXISTS legacy_video_identity_platform_id_idx
     ON legacy_video_identity (platform, platform_video_id)`;
   const identity = await identityAudit(sql);
   await mergeEvidence(sql, { identity });
-  if (options.stopAfterPhase === "identity") return paused("identity", await auditEvidence(sql));
+  if (options.stopAfterPhase === "identity" || options.signal?.aborted) {
+    return paused("identity", await auditEvidence(sql));
+  }
 
   if (!await phaseComplete(sql, "details")) {
     await createLegacyDetailAggregate(sql);
-    const aggregateComplete = await runDetailAggregateBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
+    const aggregateComplete = await runDetailAggregateBatches(
+      sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun, options.signal,
+    );
     if (!aggregateComplete) return paused("details", await auditEvidence(sql));
-    const detailsComplete = await runDetailFinalizeBatches(sql, batchSize, progress, options.maxBatchesPerPhaseRun);
+    const detailsComplete = await runDetailFinalizeBatches(
+      sql, liveTableBatchSize, progress, options.maxBatchesPerPhaseRun, options.signal,
+    );
     if (!detailsComplete) return paused("details", await auditEvidence(sql));
   }
-  if (options.stopAfterPhase === "details") return paused("details", await auditEvidence(sql));
+  if (options.stopAfterPhase === "details" || options.signal?.aborted) {
+    return paused("details", await auditEvidence(sql));
+  }
 
-  const copyComplete = await runCopyBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
+  const copyComplete = await runCopyBatches(
+    sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun, options.signal,
+  );
   if (!copyComplete) return paused("copy", await auditEvidence(sql));
-  if (options.stopAfterPhase === "copy") return paused("copy", await auditEvidence(sql));
+  if (options.stopAfterPhase === "copy" || options.signal?.aborted) {
+    return paused("copy", await auditEvidence(sql));
+  }
 
   if (!await phaseComplete(sql, "constraints")) {
+    if (options.signal?.aborted) return paused("constraints", await auditEvidence(sql));
     progress("Building indexes and validating final constraints");
     await buildFinalConstraints(sql);
     await markPhase(sql, "constraints", upperPk, {});
   }
-  if (options.stopAfterPhase === "constraints") return paused("constraints", await auditEvidence(sql));
+  if (options.stopAfterPhase === "constraints" || options.signal?.aborted) {
+    return paused("constraints", await auditEvidence(sql));
+  }
 
   progress("Verifying exact source/destination aggregates from one stable snapshot");
   if (options.stopAfterPhase === "verification") {
@@ -210,7 +254,8 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   }
 
   progress("Performing atomic cutover after online verification");
-  await verifyAndCutover(sql, options.onBeforeCutoverLock);
+  const cutoverComplete = await verifyAndCutover(sql, options.onBeforeCutoverLock, options.signal);
+  if (!cutoverComplete) return paused("verification", await auditEvidence(sql));
   return { status: "complete", phase: "cutover", evidence: await auditEvidence(sql) };
 }
 
@@ -480,22 +525,46 @@ BEGIN
   RETURN NEW;
 END
 $function$`);
+  await sql.unsafe(`CREATE OR REPLACE FUNCTION prevent_legacy_video_truncate()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+BEGIN
+  RAISE EXCEPTION 'TRUNCATE of legacy videos is blocked while its online shadow migration is active';
+END
+$function$`);
   await sql.begin(async (tx) => {
     // Keep the replacement under one table lock so an external legacy writer
     // cannot commit in the drop/create gap during a resumed migration.
     await tx`DROP TRIGGER IF EXISTS legacy_video_shadow_sync ON videos`;
+    await tx`DROP TRIGGER IF EXISTS legacy_video_truncate_guard ON videos`;
     await tx`CREATE TRIGGER legacy_video_shadow_sync
       AFTER INSERT OR UPDATE OR DELETE ON videos
       FOR EACH ROW EXECUTE FUNCTION sync_legacy_video_to_shadow()`;
+    await tx`CREATE TRIGGER legacy_video_truncate_guard
+      BEFORE TRUNCATE ON videos
+      FOR EACH STATEMENT EXECUTE FUNCTION prevent_legacy_video_truncate()`;
+    // ALWAYS triggers still fire for replication-role sessions, closing the
+    // only normal PostgreSQL path that can bypass an enabled origin trigger.
+    await tx`ALTER TABLE videos ENABLE ALWAYS TRIGGER legacy_video_shadow_sync`;
+    await tx`ALTER TABLE videos ENABLE ALWAYS TRIGGER legacy_video_truncate_guard`;
   });
 }
 
-async function runIdentityBatches(sql: SQLType, upperPk: bigint, batchSize: number, progress: (message: string) => void, maxBatches?: number): Promise<boolean> {
+async function runIdentityBatches(
+  sql: SQLType,
+  upperPk: bigint,
+  batchSize: number,
+  progress: (message: string) => void,
+  maxBatches?: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
   let state = await stateFor(sql, "identity");
   let lastPk = BigInt(state?.last_pk ?? 0);
   let counters = numberCounters(state?.counters);
   let batchesThisRun = 0;
   while (lastPk < upperPk) {
+    if (signal?.aborted) return false;
     if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
     const boundary = await sql<BoundaryRow[]>`SELECT MAX(pk_id) AS end_pk FROM (
       SELECT pk_id FROM videos WHERE pk_id > ${lastPk} AND pk_id <= ${upperPk} ORDER BY pk_id LIMIT ${batchSize}
@@ -588,12 +657,14 @@ async function runDetailAggregateBatches(
   batchSize: number,
   progress: (message: string) => void,
   maxBatches?: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const state = await stateFor(sql, "details_aggregate");
   let lastPk = BigInt(state?.last_pk ?? 0);
   let counters = numberCounters(state?.counters);
   let batchesThisRun = 0;
   while (lastPk < upperPk) {
+    if (signal?.aborted) return false;
     if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
     const boundary = await sql<BoundaryRow[]>`SELECT MAX(legacy_pk) AS end_pk FROM (
       SELECT legacy_pk FROM legacy_video_identity
@@ -669,6 +740,7 @@ async function runDetailFinalizeBatches(
   batchSize: number,
   progress: (message: string) => void,
   maxBatches?: number,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const upperRows = await sql<Array<{ max_pk: bigint | string | null }>>`SELECT MAX(pk_id) AS max_pk FROM legacy_video_detail_aggregate`;
   const upperPk = BigInt(upperRows[0]?.max_pk ?? 0);
@@ -677,6 +749,7 @@ async function runDetailFinalizeBatches(
   let counters = numberCounters(state?.counters);
   let batchesThisRun = 0;
   while (lastPk < upperPk) {
+    if (signal?.aborted) return false;
     if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
     const boundary = await sql<BoundaryRow[]>`SELECT MAX(pk_id) AS end_pk FROM (
       SELECT pk_id FROM legacy_video_detail_aggregate
@@ -721,6 +794,7 @@ async function runDetailFinalizeBatches(
     batchesThisRun++;
     progress(`Details finalization: completed through aggregate pk ${lastPk}`);
   }
+  if (signal?.aborted) return false;
   await sql`CREATE INDEX IF NOT EXISTS video_details_last_used_idx ON video_details (last_used_at DESC)`;
   await upsertState(sql, "details", lastPk, { ...counters, complete: true });
   return true;
@@ -740,12 +814,20 @@ async function createVideosNew(sql: SQLType): Promise<void> {
   )`;
 }
 
-async function runCopyBatches(sql: SQLType, upperPk: bigint, batchSize: number, progress: (message: string) => void, maxBatches?: number): Promise<boolean> {
+async function runCopyBatches(
+  sql: SQLType,
+  upperPk: bigint,
+  batchSize: number,
+  progress: (message: string) => void,
+  maxBatches?: number,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const state = await stateFor(sql, "copy");
   let lastPk = BigInt(state?.last_pk ?? 0);
   let counters = numberCounters(state?.counters);
   let batchesThisRun = 0;
   while (lastPk < upperPk) {
+    if (signal?.aborted) return false;
     if (maxBatches !== undefined && batchesThisRun >= maxBatches) return false;
     const boundary = await sql<BoundaryRow[]>`SELECT MAX(pk_id) AS end_pk FROM (
       SELECT pk_id FROM videos WHERE pk_id > ${lastPk} AND pk_id <= ${upperPk} ORDER BY pk_id LIMIT ${batchSize}
@@ -859,21 +941,30 @@ async function verifyRebuild(sql: SQLType): Promise<VerificationEvidence> {
   return { source, destination, integrity: checks, verified_at: String(Math.floor(Date.now() / 1000)) };
 }
 
-async function verifyAndCutover(sql: SQLType, onBeforeCutoverLock?: () => Promise<void>): Promise<void> {
-  await sql.begin("isolation level repeatable read", async (tx) => {
+async function verifyAndCutover(
+  sql: SQLType,
+  onBeforeCutoverLock?: () => Promise<void>,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (signal?.aborted) return false;
+  return await sql.begin("isolation level repeatable read", async (tx) => {
     // The trigger writes source and shadow rows in the same transaction, so one
     // repeatable-read snapshot can compare them without pausing the bot.
     const verification = await verifyRebuild(tx);
     const upperPk = BigInt(verification.source.max_pk ?? "0");
     await onBeforeCutoverLock?.();
+    if (signal?.aborted) return false;
 
     // Gate schema-aware bot calls first. Direct legacy writers do not take this
     // advisory lock; the table lock waits for their trigger-backed transaction
     // and queues any new writes without creating a reverse lock dependency.
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${HISTORY_CUTOVER_LOCK_KEY}, 0))`;
     await tx`LOCK TABLE videos, videos_new, users IN ACCESS EXCLUSIVE MODE`;
-    const trigger = await tx<Array<{ enabled: boolean }>>`SELECT COALESCE(bool_and(tgenabled <> 'D'), FALSE) AS enabled
-      FROM pg_trigger WHERE tgrelid = 'public.videos'::regclass AND tgname = 'legacy_video_shadow_sync'`;
+    const trigger = await tx<Array<{ enabled: boolean }>>`SELECT
+        COUNT(*) = 2 AND COALESCE(bool_and(tgenabled = 'A'), FALSE) AS enabled
+      FROM pg_trigger
+      WHERE tgrelid = 'public.videos'::regclass
+        AND tgname IN ('legacy_video_shadow_sync', 'legacy_video_truncate_guard')`;
     if (!trigger[0]?.enabled) throw new Error("Legacy live-write sync trigger is not enabled; cutover aborted");
 
     await mergeEvidence(tx, { verification });
@@ -889,6 +980,7 @@ async function verifyAndCutover(sql: SQLType, onBeforeCutoverLock?: () => Promis
     await tx`DROP TABLE legacy_video_identity`;
     await tx`DROP TABLE IF EXISTS legacy_video_detail_aggregate`;
     await tx`DROP FUNCTION sync_legacy_video_to_shadow()`;
+    await tx`DROP FUNCTION prevent_legacy_video_truncate()`;
     await tx`DROP FUNCTION parse_legacy_video_identity(TEXT)`;
     await tx`ALTER TABLE videos RENAME CONSTRAINT videos_new_pkey TO videos_pkey`;
     await tx`ALTER INDEX videos_new_user_downloaded_idx RENAME TO videos_user_downloaded_idx`;
@@ -903,6 +995,7 @@ async function verifyAndCutover(sql: SQLType, onBeforeCutoverLock?: () => Promis
       ))
       WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
     await upsertState(tx, "cutover", upperPk, { complete: true });
+    return true;
   });
 }
 
@@ -968,6 +1061,13 @@ async function mergeEvidence(sql: SQLType, value: Record<string, unknown>): Prom
 async function auditEvidence(sql: SQLType): Promise<Record<string, unknown>> {
   const rows = await sql<EvidenceRow[]>`SELECT status, evidence FROM migration_audit WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
   return readObject(rows[0]?.evidence);
+}
+
+async function existingAuditEvidence(sql: SQLType): Promise<Record<string, unknown> | null> {
+  const relation = await sql<Array<{ name: string | null }>>`SELECT to_regclass('public.migration_audit')::text AS name`;
+  if (!relation[0]?.name) return null;
+  const rows = await sql<EvidenceRow[]>`SELECT status, evidence FROM migration_audit WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
+  return rows[0] ? readObject(rows[0].evidence) : null;
 }
 
 async function completedEvidence(sql: SQLType): Promise<Record<string, unknown> | null> {

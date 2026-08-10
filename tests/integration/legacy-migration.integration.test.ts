@@ -19,11 +19,18 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
 
     let markReady!: () => void;
     const ready = new Promise<void>((resolve) => { markReady = resolve; });
+    const migrationAbort = new AbortController();
     const firstRun = runLegacyMigration(databaseUrl, {
       preflightConfirmed: true,
       batchSize: 1,
-      stopAfterPhase: "copy",
+      liveTableBatchSize: 1,
+      signal: migrationAbort.signal,
       onBotReady: markReady,
+      onProgress: (message) => {
+        // Interrupt only after a transactionally checkpointed batch so the
+        // next process proves it can resume without replaying that batch.
+        if (message.startsWith("Identity phase: completed")) migrationAbort.abort();
+      },
     });
 
     await ready;
@@ -38,7 +45,13 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
     )`;
 
     const paused = await firstRun;
-    expect(paused).toMatchObject({ status: "paused", phase: "copy" });
+    expect(paused).toMatchObject({ status: "paused", phase: "identity" });
+    const identityState = await live<Array<{ last_pk: bigint | string; complete: boolean }>>`SELECT
+        last_pk, COALESCE((counters->>'complete')::boolean, FALSE) AS complete
+      FROM legacy_migration_state
+      WHERE migration_id = '002_media_cache_rebuild' AND phase = 'identity'`;
+    expect(BigInt(identityState[0]!.last_pk)).toBe(1n);
+    expect(identityState[0]!.complete).toBe(false);
 
     // The trigger is durable independently of the migration process, so a
     // direct legacy writer remains mirrored between an interrupted run and its
@@ -48,11 +61,23 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
     ) VALUES (
       1, 50, 'https://www.tiktok.com/@_/photo/9002', TRUE, FALSE, TRUE
     )`;
+    await live.begin(async (tx) => {
+      await tx`SET LOCAL session_replication_role = replica`;
+      await tx`INSERT INTO videos (
+        user_id, downloaded_at, video_link, is_images, is_processed, is_inline
+      ) VALUES (
+        1, 55, 'https://www.tiktok.com/@_/video/9003', FALSE, FALSE, FALSE
+      )`;
+    });
+    await expect(live`TRUNCATE videos`).rejects.toThrow(
+      "TRUNCATE of legacy videos is blocked while its online shadow migration is active",
+    );
 
     let cutoverWrite: Promise<unknown> | null = null;
     const result = await runLegacyMigration(databaseUrl, {
       preflightConfirmed: true,
       batchSize: 1,
+      liveTableBatchSize: 1,
       onBeforeCutoverLock: async () => {
         let markWriterStarted!: () => void;
         const writerStarted = new Promise<void>((resolve) => { markWriterStarted = resolve; });
@@ -93,7 +118,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       delivery_mode: string | null;
       cache_hit: boolean;
     }>>`SELECT shared_link, video_details_id, delivery_mode, cache_hit FROM videos ORDER BY pk_id`;
-    expect(history).toHaveLength(7);
+    expect(history).toHaveLength(8);
     const onlineHistory = history.find((row) => row.shared_link.endsWith("/ONLINE/"));
     expect(onlineHistory).toMatchObject({
       delivery_mode: "document",
@@ -116,6 +141,38 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       to_regclass('public.legacy_video_identity')::text AS identity,
       to_regprocedure('public.parse_legacy_video_identity(text)')::text AS parser`;
     expect(staging[0]).toEqual({ videos_new: null, identity: null, parser: null });
+  } finally {
+    if (live) await live.close();
+    try { await admin.unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`); } finally { await admin.close(); }
+  }
+}, 30_000);
+
+integrationTest("unsafe legacy rows are refused before migration artifacts are installed", async () => {
+  const adminUrl = requiredDatabaseUrl();
+  const databaseName = `tt_bot_migration_invalid_${process.pid}_${crypto.randomUUID().replaceAll("-", "")}`;
+  const databaseUrl = databaseUrlFor(adminUrl, databaseName);
+  const admin = new SQL({ url: adminUrl, max: 1, connectionTimeout: 10, idleTimeout: 10 });
+  let live: SQL | null = null;
+
+  try {
+    await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
+    live = new SQL({ url: databaseUrl, max: 2, connectionTimeout: 10, idleTimeout: 10 });
+    await seedLegacyDatabase(live);
+    await live`ALTER TABLE videos ALTER COLUMN video_link DROP NOT NULL`;
+    await live`UPDATE videos SET video_link = NULL WHERE pk_id = 1`;
+
+    await expect(runLegacyMigration(databaseUrl, { preflightConfirmed: true }))
+      .rejects.toThrow("source audit found 1 videos rows with a NULL video_link");
+
+    const artifacts = await live<Array<{
+      audit: string | null;
+      shadow: string | null;
+      sync_function: string | null;
+    }>>`SELECT
+      to_regclass('public.migration_audit')::text AS audit,
+      to_regclass('public.videos_new')::text AS shadow,
+      to_regprocedure('public.sync_legacy_video_to_shadow()')::text AS sync_function`;
+    expect(artifacts[0]).toEqual({ audit: null, shadow: null, sync_function: null });
   } finally {
     if (live) await live.close();
     try { await admin.unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`); } finally { await admin.close(); }

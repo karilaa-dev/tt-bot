@@ -22,10 +22,12 @@ if (migrationMode === "confirmed") {
     markBotReady = resolve;
     rejectBotReady = reject;
   });
+  const migrationAbort = new AbortController();
   const migrationTask = runLegacyMigration(databaseUrl, {
     preflightConfirmed: true,
     availableBytes: availableRaw ? BigInt(availableRaw) : undefined,
     skipWhenMigrationNotNeeded: true,
+    signal: migrationAbort.signal,
     onBotReady: markBotReady,
     onProgress: (message) => console.log(`[legacy-migration] ${message}`),
   });
@@ -37,7 +39,18 @@ if (migrationMode === "confirmed") {
   }).catch(() => undefined);
   await botReady;
   console.log("[startup] Database write path is ready; starting the bot while any history backfill continues");
-  await runBot({ allowLegacyMigration: true, backgroundTasks: [migrationTask] });
+  try {
+    await runBot({
+      allowLegacyMigration: true,
+      backgroundTasks: [migrationTask],
+      onShutdown: () => migrationAbort.abort(),
+    });
+  } finally {
+    // The migration owns its own pool. Wait for its current transaction to
+    // commit and observe cancellation so shutdown cannot strand that pool.
+    migrationAbort.abort();
+    await migrationTask;
+  }
 } else {
   await runBot();
 }
