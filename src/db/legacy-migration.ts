@@ -134,17 +134,11 @@ async function migrate(
   if (schema !== "legacy") throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
   await validateLegacyShape(sql);
 
-  // Refuse unsafe source data before creating any migration artifacts or live
-  // triggers. A resumed migration reuses its immutable initial source audit.
+  // The expected legacy schema makes video_link NOT NULL, so the shape check
+  // above can reject an unsafe source in constant time. Keep the exact scan as
+  // durable evidence, but do not put it on the bot-readiness path.
   let evidence = await existingAuditEvidence(sql) ?? {};
-  let initialAudit: { source: Record<string, string>; user: Record<string, string> } | null = null;
-  if (!("source_audit" in evidence)) {
-    progress("Running exact source audit (one full server-side scan)");
-    initialAudit = { source: await sourceAudit(sql), user: await userAudit(sql) };
-    assertLegacySourceAudit(initialAudit.source);
-  } else {
-    assertLegacySourceAudit(readObject(evidence.source_audit));
-  }
+  if ("source_audit" in evidence) assertLegacySourceAudit(readObject(evidence.source_audit));
   if (options.signal?.aborted) return paused("audit", evidence);
 
   await createControlTables(sql);
@@ -170,13 +164,7 @@ async function migrate(
       'operator_preflight_confirmed', TRUE
     )) ON CONFLICT (migration_id) DO NOTHING`;
 
-  if (initialAudit) {
-    await mergeEvidence(sql, { source_audit: initialAudit.source, removed_user_columns: initialAudit.user });
-    evidence = await auditEvidence(sql);
-  }
-  const source = readObject(evidence.source_audit);
-  assertLegacySourceAudit(source);
-  if (options.stopAfterPhase === "audit" || options.signal?.aborted) return paused("audit", evidence);
+  evidence = await auditEvidence(sql);
   await options.onBeforeBridge?.();
 
   // Install the final cache schema and a trigger-backed shadow write path before
@@ -212,6 +200,21 @@ async function migrate(
   const upperPk = BigInt(upperPkValue);
   options.onBotReady?.();
   if (options.signal?.aborted) return paused("audit", await auditEvidence(sql));
+
+  // The trigger and durable bound now cover every write, so the expensive
+  // evidence scan can run alongside the serving bot. A resumed migration
+  // reuses the first completed audit rather than repeating it.
+  evidence = await auditEvidence(sql);
+  if (!("source_audit" in evidence)) {
+    progress("Running exact source audit in the background (one full server-side scan)");
+    const initialAudit = { source: await sourceAudit(sql), user: await userAudit(sql) };
+    assertLegacySourceAudit(initialAudit.source);
+    await mergeEvidence(sql, { source_audit: initialAudit.source, removed_user_columns: initialAudit.user });
+    evidence = await auditEvidence(sql);
+  } else {
+    assertLegacySourceAudit(readObject(evidence.source_audit));
+  }
+  if (options.stopAfterPhase === "audit" || options.signal?.aborted) return paused("audit", evidence);
   await mergeEvidence(sql, {
     identity_parser_self_test: { case_count: 15, verified_at: Math.floor(Date.now() / 1000) },
   });
@@ -292,12 +295,18 @@ async function validateLegacyShape(sql: SQLType): Promise<void> {
     users: ["user_id", "registered_at", "lang", "link", "file_mode"],
     music: ["pk_id", "user_id", "downloaded_at", "video_id"],
   };
-  const rows = await sql<Array<{ table_name: string; column_name: string }>>`SELECT table_name, column_name FROM information_schema.columns
+  const rows = await sql<Array<{ table_name: string; column_name: string; is_nullable: string }>>`SELECT
+      table_name, column_name, is_nullable
+    FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name IN ('videos', 'users', 'music')`;
   for (const [table, names] of Object.entries(required)) {
     const found = new Set(rows.filter((row) => row.table_name === table).map((row) => row.column_name));
     const missing = names.filter((name) => !found.has(name));
     if (missing.length) throw new Error(`Legacy ${table} table is missing required columns: ${missing.join(", ")}`);
+  }
+  const videoLink = rows.find((row) => row.table_name === "videos" && row.column_name === "video_link");
+  if (videoLink?.is_nullable !== "NO") {
+    throw new Error("Legacy videos.video_link must be NOT NULL before the online migration can start");
   }
   const sequence = await sql<Array<{ name: string | null }>>`SELECT to_regclass('public.videos_pk_id_seq')::text AS name`;
   if (!sequence[0]?.name) throw new Error("Legacy videos_pk_id_seq sequence was not found");

@@ -19,16 +19,20 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
 
     let markReady!: () => void;
     const ready = new Promise<void>((resolve) => { markReady = resolve; });
+    const startupMilestones: string[] = [];
     const migrationAbort = new AbortController();
     const firstRun = runLegacyMigration(databaseUrl, {
       preflightConfirmed: true,
       batchSize: 1,
       liveTableBatchSize: 1,
       signal: migrationAbort.signal,
-      onBotReady: markReady,
+      onBotReady: () => {
+        startupMilestones.push("bot-ready");
+        markReady();
+      },
       onBeforeBridge: async () => {
-        // This writer lands after the immutable safety audit but before the
-        // mirror trigger. The post-trigger bound must still backfill it.
+        // This writer lands after constant-time schema safety checks but before
+        // the mirror trigger. The post-trigger bound must still backfill it.
         await live!`INSERT INTO videos (
           user_id, downloaded_at, video_link, is_images, is_processed, is_inline
         ) VALUES (
@@ -36,6 +40,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
         )`;
       },
       onProgress: (message) => {
+        if (message.startsWith("Running exact source audit")) startupMilestones.push("source-audit");
         // Interrupt only after a transactionally checkpointed batch so the
         // next process proves it can resume without replaying that batch.
         if (message.startsWith("Identity phase: completed")) migrationAbort.abort();
@@ -68,6 +73,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
 
     const paused = await firstRun;
     expect(paused).toMatchObject({ status: "paused", phase: "identity" });
+    expect(startupMilestones.slice(0, 2)).toEqual(["bot-ready", "source-audit"]);
     const identityState = await live<Array<{ last_pk: bigint | string; complete: boolean }>>`SELECT
         last_pk, COALESCE((counters->>'complete')::boolean, FALSE) AS complete
       FROM legacy_migration_state
@@ -239,7 +245,7 @@ integrationTest("unsafe legacy rows are refused before migration artifacts are i
     await live`UPDATE videos SET video_link = NULL WHERE pk_id = 1`;
 
     await expect(runLegacyMigration(databaseUrl, { preflightConfirmed: true }))
-      .rejects.toThrow("source audit found 1 videos rows with a NULL video_link");
+      .rejects.toThrow("Legacy videos.video_link must be NOT NULL");
 
     const artifacts = await live<Array<{
       audit: string | null;
