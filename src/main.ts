@@ -54,10 +54,16 @@ export async function runBot(options: RunBotOptions = {}): Promise<void> {
   process.once("SIGINT", () => requestShutdown("SIGINT"));
   process.once("SIGTERM", () => requestShutdown("SIGTERM"));
   const runnerTask = runner.task();
-  const backgroundFailures = (options.backgroundTasks ?? []).map((task) => task.then(
-    () => new Promise<never>(() => undefined),
-    (error) => Promise.reject(error),
-  ));
+  const backgroundFailures = (options.backgroundTasks ?? []).map((task) => {
+    const failure = task.then(
+      () => new Promise<never>(() => undefined),
+      (error) => Promise.reject(error),
+    );
+    // Promise.race observes these during normal serving. Keep an explicit
+    // terminal handler for a late rejection after shutdown (or no runner task).
+    void failure.catch(() => undefined);
+    return failure;
+  });
   try {
     if (runnerTask) await Promise.race([runnerTask, ...backgroundFailures]);
   } catch (error) {
