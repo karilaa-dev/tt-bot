@@ -2,6 +2,12 @@ import type { SQL } from "bun";
 
 export const MEDIA_CACHE_SCHEMA_VERSION = "002_media_cache";
 export const LEGACY_MIGRATION_COMMAND = "bun run db:migrate-legacy --confirm";
+export const HISTORY_CUTOVER_LOCK_KEY = "tt-bot:video-history-cutover";
+
+export interface RunMigrationsOptions {
+  /** The online rebuild has installed the final cache schema and live-write bridge. */
+  allowLegacyMigration?: boolean;
+}
 
 const expectedColumns: Record<string, Record<string, string>> = {
   users: { user_id: "bigint", registered_at: "bigint", lang: "character varying", link: "character varying", file_mode: "boolean" },
@@ -23,15 +29,19 @@ const expectedColumns: Record<string, Record<string, string>> = {
 /**
  * Initialize a new database or validate the post-rebuild schema.
  *
- * Deliberately do not mutate a legacy database here: rebuilding tens of millions
- * of rows is an operator-run offline action, never a bot-startup side effect.
+ * Deliberately do not start a legacy rebuild here. The confirmed startup path
+ * prepares its online bridge first and only then allows the bot to initialize.
  */
-export async function runMigrations(sql: SQL): Promise<void> {
+export async function runMigrations(sql: SQL, options: RunMigrationsOptions = {}): Promise<void> {
   const existing = await columnsFor(sql, ["users", "videos", "music", "video_details"]);
   const videos = existing.get("videos");
   if (videos?.has("video_link") || videos?.has("is_images") || videos?.has("is_processed") || videos?.has("is_inline")) {
+    if (options.allowLegacyMigration) {
+      validateOnlineMigrationSchema(existing);
+      return;
+    }
     throw new Error(
-      `Legacy videos schema detected. Stop the bot and stats processes, create a verified backup, then run: ${LEGACY_MIGRATION_COMMAND}`,
+      `Legacy videos schema detected. Create a verified backup, then run: ${LEGACY_MIGRATION_COMMAND}`,
     );
   }
 
@@ -97,6 +107,7 @@ export async function runMigrations(sql: SQL): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS videos_user_downloaded_idx ON videos (user_id, downloaded_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS videos_downloaded_brin_idx ON videos USING BRIN (downloaded_at)`;
   await sql`CREATE INDEX IF NOT EXISTS videos_details_idx ON videos (video_details_id) WHERE video_details_id IS NOT NULL`;
+  await createRecordDownloadHistoryFunction(sql);
   await sql`CREATE TABLE IF NOT EXISTS music (
     pk_id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(user_id),
@@ -113,6 +124,63 @@ export async function runMigrations(sql: SQL): Promise<void> {
   await sql`INSERT INTO schema_migrations (version, applied_at)
     VALUES (${MEDIA_CACHE_SCHEMA_VERSION}, ${Math.floor(Date.now() / 1000)})
     ON CONFLICT (version) DO NOTHING`;
+}
+
+/**
+ * Keep one stable history-write API while the physical videos table is swapped.
+ * The shared transaction lock prevents a call from choosing a schema on one
+ * side of the cutover and executing on the other side.
+ */
+export async function createRecordDownloadHistoryFunction(sql: SQL): Promise<void> {
+  await sql.unsafe(`CREATE OR REPLACE FUNCTION record_download_history(
+  requested_user_id BIGINT,
+  requested_video_details_id BIGINT,
+  requested_downloaded_at BIGINT,
+  requested_shared_link TEXT,
+  requested_media_kind VARCHAR,
+  requested_delivery_surface VARCHAR,
+  requested_delivery_mode VARCHAR,
+  requested_cache_hit BOOLEAN
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  legacy_schema BOOLEAN;
+  inserted_pk BIGINT;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('${HISTORY_CUTOVER_LOCK_KEY}', 0));
+  SELECT EXISTS (
+    SELECT 1 FROM pg_attribute
+    WHERE attrelid = 'public.videos'::regclass AND attname = 'video_link' AND NOT attisdropped
+  ) INTO legacy_schema;
+
+  IF legacy_schema THEN
+    INSERT INTO videos (user_id, downloaded_at, video_link, is_images, is_processed, is_inline)
+    VALUES (
+      requested_user_id, requested_downloaded_at, requested_shared_link,
+      requested_media_kind = 'images', FALSE, requested_delivery_surface = 'inline'
+    )
+    RETURNING pk_id INTO inserted_pk;
+
+    -- The legacy row cannot represent these final-schema fields. Its sync
+    -- trigger creates the shadow row in the same transaction, so enrich it now.
+    UPDATE videos_new SET
+      video_details_id = requested_video_details_id,
+      delivery_mode = requested_delivery_mode,
+      cache_hit = requested_cache_hit
+    WHERE pk_id = inserted_pk;
+  ELSE
+    INSERT INTO videos (
+      user_id, video_details_id, downloaded_at, shared_link,
+      media_kind, delivery_surface, delivery_mode, cache_hit
+    ) VALUES (
+      requested_user_id, requested_video_details_id, requested_downloaded_at, requested_shared_link,
+      requested_media_kind, requested_delivery_surface, requested_delivery_mode, requested_cache_hit
+    );
+  END IF;
+END
+$function$`);
 }
 
 export async function createTelegramFilesValidator(sql: SQL): Promise<void> {
@@ -160,6 +228,21 @@ async function columnsFor(sql: SQL, tables: string[]): Promise<Map<string, Map<s
     found.set(row.table_name, columns);
   }
   return found;
+}
+
+function validateOnlineMigrationSchema(found: Map<string, Map<string, string>>): void {
+  for (const table of ["users", "video_details", "music"]) {
+    const expected = expectedColumns[table]!;
+    const actual = found.get(table) ?? new Map<string, string>();
+    const missing = Object.keys(expected).filter((column) => !actual.has(column));
+    if (missing.length) {
+      throw new Error(`Online legacy migration is not ready; database table ${table} is missing columns: ${missing.join(", ")}`);
+    }
+    const mismatched = Object.entries(expected).filter(([column, type]) => actual.get(column) !== type);
+    if (mismatched.length) {
+      throw new Error(`Online legacy migration has incompatible ${table} column types: ${mismatched.map(([column, type]) => `${column}=${actual.get(column)} (expected ${type})`).join(", ")}`);
+    }
+  }
 }
 
 function validateColumns(found: Map<string, Map<string, string>>): void {

@@ -618,7 +618,7 @@ function fakeDatabase(initial: Record<string, unknown> | null, options: { histor
       };
       return [row];
     }
-    if (query.startsWith("INSERT INTO videos")) {
+    if (query.startsWith("SELECT record_download_history")) {
       if (options.historyError !== undefined) throw options.historyError;
       history.push({ userId: values[0], detailsId: values[1], downloadedAt: values[2], link: values[3], kind: values[4], surface: values[5], mode: values[6], cacheHit: values[7] });
       return [];

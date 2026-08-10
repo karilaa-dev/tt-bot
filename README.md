@@ -32,7 +32,7 @@ Build and run the bot plus PostgreSQL:
 docker compose up --build
 ```
 
-New databases are initialized with separate download-history (`videos`) and reusable-media (`video_details`) tables. A database from the Python v5.4.6 release must be rebuilt explicitly while the main bot is stopped; normal startup refuses to modify that legacy schema. Maintenance mode does not connect to PostgreSQL and may be used to notify users during the outage.
+New databases are initialized with separate download-history (`videos`) and reusable-media (`video_details`) tables. A database from the Python v5.4.6 release requires an explicitly confirmed online rebuild. Confirmed startup installs a live-write bridge, starts the bot, and backfills legacy history in the background; ordinary startup still refuses to modify a legacy schema.
 
 > [!WARNING]
 > The PostgreSQL 18 image stores its cluster below `/var/lib/postgresql`, so Compose now mounts `pgdata` there. Before upgrading an existing deployment that mounted the volume at `/var/lib/postgresql/data`, export the running database with `docker compose exec db sh -c 'pg_dumpall -U "$POSTGRES_USER"' > ttbot-backup.sql`. Recreate the database service with the new mount, then restore with `docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER"' < ttbot-backup.sql`. The old Postgres 18 mount did not include the image's active `PGDATA`, so recreating that old container without a dump can lose its database.
@@ -46,7 +46,7 @@ bun test
 bun run start
 ```
 
-The test suite is self-contained and does not connect to PostgreSQL. Exercise the offline migration against a verified database copy during rollout rather than from automated tests.
+The test suite is self-contained and does not connect to PostgreSQL. Exercise the online migration against a verified database copy during rollout rather than from automated tests.
 
 ### Real tt-scrap integration tests
 
@@ -140,15 +140,15 @@ For a checked-out adjacent `tt-scrap` repository, generation can use its exporte
 TT_SCRAP_OPENAPI_FILE=../tt-scrap/openapi.json bun run api:generate
 ```
 
-## Offline v5.4.6 database rebuild
+## Online v5.4.6 database rebuild
 
-The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. Identity parsing, detail aggregation/finalization, and history copying are resumable in 100,000-primary-key batches. The rebuild records its source audit, parsing totals, checksums, verification, and cutover status in `migration_audit`.
+The rebuild preserves every history row, extracts only IDs already embedded in legacy URLs, and never follows old TikTok redirect tokens. It first creates the final cache and shadow-history tables, then installs a trigger that mirrors every legacy insert, update, and delete in the writer's transaction. Once that bridge is ready, the bot starts and identity parsing, detail aggregation/finalization, and history copying continue in resumable 100,000-primary-key batches.
 
-Before running it, deploy the matching `tt-scrap` API, stop the bot and any legacy stats process, and create a verified external PostgreSQL backup. A rehearsal on a production-sized copy is recommended. The migration prints its conservative free-space requirement (four times the source `videos` relation size); when you know the database filesystem's exact free bytes, set `LEGACY_MIGRATION_AVAILABLE_BYTES` and it will enforce that limit too.
+Before running it, deploy the matching `tt-scrap` API and create a verified external PostgreSQL backup. Stop or upgrade any separate legacy stats process before cutover because its old `videos` queries are not compatible with the final schema. A rehearsal on a production-sized copy is recommended. The migration prints its conservative free-space requirement (four times the source `videos` relation size); when you know the database filesystem's exact free bytes, set `LEGACY_MIGRATION_AVAILABLE_BYTES` and it will enforce that limit too.
 
-Do not start `bun run start` against the legacy schema; it intentionally exits with instructions to run the offline rebuild. `bun run maintenance` remains available because it does not access PostgreSQL. Aside from that optional notifier, `bun run db:migrate-legacy` must be the only application process accessing the database during the rebuild.
+Ordinary `bun run start` still exits on a legacy schema. Set `MIGRATE_LEGACY_ON_START=confirmed` to use the guarded online path: startup waits only for the live-write bridge, then the bot serves while the rebuild continues. A migration error is fatal to the serving process so it cannot silently outrun a broken shadow copy.
 
-If startup finds an already rebuilt `videos` table but legacy `users.ad_count` or `users.ad_cooldown` columns remain, the same offline command audits their exact nonzero counts, removes only those columns, and records the recovery in `migration_audit`; it does not rebuild history again.
+If startup finds an already rebuilt `videos` table but legacy `users.ad_count` or `users.ad_cooldown` columns remain, the same command audits their exact nonzero counts, removes only those columns, and records the recovery in `migration_audit`; it does not rebuild history again.
 
 Run from a shell with the deployment's existing `DB_URL`:
 
@@ -156,19 +156,21 @@ Run from a shell with the deployment's existing `DB_URL`:
 bun run db:migrate-legacy --confirm
 ```
 
-`--confirm` acknowledges that the processes are stopped and a restorable backup is available. Re-running the same command resumes the last committed batch. On a fresh database or one already using the current schema, it exits successfully without rebuilding anything; an unrecognized partial schema still fails. Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. After exact verification, cutover is atomic and the old table is dropped in that transaction, as required by the selected immediate-drop policy. Post-commit rollback therefore uses the required external backup.
+`--confirm` acknowledges that a restorable backup is available. The standalone command also tolerates active legacy writers once its sync trigger is installed, but the confirmed startup mode is preferred because it starts the new bot at the safe readiness point and treats later migration failure as fatal. Re-running either path resumes the last committed batch. On a fresh database or one already using the current schema, it exits successfully without rebuilding anything; an unrecognized partial schema still fails.
+
+Before scanning history, the migration exercises the actual PL/pgSQL identity parser against every supported URL family and conflict behavior; there is no duplicate application-side legacy parser to drift from it. Final source/destination verification uses one repeatable-read snapshot while the sync trigger keeps accepting writes. Cutover then waits for in-flight history writers and briefly takes an exclusive lock only for the atomic table swap. The old table is dropped in that transaction, so post-commit rollback still uses the required external backup.
 
 ### Run the migration from a Dokploy Railpack application
 
 The repository's `railpack.json` makes Railpack start `scripts/start.ts` directly, so no custom start command or Dockerfile build is needed. In Dokploy:
 
 1. Set the application build type to **Railpack** and use one replica.
-2. Stop the existing bot application (and any separate stats process), then create and verify the database backup.
+2. Create and verify the database backup. Stop any separate legacy stats process.
 3. Add `MIGRATE_LEGACY_ON_START=confirmed` to the application's environment.
-4. Deploy this revision and watch its logs. The Railpack container runs the resumable migration and starts the bot only after it completes.
+4. Deploy this revision and watch its logs. The bot starts as soon as live-write sync is ready, while the resumable history backfill continues in the same container.
 5. Remove `MIGRATE_LEGACY_ON_START` after the audit reports `complete`, then redeploy normally.
 
-If the container is interrupted, leave the old bot stopped and redeploy with the same variable; completed batches are not repeated. Do not run multiple migration replicas.
+If the container is interrupted, redeploy with the same variable; completed batches are not repeated and the durable trigger keeps the shadow table synchronized. Do not run multiple migration replicas.
 On a brand-new database or one that already has the current schema, this startup mode skips the legacy rebuild and continues with normal bot initialization. An unrecognized partial `videos` schema still fails safely.
 
 If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
@@ -182,9 +184,9 @@ WHERE migration_id = '002_media_cache_rebuild'
 COMMIT;
 ```
 
-Do not delete the source audit, identity, or details phase state: those completed phases remain reusable. Run this recovery only while the bot and stats processes are still stopped and the verified backup remains available.
+Do not delete the source audit, identity, or details phase state: those completed phases remain reusable. Run this recovery only while the failed application is stopped and the verified backup remains available; redeployment reinstalls the sync trigger before starting the bot.
 
-Review the durable evidence before starting the bot:
+Review the durable evidence before removing the one-time startup flag:
 
 ```sql
 SELECT status, started_at, completed_at, evidence

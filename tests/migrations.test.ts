@@ -61,6 +61,37 @@ test("normal startup rejects a legacy rebuild without mutating it", async () => 
   expect(statements[0]).toStartWith("SELECT table_name, column_name, data_type");
 });
 
+test("confirmed online startup accepts a prepared legacy schema", async () => {
+  const statements: string[] = [];
+  const sql = fakeSql(statements, [
+    ...columns("users", { user_id: "bigint", registered_at: "bigint", lang: "character varying", link: "character varying", file_mode: "boolean" }),
+    ...columns("videos", { pk_id: "bigint", video_link: "character varying", is_images: "boolean", is_processed: "boolean", is_inline: "boolean" }),
+    ...columns("video_details", {
+      pk_id: "bigint", platform: "character varying", platform_video_id: "character varying", creator_username: "character varying",
+      content_type: "character varying", canonical_link: "text", telegram_bot_id: "bigint", telegram_files: "jsonb",
+      likes_display: "character varying", views_display: "character varying", first_downloaded_at: "bigint", last_used_at: "bigint",
+      metadata_refreshed_at: "bigint", file_ids_updated_at: "bigint", cache_version: "bigint",
+    }),
+    ...columns("music", { pk_id: "bigint", user_id: "bigint", downloaded_at: "bigint", video_id: "bigint" }),
+  ]);
+
+  await runMigrations(sql, { allowLegacyMigration: true });
+
+  expect(statements).toHaveLength(1);
+});
+
+test("confirmed online startup rejects a legacy schema before its bridge is ready", async () => {
+  const statements: string[] = [];
+  const sql = fakeSql(statements, [
+    ...columns("users", { user_id: "bigint", registered_at: "bigint", lang: "character varying", link: "character varying", file_mode: "boolean" }),
+    ...columns("videos", { pk_id: "bigint", video_link: "character varying", is_images: "boolean", is_processed: "boolean", is_inline: "boolean" }),
+    ...columns("music", { pk_id: "bigint", user_id: "bigint", downloaded_at: "bigint", video_id: "bigint" }),
+  ]);
+
+  await expect(runMigrations(sql, { allowLegacyMigration: true }))
+    .rejects.toThrow("Online legacy migration is not ready");
+});
+
 test("initializes the final cache schema as separate statements", async () => {
   const statements: string[] = [];
   let informationQueries = 0;
@@ -90,6 +121,7 @@ test("initializes the final cache schema as separate statements", async () => {
 
   expect(statements.some((statement) => statement.startsWith("CREATE TABLE IF NOT EXISTS video_details"))).toBe(true);
   expect(statements.some((statement) => statement.startsWith("CREATE TABLE IF NOT EXISTS videos") && statement.includes("shared_link TEXT NOT NULL"))).toBe(true);
+  expect(statements.some((statement) => statement.startsWith("CREATE OR REPLACE FUNCTION record_download_history"))).toBe(true);
   expect(statements.at(-1)).toStartWith("INSERT INTO schema_migrations");
 });
 

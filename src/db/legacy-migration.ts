@@ -1,12 +1,17 @@
 import { SQL, type SQL as SQLType } from "bun";
-import { createTelegramFilesValidator, MEDIA_CACHE_SCHEMA_VERSION } from "./migrations.ts";
+import {
+  createRecordDownloadHistoryFunction,
+  createTelegramFilesValidator,
+  HISTORY_CUTOVER_LOCK_KEY,
+  MEDIA_CACHE_SCHEMA_VERSION,
+} from "./migrations.ts";
 
 export const LEGACY_REBUILD_MIGRATION_ID = "002_media_cache_rebuild";
 const DEFAULT_BATCH_SIZE = 100_000;
 const ADVISORY_LOCK_KEY = "tt-bot:002-media-cache-rebuild";
 
 export interface LegacyMigrationOptions {
-  /** Acknowledges that writers are stopped and a restorable backup exists. */
+  /** Acknowledges that a restorable backup exists before the online rebuild. */
   preflightConfirmed: boolean;
   /** Optional exact free bytes on the PostgreSQL data filesystem. */
   availableBytes?: bigint;
@@ -18,6 +23,8 @@ export interface LegacyMigrationOptions {
   /** Test hook for proving in-phase resumption after committed batches. */
   maxBatchesPerPhaseRun?: number;
   onProgress?: (message: string) => void;
+  /** Called after live writes are mirrored and the bot may safely initialize. */
+  onBotReady?: () => void;
 }
 
 export interface LegacyMigrationResult {
@@ -43,7 +50,7 @@ export function classifyLegacyVideosSchema(columnNames: Iterable<string>): Legac
 export async function runLegacyMigration(databaseUrl: string, options: LegacyMigrationOptions): Promise<LegacyMigrationResult> {
   if (!options.preflightConfirmed) {
     throw new Error(
-      "Refusing migration: pass --confirm only after stopping the bot and stats processes and verifying a restorable backup",
+      "Refusing migration: pass --confirm only after verifying a restorable backup",
     );
   }
   if (options.availableBytes !== undefined && options.availableBytes <= 0n) {
@@ -88,16 +95,19 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   if (schema === "final") {
     const completed = await completedEvidence(sql);
     if (!completed && options.skipWhenMigrationNotNeeded) {
+      options.onBotReady?.();
       return { status: "complete", phase: "not-needed", evidence: { reason: "videos schema is already current" } };
     }
     if (!completed) throw new Error("Final videos schema exists but the legacy migration has no completed audit row");
     // Repair the only safe partial-cutover remainder without rebuilding history.
-    // The explicit offline command still provides the backup/stopped-process
-    // confirmations, and records exact values before removing either column.
+    // The explicit command still confirms the backup and records exact values
+    // before removing either column.
     await recoverFinalUserColumns(sql);
+    options.onBotReady?.();
     return { status: "complete", phase: "cutover", evidence: await completedEvidence(sql) ?? completed };
   }
   if (schema === "absent" && options.skipWhenMigrationNotNeeded) {
+    options.onBotReady?.();
     return { status: "complete", phase: "not-needed", evidence: { reason: "videos table does not exist yet" } };
   }
   if (schema !== "legacy") throw new Error("The videos table does not match the inspected v5.4.6 legacy schema");
@@ -124,6 +134,19 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
       'operator_preflight_confirmed', TRUE
     )) ON CONFLICT (migration_id) DO NOTHING`;
 
+  // Install the final cache schema and a trigger-backed shadow write path before
+  // the long scans. From this point onward the bot can serve against the legacy
+  // history table while every committed change is mirrored into videos_new.
+  await createIdentityParser(sql);
+  await verifyIdentityParser(sql);
+  await createTelegramFilesValidator(sql);
+  await createVideoDetails(sql);
+  await createVideosNew(sql);
+  await ensureConstraint(sql, "videos_new_pkey");
+  await createLegacyVideoSync(sql);
+  await createRecordDownloadHistoryFunction(sql);
+  options.onBotReady?.();
+
   let evidence = await auditEvidence(sql);
   if (!("source_audit" in evidence)) {
     progress("Running exact source audit (one full server-side scan)");
@@ -137,8 +160,6 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   if (options.stopAfterPhase === "audit") return paused("audit", evidence);
 
   const upperPk = BigInt(source.max_pk as string);
-  await createIdentityParser(sql);
-  await verifyIdentityParser(sql);
   await mergeEvidence(sql, {
     identity_parser_self_test: { case_count: 15, verified_at: Math.floor(Date.now() / 1000) },
   });
@@ -158,8 +179,6 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   await mergeEvidence(sql, { identity });
   if (options.stopAfterPhase === "identity") return paused("identity", await auditEvidence(sql));
 
-  await createTelegramFilesValidator(sql);
-  await createVideoDetails(sql);
   if (!await phaseComplete(sql, "details")) {
     await createLegacyDetailAggregate(sql);
     const aggregateComplete = await runDetailAggregateBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
@@ -169,7 +188,6 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   }
   if (options.stopAfterPhase === "details") return paused("details", await auditEvidence(sql));
 
-  await createVideosNew(sql);
   const copyComplete = await runCopyBatches(sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun);
   if (!copyComplete) return paused("copy", await auditEvidence(sql));
   if (options.stopAfterPhase === "copy") return paused("copy", await auditEvidence(sql));
@@ -181,14 +199,16 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   }
   if (options.stopAfterPhase === "constraints") return paused("constraints", await auditEvidence(sql));
 
-  progress("Verifying exact source/destination aggregates");
-  const verification = await verifyRebuild(sql, evidence);
-  await mergeEvidence(sql, { verification });
-  await markPhase(sql, "verification", upperPk, verification);
-  if (options.stopAfterPhase === "verification") return paused("verification", await auditEvidence(sql));
+  progress("Verifying exact source/destination aggregates from one stable snapshot");
+  if (options.stopAfterPhase === "verification") {
+    const verification = await verifyRebuildSnapshot(sql);
+    await mergeEvidence(sql, { verification });
+    await markPhase(sql, "verification", BigInt(verification.source.max_pk ?? "0"), verification as unknown as Record<string, unknown>);
+    return paused("verification", await auditEvidence(sql));
+  }
 
-  progress("Performing atomic cutover and dropping the verified legacy table");
-  await cutover(sql, evidence, upperPk);
+  progress("Performing atomic cutover after online verification");
+  await verifyAndCutover(sql);
   return { status: "complete", phase: "cutover", evidence: await auditEvidence(sql) };
 }
 
@@ -197,7 +217,7 @@ async function validateLegacyShape(sql: SQLType): Promise<void> {
     videos: ["pk_id", "user_id", "downloaded_at", "video_link", "is_images", "is_processed", "is_inline"],
     // ad_count/ad_cooldown existed in the Python schema but not in databases
     // created by the TypeScript bot. Audit either column when it is present,
-    // while allowing both legacy variants to use the same offline rebuild.
+    // while allowing both legacy variants to use the same online rebuild.
     users: ["user_id", "registered_at", "lang", "link", "file_mode"],
     music: ["pk_id", "user_id", "downloaded_at", "video_id"],
   };
@@ -396,6 +416,76 @@ async function verifyIdentityParser(sql: SQLType): Promise<void> {
   if (mismatches.length) {
     throw new Error(`Legacy identity parser self-test failed for: ${mismatches.map((row) => row.value).join(", ")}`);
   }
+}
+
+/** Mirror every legacy history mutation into the final shadow table. */
+async function createLegacyVideoSync(sql: SQLType): Promise<void> {
+  await sql.unsafe(`CREATE OR REPLACE FUNCTION sync_legacy_video_to_shadow()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  parsed_platform VARCHAR;
+  parsed_video_id VARCHAR;
+  parsed_conflict BOOLEAN;
+  detail_id BIGINT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    DELETE FROM videos_new WHERE pk_id = OLD.pk_id;
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND OLD.pk_id <> NEW.pk_id THEN
+    DELETE FROM videos_new WHERE pk_id = OLD.pk_id;
+  END IF;
+
+  SELECT platform, platform_video_id, conflict
+  INTO parsed_platform, parsed_video_id, parsed_conflict
+  FROM parse_legacy_video_identity(NEW.video_link);
+
+  detail_id := NULL;
+  IF parsed_platform IS NOT NULL AND NOT parsed_conflict THEN
+    -- Live legacy rows only need an identity placeholder. The historical
+    -- aggregation fills stable metadata, while live bot upserts remain the
+    -- authoritative source for cache and extraction fields.
+    INSERT INTO video_details (
+      platform, platform_video_id, first_downloaded_at, last_used_at
+    ) VALUES (
+      parsed_platform, parsed_video_id, NEW.downloaded_at, NEW.downloaded_at
+    )
+    ON CONFLICT (platform, platform_video_id) DO UPDATE SET
+      first_downloaded_at = LEAST(video_details.first_downloaded_at, EXCLUDED.first_downloaded_at),
+      last_used_at = GREATEST(video_details.last_used_at, EXCLUDED.last_used_at)
+    RETURNING pk_id INTO detail_id;
+  END IF;
+
+  INSERT INTO videos_new (
+    pk_id, user_id, video_details_id, downloaded_at, shared_link,
+    media_kind, delivery_surface, delivery_mode, cache_hit
+  ) VALUES (
+    NEW.pk_id, NEW.user_id, detail_id, NEW.downloaded_at, NEW.video_link,
+    CASE WHEN NEW.is_images THEN 'images' ELSE 'video' END,
+    CASE WHEN NEW.is_inline THEN 'inline' ELSE 'chat' END,
+    NULL, FALSE
+  )
+  ON CONFLICT (pk_id) DO UPDATE SET
+    user_id = EXCLUDED.user_id,
+    video_details_id = EXCLUDED.video_details_id,
+    downloaded_at = EXCLUDED.downloaded_at,
+    shared_link = EXCLUDED.shared_link,
+    media_kind = EXCLUDED.media_kind,
+    delivery_surface = EXCLUDED.delivery_surface;
+  RETURN NEW;
+END
+$function$`);
+  await sql.begin(async (tx) => {
+    // Keep the replacement under one table lock so an external legacy writer
+    // cannot commit in the drop/create gap during a resumed migration.
+    await tx`DROP TRIGGER IF EXISTS legacy_video_shadow_sync ON videos`;
+    await tx`CREATE TRIGGER legacy_video_shadow_sync
+      AFTER INSERT OR UPDATE OR DELETE ON videos
+      FOR EACH ROW EXECUTE FUNCTION sync_legacy_video_to_shadow()`;
+  });
 }
 
 async function runIdentityBatches(sql: SQLType, upperPk: bigint, batchSize: number, progress: (message: string) => void, maxBatches?: number): Promise<boolean> {
@@ -612,10 +702,10 @@ async function runDetailFinalizeBatches(
           FROM legacy_video_detail_aggregate
           WHERE pk_id > ${lastPk} AND pk_id <= ${endPk}
           ON CONFLICT (platform, platform_video_id) DO UPDATE SET
-            content_type = EXCLUDED.content_type,
-            canonical_link = EXCLUDED.canonical_link,
-            first_downloaded_at = EXCLUDED.first_downloaded_at,
-            last_used_at = EXCLUDED.last_used_at
+            content_type = COALESCE(video_details.content_type, EXCLUDED.content_type),
+            canonical_link = COALESCE(video_details.canonical_link, EXCLUDED.canonical_link),
+            first_downloaded_at = LEAST(video_details.first_downloaded_at, EXCLUDED.first_downloaded_at),
+            last_used_at = GREATEST(video_details.last_used_at, EXCLUDED.last_used_at)
           RETURNING 1
         ) SELECT COUNT(*) AS count FROM finalized`;
       counters = {
@@ -696,15 +786,41 @@ async function buildFinalConstraints(sql: SQLType): Promise<void> {
   await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_delivery_mode_check`;
   await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_user_id_fkey`;
   await sql`ALTER TABLE videos_new VALIDATE CONSTRAINT videos_new_video_details_id_fkey`;
-  await sql`CREATE INDEX IF NOT EXISTS videos_new_user_downloaded_idx ON videos_new (user_id, downloaded_at DESC)`;
-  await sql`CREATE INDEX IF NOT EXISTS videos_new_downloaded_brin_idx ON videos_new USING BRIN (downloaded_at)`;
-  await sql`CREATE INDEX IF NOT EXISTS videos_new_details_idx ON videos_new (video_details_id) WHERE video_details_id IS NOT NULL`;
+  // These indexes are built while the sync trigger is still accepting writes.
+  await dropInvalidConcurrentIndex(sql, "videos_new_user_downloaded_idx");
+  await sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS videos_new_user_downloaded_idx ON videos_new (user_id, downloaded_at DESC)`;
+  await dropInvalidConcurrentIndex(sql, "videos_new_downloaded_brin_idx");
+  await sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS videos_new_downloaded_brin_idx ON videos_new USING BRIN (downloaded_at)`;
+  await dropInvalidConcurrentIndex(sql, "videos_new_details_idx");
+  await sql`CREATE INDEX CONCURRENTLY IF NOT EXISTS videos_new_details_idx ON videos_new (video_details_id) WHERE video_details_id IS NOT NULL`;
   await sql`ANALYZE video_details`;
   await sql`ANALYZE videos_new`;
 }
 
-async function verifyRebuild(sql: SQLType, evidence: Record<string, unknown>): Promise<Record<string, string>> {
-  const source = readObject(evidence.source_audit) as Record<string, string>;
+type ConcurrentIndexName = "videos_new_user_downloaded_idx" | "videos_new_downloaded_brin_idx" | "videos_new_details_idx";
+
+async function dropInvalidConcurrentIndex(sql: SQLType, name: ConcurrentIndexName): Promise<void> {
+  const rows = await sql<Array<{ valid: boolean }>>`SELECT index_state.indisvalid AS valid
+    FROM pg_index index_state
+    JOIN pg_class index_class ON index_class.oid = index_state.indexrelid
+    JOIN pg_namespace index_namespace ON index_namespace.oid = index_class.relnamespace
+    WHERE index_namespace.nspname = 'public' AND index_class.relname = ${name}`;
+  if (rows[0] && !rows[0].valid) await sql.unsafe(`DROP INDEX CONCURRENTLY public.${name}`);
+}
+
+interface VerificationEvidence {
+  source: Record<string, string>;
+  destination: Record<string, string>;
+  integrity: Record<string, string>;
+  verified_at: string;
+}
+
+async function verifyRebuildSnapshot(sql: SQLType): Promise<VerificationEvidence> {
+  return await sql.begin("isolation level repeatable read read only", verifyRebuild);
+}
+
+async function verifyRebuild(sql: SQLType): Promise<VerificationEvidence> {
+  const source = await sourceAudit(sql);
   const rows = await sql<Array<Record<string, string>>>`SELECT
       COUNT(*)::text AS row_count, COALESCE(MIN(pk_id), 0)::text AS min_pk, COALESCE(MAX(pk_id), 0)::text AS max_pk,
       COALESCE(SUM(pk_id::numeric), 0)::text AS pk_sum,
@@ -712,7 +828,7 @@ async function verifyRebuild(sql: SQLType, evidence: Record<string, unknown>): P
       COALESCE(SUM(COALESCE(downloaded_at, 0)::numeric), 0)::text AS downloaded_at_sum,
       COALESCE(SUM(hashtextextended(jsonb_build_array(
         pk_id::bigint, user_id::bigint, downloaded_at::bigint, shared_link::text,
-        media_kind::varchar, delivery_surface::varchar, delivery_mode::varchar, cache_hit::boolean
+        media_kind::varchar, delivery_surface::varchar, NULL::varchar, FALSE::boolean
       )::text, 0)::numeric), 0)::text AS row_fingerprint,
       COUNT(*) FILTER (WHERE media_kind = 'images')::text AS images_count,
       COUNT(*) FILTER (WHERE delivery_surface = 'inline')::text AS inline_count,
@@ -732,38 +848,44 @@ async function verifyRebuild(sql: SQLType, evidence: Record<string, unknown>): P
       (SELECT COUNT(*) FROM videos_new v LEFT JOIN video_details d ON d.pk_id = v.video_details_id WHERE v.video_details_id IS NOT NULL AND d.pk_id IS NULL)::text AS orphaned_details,
       (SELECT COUNT(*) FROM (SELECT pk_id FROM videos_new GROUP BY pk_id HAVING COUNT(*) > 1) duplicates)::text AS duplicate_primary_keys,
       (SELECT COUNT(*) FROM legacy_video_identity i LEFT JOIN video_details d ON d.platform = i.platform AND d.platform_video_id = i.platform_video_id WHERE d.pk_id IS NULL)::text AS unmapped_staged_rows,
+      (SELECT COUNT(*) FROM legacy_video_identity i LEFT JOIN videos_new v ON v.pk_id = i.legacy_pk WHERE v.video_details_id IS NULL)::text AS unlinked_staged_history_rows,
       (SELECT COUNT(*) FROM legacy_video_identity)::text AS staged_rows`;
   const checks = integrity[0] ?? {};
-  for (const key of ["orphaned_users", "orphaned_details", "duplicate_primary_keys", "unmapped_staged_rows"]) {
+  for (const key of ["orphaned_users", "orphaned_details", "duplicate_primary_keys", "unmapped_staged_rows", "unlinked_staged_history_rows"]) {
     if (checks[key] !== "0") throw new Error(`Verification failed: ${key}=${checks[key]}`);
   }
-  if (destination.linked_details_count !== checks.staged_rows) throw new Error("Verification failed: staged identity/history detail-link count mismatch");
-  return { ...destination, ...checks, verified_at: String(Math.floor(Date.now() / 1000)) };
+  return { source, destination, integrity: checks, verified_at: String(Math.floor(Date.now() / 1000)) };
 }
 
-async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk: bigint): Promise<void> {
-  const source = readObject(evidence.source_audit) as Record<string, string>;
-  const cutoverCompleted = await sql.begin(async (tx) => {
+async function verifyAndCutover(sql: SQLType): Promise<void> {
+  await sql.begin("isolation level repeatable read", async (tx) => {
+    // The trigger writes source and shadow rows in the same transaction, so one
+    // repeatable-read snapshot can compare them without pausing the bot.
+    const verification = await verifyRebuild(tx);
+    const upperPk = BigInt(verification.source.max_pk ?? "0");
+
+    // Gate schema-aware bot calls first. Direct legacy writers do not take this
+    // advisory lock; the table lock waits for their trigger-backed transaction
+    // and queues any new writes without creating a reverse lock dependency.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${HISTORY_CUTOVER_LOCK_KEY}, 0))`;
     await tx`LOCK TABLE videos, videos_new, users IN ACCESS EXCLUSIVE MODE`;
-    // The bot should already be stopped, but enforce that every audited source
-    // value is still identical while writes are excluded. Count/max alone would
-    // miss an in-place link, timestamp, or classification update after copying.
-    const current = await sourceAudit(tx);
-    const sourceUnchanged = Object.entries(source).every(([key, value]) => current[key] === value);
-    if (!sourceUnchanged || current.max_pk !== upperPk.toString()) {
-      return false;
-    }
+    const trigger = await tx<Array<{ enabled: boolean }>>`SELECT COALESCE(bool_and(tgenabled <> 'D'), FALSE) AS enabled
+      FROM pg_trigger WHERE tgrelid = 'public.videos'::regclass AND tgname = 'legacy_video_shadow_sync'`;
+    if (!trigger[0]?.enabled) throw new Error("Legacy live-write sync trigger is not enabled; cutover aborted");
+
+    await mergeEvidence(tx, { verification });
+    await markPhase(tx, "verification", upperPk, verification as unknown as Record<string, unknown>);
     await tx`ALTER SEQUENCE videos_pk_id_seq OWNED BY NONE`;
     await tx`ALTER TABLE videos RENAME TO videos_legacy_002`;
     await tx`ALTER TABLE videos_new RENAME TO videos`;
     await tx`ALTER TABLE videos ALTER COLUMN pk_id SET DEFAULT nextval('videos_pk_id_seq')`;
     await tx`ALTER SEQUENCE videos_pk_id_seq OWNED BY videos.pk_id`;
-    await tx`SELECT setval('videos_pk_id_seq', GREATEST(${upperPk}, 1), ${upperPk > 0n})`;
     await tx`ALTER TABLE users DROP COLUMN IF EXISTS ad_count`;
     await tx`ALTER TABLE users DROP COLUMN IF EXISTS ad_cooldown`;
     await tx`DROP TABLE videos_legacy_002`;
     await tx`DROP TABLE legacy_video_identity`;
     await tx`DROP TABLE IF EXISTS legacy_video_detail_aggregate`;
+    await tx`DROP FUNCTION sync_legacy_video_to_shadow()`;
     await tx`DROP FUNCTION parse_legacy_video_identity(TEXT)`;
     await tx`ALTER TABLE videos RENAME CONSTRAINT videos_new_pkey TO videos_pkey`;
     await tx`ALTER INDEX videos_new_user_downloaded_idx RENAME TO videos_user_downloaded_idx`;
@@ -772,12 +894,13 @@ async function cutover(sql: SQLType, evidence: Record<string, unknown>, upperPk:
     const completedAt = Math.floor(Date.now() / 1000);
     await tx`INSERT INTO schema_migrations (version, applied_at) VALUES (${MEDIA_CACHE_SCHEMA_VERSION}, ${completedAt}) ON CONFLICT (version) DO NOTHING`;
     await tx`UPDATE migration_audit SET status = 'complete', completed_at = ${completedAt},
-      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object('status', 'complete', 'completed_at', ${completedAt}::bigint, 'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE, 'detail_staging_dropped', TRUE))
+      evidence = evidence || jsonb_build_object('cutover', jsonb_build_object(
+        'status', 'complete', 'completed_at', ${completedAt}::bigint, 'online', TRUE,
+        'legacy_table_dropped', TRUE, 'identity_staging_dropped', TRUE, 'detail_staging_dropped', TRUE
+      ))
       WHERE migration_id = ${LEGACY_REBUILD_MIGRATION_ID}`;
     await upsertState(tx, "cutover", upperPk, { complete: true });
-    return true;
   });
-  if (!cutoverCompleted) throw new Error("Source changed after verification; cutover aborted");
 }
 
 type FinalConstraintName =

@@ -112,7 +112,7 @@ export class IntegrationMemoryDatabase {
         this.details.set(rowKey, row);
         return [row];
       }
-      if (query.startsWith("INSERT INTO videos")) {
+      if (query.startsWith("SELECT record_download_history")) {
         this.history.push({
           userId: Number(values[0]),
           detailsId: BigInt(String(values[1])),
