@@ -94,16 +94,18 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       cache_hit: boolean;
     }>>`SELECT shared_link, video_details_id, delivery_mode, cache_hit FROM videos ORDER BY pk_id`;
     expect(history).toHaveLength(7);
-    expect(history.find((row) => row.shared_link.endsWith("/ONLINE/"))).toMatchObject({
-      video_details_id: detailsId,
+    const onlineHistory = history.find((row) => row.shared_link.endsWith("/ONLINE/"));
+    expect(onlineHistory).toMatchObject({
       delivery_mode: "document",
       cache_hit: true,
     });
-    expect(history.find((row) => row.shared_link.endsWith("/CUTOVER/"))).toMatchObject({
-      video_details_id: detailsId,
+    expect(BigInt(onlineHistory!.video_details_id!)).toBe(detailsId);
+    const cutoverHistory = history.find((row) => row.shared_link.endsWith("/CUTOVER/"));
+    expect(cutoverHistory).toMatchObject({
       delivery_mode: "media",
       cache_hit: false,
     });
+    expect(BigInt(cutoverHistory!.video_details_id!)).toBe(detailsId);
 
     const audit = await live<Array<{ status: string; evidence: Record<string, unknown> | string }>>`SELECT status, evidence
       FROM migration_audit WHERE migration_id = '002_media_cache_rebuild'`;
