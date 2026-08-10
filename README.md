@@ -46,7 +46,14 @@ bun test
 bun run start
 ```
 
-The test suite is self-contained and does not connect to PostgreSQL. Exercise the online migration against a verified database copy during rollout rather than from automated tests.
+The regular local test suite is self-contained and skips external PostgreSQL. CI provisions PostgreSQL 18 and runs the online migration integration test against a uniquely created disposable database, including interruption/resumption and a write that spans snapshot verification and cutover. To run that check against a local development server:
+
+```bash
+POSTGRES_MIGRATION_TEST_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres \
+  bun run test:integration:migration
+```
+
+Still rehearse the migration against a verified production-sized database copy before rollout; the CI fixture validates concurrency semantics, not production volume or timing.
 
 ### Real tt-scrap integration tests
 

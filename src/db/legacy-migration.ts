@@ -25,6 +25,8 @@ export interface LegacyMigrationOptions {
   onProgress?: (message: string) => void;
   /** Called after live writes are mirrored and the bot may safely initialize. */
   onBotReady?: () => void;
+  /** Test hook: runs after snapshot verification and before the cutover lock. */
+  onBeforeCutoverLock?: () => Promise<void>;
 }
 
 export interface LegacyMigrationResult {
@@ -208,7 +210,7 @@ async function migrate(sql: MigrationConnection, options: LegacyMigrationOptions
   }
 
   progress("Performing atomic cutover after online verification");
-  await verifyAndCutover(sql);
+  await verifyAndCutover(sql, options.onBeforeCutoverLock);
   return { status: "complete", phase: "cutover", evidence: await auditEvidence(sql) };
 }
 
@@ -857,12 +859,13 @@ async function verifyRebuild(sql: SQLType): Promise<VerificationEvidence> {
   return { source, destination, integrity: checks, verified_at: String(Math.floor(Date.now() / 1000)) };
 }
 
-async function verifyAndCutover(sql: SQLType): Promise<void> {
+async function verifyAndCutover(sql: SQLType, onBeforeCutoverLock?: () => Promise<void>): Promise<void> {
   await sql.begin("isolation level repeatable read", async (tx) => {
     // The trigger writes source and shadow rows in the same transaction, so one
     // repeatable-read snapshot can compare them without pausing the bot.
     const verification = await verifyRebuild(tx);
     const upperPk = BigInt(verification.source.max_pk ?? "0");
+    await onBeforeCutoverLock?.();
 
     // Gate schema-aware bot calls first. Direct legacy writers do not take this
     // advisory lock; the table lock waits for their trigger-backed transaction
