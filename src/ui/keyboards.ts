@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import type { Language } from "../locales.ts";
 import { languages, locales, text } from "../locales.ts";
 import { statsRow } from "./stats.ts";
+import type { DisplayStat } from "./stats.ts";
 
 export function languageKeyboard(): InlineKeyboard {
   const keyboard = new InlineKeyboard();
@@ -12,7 +13,7 @@ export function languageKeyboard(): InlineKeyboard {
   return keyboard;
 }
 
-export function statsKeyboard(likes?: number | null, views?: number | null): InlineKeyboard | undefined {
+export function statsKeyboard(likes?: DisplayStat | null, views?: DisplayStat | null): InlineKeyboard | undefined {
   const row = statsRow(likes, views);
   if (!row.length) return undefined;
   const keyboard = new InlineKeyboard();
@@ -20,7 +21,7 @@ export function statsKeyboard(likes?: number | null, views?: number | null): Inl
   return keyboard;
 }
 
-export function musicKeyboard(videoId: string, lang: Language, likes?: number | null, views?: number | null): InlineKeyboard {
+export function musicKeyboard(videoId: string, lang: Language, likes?: DisplayStat | null, views?: DisplayStat | null): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   const row = statsRow(likes, views);
   for (const button of row) keyboard.text(button.text, button.callback_data);

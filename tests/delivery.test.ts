@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { Message } from "grammy/types";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
 import type { InstagramExtraction, TikTokExtraction } from "../src/clients/tt-scrap-types.ts";
-import { DeliveryService, inlineMediaFromMessage, inlineMediaPayload } from "../src/services/delivery.ts";
+import { DeliveryService, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult } from "../src/services/delivery.ts";
 import { testConfig } from "./helpers.ts";
 
 let server: ReturnType<typeof Bun.serve> | undefined;
@@ -16,10 +16,11 @@ const extraction: TikTokExtraction = {
 };
 const message: Message = { message_id: 42, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, photo: [{ file_id: "p", file_unique_id: "pu", width: 1, height: 1, file_size: 1 }] };
 const videoMessage: Message = { message_id: 43, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, video: { file_id: "v", file_unique_id: "vu", width: 1, height: 1, duration: 1 } };
+const documentMessage: Message = { message_id: 44, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, document: { file_id: "d", file_unique_id: "du" } };
 
 function instagramExtraction(contentType: InstagramExtraction["content_type"], mediaTypes: Array<"image" | "video">): InstagramExtraction {
   return {
-    extraction_id: "instagram-1", platform: "instagram", source_url: "https://www.instagram.com/p/ABC123",
+    extraction_id: "instagram-1", platform: "instagram", source_id: "ABC123", source_url: "https://www.instagram.com/p/ABC123",
     content_type: contentType,
     media: mediaTypes.map((mediaType, position) => ({
       position, media_type: mediaType,
@@ -40,6 +41,23 @@ describe("DeliveryService", () => {
     expect(payload).toMatchObject({ source: { extraction_id: "extraction-1" }, delivery: "media", telegram: { chat_id: 7, disable_notification: true, reply_parameters: { message_id: 9 } } });
     expect(payload.telegram).not.toHaveProperty("caption");
     expect(payload.telegram).not.toHaveProperty("parse_mode");
+  });
+
+  test("attaches caption and controls for tt-scrap's one-image sendPhoto contract", async () => {
+    let payload: Record<string, any> = {};
+    server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: message }); } });
+    const config = testConfig(`http://127.0.0.1:${server.port}`);
+    const service = new DeliveryService(new TtScrapClient(config), config);
+    const singleImage = { ...extraction, media: [{
+      asset_id: "image-1", kind: "image" as const, position: 0, download_url: "/v1/assets/image-1",
+      filename: "image.jpg", expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }] };
+    await service.deliverTikTokToChat(singleImage, singleImage.source_url, 7, 9, "en", false);
+    expect(payload).toMatchObject({
+      source: { extraction_id: "extraction-1" }, delivery: "media",
+      telegram: { chat_id: 7, parse_mode: "HTML", reply_parameters: { message_id: 9 }, reply_markup: { inline_keyboard: expect.any(Array) } },
+    });
+    expect(payload.telegram.caption).toContain(singleImage.source_url);
   });
 
   test("stages document mode in the configured storage channel", async () => {
@@ -78,9 +96,11 @@ describe("DeliveryService", () => {
     const carousel = await service.deliverInstagram(instagramExtraction("carousel", ["image", "video"]), "https://www.instagram.com/p/ABC123", 7, 9, "en", false);
     expect(image.calls[0]?.method).toBe("sendPhoto");
     expect(carousel.calls[0]?.method).toBe("sendMediaGroup");
+    expect(payloads[0]?.telegram).toMatchObject({ parse_mode: "HTML" });
+    expect(payloads[0]?.telegram.caption).toContain("https://www.instagram.com/p/ABC123");
+    expect(payloads[1]?.telegram).not.toHaveProperty("caption");
+    expect(payloads[1]?.telegram).not.toHaveProperty("parse_mode");
     for (const payload of payloads) {
-      expect(payload.telegram).not.toHaveProperty("caption");
-      expect(payload.telegram).not.toHaveProperty("parse_mode");
       expect(payload.telegram).not.toHaveProperty("supports_streaming");
       expect(payload.telegram).not.toHaveProperty("disable_content_type_detection");
     }
@@ -93,5 +113,17 @@ describe("DeliveryService", () => {
     expect(video).toEqual({ type: "video", fileId: "v" });
     expect(inlineMediaPayload(photo!, "en", "https://www.instagram.com/p/ABC123").type).toBe("photo");
     expect(inlineMediaPayload(video!, "en", "https://www.instagram.com/p/ABC123")).toMatchObject({ type: "video", supports_streaming: true });
+  });
+
+  test("collects complete ordered reusable file IDs", () => {
+    expect(telegramFilesFromResult({ calls: [{ method: "sendMediaGroup", statusCode: 200, result: [message, videoMessage] }] })).toEqual([
+      { position: 0, media_type: "photo", file_id: "p", file_unique_id: "pu" },
+      { position: 1, media_type: "video", file_id: "v", file_unique_id: "vu" },
+    ]);
+  });
+
+  test("skips file-ID caching when a successful delivery has no reusable standard-media ID", () => {
+    expect(telegramFilesFromResult({ calls: [{ method: "sendVideo", statusCode: 200, result: documentMessage }] })).toBeUndefined();
+    expect(telegramFilesFromResult({ calls: [] })).toBeUndefined();
   });
 });

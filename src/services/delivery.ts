@@ -1,6 +1,7 @@
 import type { InlineKeyboard } from "grammy";
 import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
+import type { TelegramFileReference } from "../db/videos.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
 import type { InstagramExtraction, InstagramTelegramMethod, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
 import { text, type Language } from "../locales.ts";
@@ -14,15 +15,19 @@ export class DeliveryService {
   constructor(private readonly scrap: TtScrapClient, private readonly config: AppConfig) {}
 
   deliverTikTokToChat(extraction: TikTokExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean, disableNotification = false): Promise<TelegramDeliveryResult> {
+    // Matching tt-scrap contract: its slideshow handler selects sendPhoto for
+    // one standard image (sendDocument in document mode), so these top-level
+    // caption/control fields are valid and are not passed to sendMediaGroup.
+    const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
     return this.scrap.deliverTikTok({
       source: { extraction_id: extraction.extraction_id },
       delivery: fileMode ? "document" : "media",
       telegram: {
         chat_id: chatId,
-        ...(extraction.content_type === "video" ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
+        ...(captionSingle ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
         reply_parameters: { message_id: replyTo },
         disable_notification: extraction.content_type === "slideshow" || disableNotification,
-        reply_markup: extraction.content_type === "video" ? { inline_keyboard: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views).inline_keyboard } : undefined,
+        reply_markup: captionSingle ? { inline_keyboard: musicKeyboard(extraction.source_id, lang, extraction.likes, extraction.views).inline_keyboard } : undefined,
         ...technicalParameters(extraction.content_type, fileMode),
       },
     });
@@ -30,9 +35,10 @@ export class DeliveryService {
 
   async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
     const chatId = this.requireStorage();
+    const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
     return this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
-      ...(extraction.content_type === "video" ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true,
       ...technicalParameters(extraction.content_type, fileMode),
     } });
@@ -45,9 +51,10 @@ export class DeliveryService {
   }
 
   deliverInstagram(extraction: InstagramExtraction, sourceUrl: string, chatId: number, replyTo: number, lang: Language, fileMode: boolean): Promise<TelegramDeliveryResult> {
+    const captionSingle = extraction.media.length === 1;
     return this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
-      ...(extraction.content_type === "video" ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: resultCaption(lang, sourceUrl), parse_mode: "HTML" as const } : {}),
       reply_parameters: { message_id: replyTo },
       disable_notification: extraction.content_type !== "video",
       ...technicalParameters(extraction.content_type, fileMode),
@@ -55,9 +62,10 @@ export class DeliveryService {
   }
 
   stageInstagram(extraction: InstagramExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
+    const captionSingle = extraction.media.length === 1;
     return this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: this.requireStorage(),
-      ...(extraction.content_type === "video" ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
+      ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true, ...technicalParameters(extraction.content_type, fileMode),
     } }, instagramMethod(extraction, fileMode));
   }
@@ -97,6 +105,19 @@ export function inlineMediaFromMessage(message: Message): InlineMediaReference |
   if (message.video) return { type: "video", fileId: message.video.file_id };
   const photo = message.photo?.at(-1);
   return photo ? { type: "photo", fileId: photo.file_id } : null;
+}
+export function telegramFileFromMessage(message: Message, position: number): TelegramFileReference | null {
+  if (message.video) return { position, media_type: "video", file_id: message.video.file_id, file_unique_id: message.video.file_unique_id };
+  const photo = message.photo?.at(-1);
+  return photo ? { position, media_type: "photo", file_id: photo.file_id, file_unique_id: photo.file_unique_id } : null;
+}
+export function telegramFilesFromResult(result: TelegramDeliveryResult): TelegramFileReference[] | undefined {
+  const files = allMessages(result).map(telegramFileFromMessage);
+  if (files.length === 0 || files.some((file) => file === null)) return undefined;
+  return files as TelegramFileReference[];
+}
+export function inlineMediaFromFiles(files: TelegramFileReference[]): InlineMediaReference[] {
+  return files.map((file) => ({ type: file.media_type, fileId: file.file_id }));
 }
 export function inlineMediaPayload(media: InlineMediaReference, lang: Language, link: string): InputMediaPhoto | InputMediaVideo {
   const common = { media: media.fileId, caption: resultCaption(lang, link), parse_mode: "HTML" as const };

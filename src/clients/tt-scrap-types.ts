@@ -3,6 +3,7 @@ import type { components } from "./tt-scrap.generated.ts";
 
 type ApiSchemas = components["schemas"];
 export type TikTokExtraction = ApiSchemas["TikTokExtractionResponse"];
+export type TikTokResolution = ApiSchemas["TikTokResolutionResponse"];
 export type InstagramExtraction = ApiSchemas["InstagramExtractionResponse"];
 type TelegramParameters = ApiSchemas["TelegramParameters"];
 

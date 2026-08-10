@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { Database } from "../src/db/client.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
-import { cleanupInlineSlideshows } from "../src/handlers/inline-slideshow.ts";
+import { cleanupInlineSlideshows, createInlineSlideshow } from "../src/handlers/inline-slideshow.ts";
 import { inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { QueueManager } from "../src/services/queue.ts";
 import { testConfig } from "./helpers.ts";
@@ -25,12 +25,19 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
   const telegramCalls: TelegramCall[] = [];
   const scrapCalls: Array<{ path: string; payload: Record<string, unknown> }> = [];
   let nextMessageId = 100;
+  let invalidSingleMediaAttempts = 0;
 
   const telegram = Bun.serve({ port: 0, async fetch(request) {
     const method = new URL(request.url).pathname.split("/").at(-1) || "";
     const payload = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
     telegramCalls.push({ method, payload });
     if (method === "getMe") return Response.json({ ok: true, result: { id: 999, is_bot: true, first_name: "Test Bot", username: "test_bot" } });
+    if (method === "editMessageMedia" && payload.inline_message_id === "invalid-single-inline" && invalidSingleMediaAttempts++ === 0) {
+      return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
+    }
+    if (method === "editMessageMedia" && payload.inline_message_id === "viewer-invalid-slideshow") {
+      return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
+    }
     if (["answerCallbackQuery", "answerInlineQuery", "editMessageMedia", "sendChatAction", "setMessageReaction"].includes(method)) return Response.json({ ok: true, result: true });
     const chatId = Number(payload.chat_id ?? 0);
     const chat = chatId < 0
@@ -43,6 +50,12 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     const path = new URL(request.url).pathname;
     const payload = await request.json() as Record<string, unknown>;
     scrapCalls.push({ path, payload });
+    if (path === "/v1/tiktok/resolutions") {
+      return Response.json({
+        platform: "tiktok", source_id: "7669880788879543583", source_url: String(payload.url),
+        resolved_url: "https://www.tiktok.com/@_/video/7669880788879543583",
+      });
+    }
     if (path === "/v1/tiktok/extractions") {
       const url = String(payload.url);
       return Response.json({
@@ -52,7 +65,8 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
         source_url: url,
         resolved_url: url,
         content_type: "video",
-        media: [],
+        creator_username: "creator",
+        media: [{ asset_id: "tiktok-video", kind: "video", position: 0, download_url: "/v1/assets/tiktok-video", filename: "video.mp4", expires_at: new Date(Date.now() + 60_000).toISOString() }],
         expires_at: new Date(Date.now() + 60_000).toISOString(),
         likes: 12,
         views: 34,
@@ -62,6 +76,8 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
       return Response.json({
         extraction_id: `instagram-${scrapCalls.length}`,
         platform: "instagram",
+        source_id: "ABC123",
+        creator_username: "creator",
         source_url: String(payload.url),
         content_type: "video",
         media: [{
@@ -115,7 +131,32 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(101)?.link).toBe("inline");
     expect(sendMessagesFor(telegramCalls, 101)).toHaveLength(4);
 
+    await bot.handleUpdate({ update_id: 1000, chosen_inline_result: {
+      result_id: "tt_download",
+      from: deepLinkUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "first-inline-video",
+    } });
+    expect(memory.videos.some((video) => video.userId === deepLinkUser.id && video.surface === "inline")).toBe(true);
+    expect(memory.details.get("tiktok:7669880788879543583")?.telegram_files).toEqual([
+      { position: 0, media_type: "video", file_id: "video-id", file_unique_id: "video-unique" },
+    ]);
+
+    const invalidationsBeforeSingleInline = memory.invalidations;
+    const extractionsBeforeSingleInline = scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").length;
+    await bot.handleUpdate({ update_id: 1001, chosen_inline_result: {
+      result_id: "tt_download",
+      from: deepLinkUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "invalid-single-inline",
+    } });
+    expect(telegramCalls.filter((call) => call.method === "editMessageMedia" && call.payload.inline_message_id === "invalid-single-inline")).toHaveLength(2);
+    expect(memory.invalidations).toBe(invalidationsBeforeSingleInline + 1);
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(extractionsBeforeSingleInline + 1);
+    const extractionsAfterSingleInline = scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").length;
+
     const firstLinkUser = { id: 102, is_bot: false, first_name: "First Link", language_code: "uk" };
+    const resolutionsBeforeFirstLink = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions").length;
     await bot.handleUpdate({ update_id: 4, message: {
       message_id: 4,
       date: 1,
@@ -126,8 +167,26 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(102)).toMatchObject({ user_id: 102, lang: "uk", link: null });
     expect(sendMessagesFor(telegramCalls, 102)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === 102)).toBe(true);
+    const firstLinkResolutions = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions");
+    expect(firstLinkResolutions).toHaveLength(resolutionsBeforeFirstLink + 1);
+    expect(firstLinkResolutions.at(-1)?.payload.url).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
     expect(scrapCalls.find((call) => call.path === "/v1/tiktok/extractions")?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
+
+    const emptyUsernameUser = { id: 104, is_bot: false, first_name: "ID Link", language_code: "en" };
+    const resolutionsBeforeEmptyUsername = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions").length;
+    await bot.handleUpdate({ update_id: 41, message: {
+      message_id: 41,
+      date: 1,
+      chat: { id: 104, type: "private", first_name: "ID Link" },
+      from: emptyUsernameUser,
+      text: "https://www.tiktok.com/@/video/7520203299816066326",
+    } });
+    const resolutionCalls = scrapCalls.filter((call) => call.path === "/v1/tiktok/resolutions");
+    expect(resolutionCalls).toHaveLength(resolutionsBeforeEmptyUsername + 1);
+    expect(resolutionCalls.at(-1)?.payload.url).toBe("https://www.tiktok.com/@_/video/7520203299816066326");
+    expect(memory.videos.some((video) => video.userId === emptyUsernameUser.id
+      && video.link === "https://www.tiktok.com/@_/video/7520203299816066326")).toBe(true);
 
     const groupChat = { id: -100500, type: "supergroup" as const, title: "Test Group" };
     const groupUser = { id: 103, is_bot: false, first_name: "Group User", language_code: "en" };
@@ -144,7 +203,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.users.get(groupChat.id)).toMatchObject({ user_id: groupChat.id, lang: "en" });
     expect(sendMessagesFor(telegramCalls, groupChat.id)).toHaveLength(2);
     expect(memory.videos.some((video) => video.userId === groupChat.id)).toBe(true);
-    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(2);
+    expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions")).toHaveLength(extractionsAfterSingleInline);
 
     const instagramGroup = { id: -100501, type: "group" as const, title: "Instagram Group" };
     await bot.handleUpdate({ update_id: 7, message: {
@@ -208,6 +267,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     expect(scrapCalls).toHaveLength(callsBeforeUnauthorizedRetries);
 
+    const historyBeforeSlideshowRefresh = memory.videos.length;
     await bot.handleUpdate({ update_id: 13, callback_query: {
       id: "slideshow-refresh",
       chat_instance: "inline-instance",
@@ -217,6 +277,26 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     expect(scrapCalls.filter((call) => call.path === "/v1/tiktok/extractions").at(-1)?.payload.url)
       .toBe("https://www.tiktok.com/@_/video/7669880788879543583");
+    expect(memory.videos).toHaveLength(historyBeforeSlideshowRefresh);
+
+    createInlineSlideshow(bot.api, "viewer-invalid-slideshow", [
+      { type: "photo", fileId: "broken-photo-1" },
+      { type: "photo", fileId: "broken-photo-2" },
+    ], "en", "https://www.tiktok.com/@creator/photo/7669880788879543583", {
+      userId: groupUser.id,
+      fullName: groupUser.first_name,
+    }, null, null, { detailsId: 1n, cacheVersion: 1n });
+    const invalidationsBeforeViewerNavigation = memory.invalidations;
+    const scrapCallsBeforeViewerNavigation = scrapCalls.length;
+    await bot.handleUpdate({ update_id: 14, callback_query: {
+      id: "viewer-navigation",
+      chat_instance: "inline-instance",
+      from: firstLinkUser,
+      data: "slide:next",
+      inline_message_id: "viewer-invalid-slideshow",
+    } });
+    expect(memory.invalidations).toBe(invalidationsBeforeViewerNavigation);
+    expect(scrapCalls).toHaveLength(scrapCallsBeforeViewerNavigation);
   } finally {
     cleanupInlineSlideshows();
     telegram.stop(true);
@@ -231,15 +311,46 @@ function sendMessagesFor(calls: TelegramCall[], chatId: number): TelegramCall[] 
 function memoryDatabase(): {
   db: Database;
   users: Map<number, MemoryUserRow>;
-  videos: Array<{ userId: number; link: string }>;
+  videos: Array<{ userId: number; link: string; surface: string }>;
+  details: Map<string, Record<string, unknown>>;
+  readonly invalidations: number;
 } {
   const users = new Map<number, MemoryUserRow>();
-  const videos: Array<{ userId: number; link: string }> = [];
+  const videos: Array<{ userId: number; link: string; surface: string }> = [];
+  const details = new Map<string, Record<string, unknown>>();
+  let invalidations = 0;
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const query = strings.join("?").replace(/\s+/gu, " ").trim();
     if (query.startsWith("SELECT user_id, registered_at, lang, link, file_mode FROM users")) {
       const user = users.get(Number(values[0]));
       return user ? [user] : [];
+    }
+    if (query.startsWith("SELECT * FROM video_details")) {
+      const row = details.get(`${values[0]}:${values[1]}`);
+      return row ? [row] : [];
+    }
+    if (query.startsWith("INSERT INTO video_details")) {
+      const key = `${values[0]}:${values[1]}`;
+      const existing = details.get(key);
+      const hasFiles = values[6] !== null;
+      const row = {
+        pk_id: existing?.pk_id ?? videos.length + 1, platform: values[0], platform_video_id: values[1],
+        creator_username: values[2] ?? existing?.creator_username ?? null,
+        content_type: values[3] ?? existing?.content_type ?? null,
+        canonical_link: values[4] ?? existing?.canonical_link ?? null,
+        telegram_bot_id: hasFiles ? values[5] : existing?.telegram_bot_id ?? null,
+        telegram_files: hasFiles
+          ? values[6] instanceof Uint8Array ? JSON.parse(new TextDecoder().decode(values[6])) : values[6]
+          : existing?.telegram_files ?? null,
+        likes_display: values[7] ?? existing?.likes_display ?? null,
+        views_display: values[8] ?? existing?.views_display ?? null,
+        first_downloaded_at: existing?.first_downloaded_at ?? values[9], last_used_at: values[10],
+        metadata_refreshed_at: values[18] ? values[11] : existing?.metadata_refreshed_at ?? null,
+        file_ids_updated_at: hasFiles ? values[12] : existing?.file_ids_updated_at ?? null,
+        cache_version: BigInt(String(existing?.cache_version ?? 0)) + (hasFiles ? 1n : 0n),
+      };
+      details.set(key, row);
+      return [row];
     }
     if (query.startsWith("INSERT INTO users")) {
       const userId = Number(values[0]);
@@ -255,10 +366,15 @@ function memoryDatabase(): {
       return [user];
     }
     if (query.startsWith("INSERT INTO videos")) {
-      videos.push({ userId: Number(values[0]), link: String(values[2]) });
+      videos.push({ userId: Number(values[0]), link: String(values[3]), surface: String(values[5]) });
       return [];
+    }
+    if (query.startsWith("UPDATE video_details SET telegram_bot_id = NULL")) {
+      invalidations++;
+      return [{ pk_id: values[0] }];
     }
     throw new Error(`Unexpected in-memory SQL query: ${query}`);
   };
-  return { db: { sql } as unknown as Database, users, videos };
+  Object.assign(sql, { begin: async (operation: (transaction: typeof sql) => Promise<unknown>) => operation(sql) });
+  return { db: { sql } as unknown as Database, users, videos, details, get invalidations() { return invalidations; } };
 }

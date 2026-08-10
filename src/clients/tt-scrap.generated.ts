@@ -40,6 +40,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tiktok/resolutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Tiktok Url
+         * @description Follow a TikTok share link and return its full post URL and numeric ID.
+         *
+         *     This endpoint performs redirect resolution only. It does not call the TikTok
+         *     metadata extractor, create asset references, or download any media.
+         */
+        post: operations["resolveTikTokUrl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tiktok/extractions": {
         parameters: {
             query?: never;
@@ -298,8 +321,18 @@ export interface components {
              * @constant
              */
             platform: "instagram";
+            /**
+             * Source Id
+             * @description Instagram post shortcode or story media ID
+             */
+            source_id: string;
             /** Source Url */
             source_url: string;
+            /**
+             * Creator Username
+             * @description Instagram creator username when supplied by the upstream provider
+             */
+            creator_username?: string | null;
             /**
              * Content Type
              * @description Single media kind or an ordered mixed carousel
@@ -504,7 +537,7 @@ export interface components {
             start_timestamp?: number | null;
             /**
              * Caption
-             * @description Caption for single calls; Instagram carousels use the first item; TikTok slideshows reject it
+             * @description Caption for single calls; Instagram carousels use the first item; multi-image TikTok slideshows reject it
              */
             caption?: string | null;
             /** Parse Mode */
@@ -593,6 +626,11 @@ export interface components {
             /** Resolved Url */
             resolved_url: string;
             /**
+             * Creator Username
+             * @description TikTok author uniqueId when supplied by the extractor
+             */
+            creator_username?: string | null;
+            /**
              * Content Type
              * @description Determines whether media contains one video or ordered slideshow images
              * @enum {string}
@@ -677,6 +715,48 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /**
+         * TikTokResolutionRequest
+         * @description Resolve a TikTok share URL without extracting post metadata or media.
+         * @example {
+         *       "url": "https://www.tiktok.com/t/EXAMPLE/"
+         *     }
+         */
+        TikTokResolutionRequest: {
+            /**
+             * Url
+             * Format: uri
+             * @description Public TikTok video, photo, or short share URL
+             */
+            url: string;
+        };
+        /**
+         * TikTokResolutionResponse
+         * @description Final TikTok post URL and its numeric post identifier.
+         */
+        TikTokResolutionResponse: {
+            /**
+             * Platform
+             * @default tiktok
+             * @constant
+             */
+            platform: "tiktok";
+            /**
+             * Source Id
+             * @description Numeric TikTok video or photo post ID; preserve it as a string
+             */
+            source_id: string;
+            /**
+             * Source Url
+             * @description Original URL supplied by the caller
+             */
+            source_url: string;
+            /**
+             * Resolved Url
+             * @description Full TikTok video or photo URL after following share-link redirects
+             */
+            resolved_url: string;
         };
         /**
          * TikTokTelegramDeliveryRequest
@@ -806,6 +886,57 @@ export interface operations {
             };
             /** @description A required service credential is not configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resolveTikTokUrl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TikTokResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TikTokResolutionResponse"];
+                };
+            };
+            /** @description Missing or invalid tt-scrap bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request validation or delivery-parameter error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Stable tt-scrap error envelope; inspect error.code */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };

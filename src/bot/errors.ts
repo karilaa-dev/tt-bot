@@ -11,7 +11,12 @@ export class TtScrapError extends Error {
 }
 
 export class PartialDeliveryError extends Error {
-  constructor(readonly successfulCalls: number, readonly requestId: string, message = "Telegram delivery was only partially completed") {
+  constructor(
+    readonly successfulCalls: number,
+    readonly requestId: string,
+    readonly deliveryError?: unknown,
+    message = "Telegram delivery was only partially completed",
+  ) {
     super(message);
     this.name = "PartialDeliveryError";
   }

@@ -7,10 +7,13 @@
     "bun": "1.3.14"
   },
   "scripts": {
-    "start": "bun run src/main.ts",
+    "start": "bun run scripts/start.ts",
+    "dev": "bun --watch --no-clear-screen run src/main.ts",
     "maintenance": "bun run src/maintenance.ts",
+    "db:migrate-legacy": "bun run scripts/migrate-legacy.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:integration:tt-scrap": "RUN_TT_SCRAP_INTEGRATION=1 bun test tests/integration/tt-scrap.integration.test.ts",
     "api:generate": "bun run scripts/generate-tt-scrap-types.ts"
   },
   "dependencies": {

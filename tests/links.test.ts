@@ -2,11 +2,14 @@ import { expect, test } from "bun:test";
 import type { MessageEntity } from "grammy/types";
 import { compressInlineRetryLink, inlineRetryCallbackData } from "../src/handlers/inline.ts";
 import { findInstagramUrl } from "../src/handlers/links.ts";
-import { findTikTokUrl, tikTokExtractionUrl } from "../src/handlers/tiktok.ts";
+import { findTikTokUrl } from "../src/handlers/tiktok.ts";
+import { normalizeTikTokLookupUrl } from "../src/services/tiktok-url.ts";
 
 test("routes all TikTok-owned link formats", () => {
   const supported = [
     ["https://www.tiktok.com/@creator/video/7669880788879543583?is_from_webapp=1", "https://www.tiktok.com/@creator/video/7669880788879543583"],
+    ["https://www.tiktok.com/@/video/7520203299816066326", "https://www.tiktok.com/@_/video/7520203299816066326"],
+    ["https://www.tiktok.com/@/photo/7520203299816066326/", "https://www.tiktok.com/@_/photo/7520203299816066326"],
     ["https://tiktok.com/@creator/photo/7669880788879543583/", "https://tiktok.com/@creator/photo/7669880788879543583"],
     ["https://m.tiktok.com/v/7669880788879543583.html", "https://m.tiktok.com/v/7669880788879543583.html"],
     ["https://www.tiktok.com/embed/7669880788879543583", "https://www.tiktok.com/embed/7669880788879543583"],
@@ -56,8 +59,10 @@ test("normalizes ID-bearing legacy and embed routes for extraction", () => {
     "https://www.tiktok.com/player/v1/7669880788879543583",
     "https://www.tiktok.com/share/video/7669880788879543583",
     "https://www.tiktok.com/share/item/7669880788879543583",
-  ]) expect(tikTokExtractionUrl(link)).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
-  expect(tikTokExtractionUrl("https://vm.tiktok.com/ZTest")).toBe("https://vm.tiktok.com/ZTest");
+  ]) expect(normalizeTikTokLookupUrl(link)).toBe("https://www.tiktok.com/@_/video/7669880788879543583");
+  expect(normalizeTikTokLookupUrl("https://www.tiktok.com/@/video/7520203299816066326"))
+    .toBe("https://www.tiktok.com/@_/video/7520203299816066326");
+  expect(normalizeTikTokLookupUrl("https://vm.tiktok.com/ZTest")).toBe("https://vm.tiktok.com/ZTest");
 });
 
 test("routes direct and embedded Instagram links", () => {

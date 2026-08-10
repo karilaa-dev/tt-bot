@@ -19,6 +19,7 @@ permissions:
 
 jobs:
   checks:
+    name: checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

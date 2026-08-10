@@ -1,15 +1,15 @@
 import type { Bot } from "grammy";
 import type { InlineKeyboardMarkup, InlineQueryResultArticle } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { addVideo } from "../db/videos.ts";
 import { type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
-import { DeliveryService, allMessages, inlineMediaFromMessage, inlineMediaPayload, type InlineMediaReference } from "../services/delivery.ts";
+import { DeliveryService, allMessages, inlineMediaFromFiles, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult, type InlineMediaReference } from "../services/delivery.ts";
+import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../services/media-cache.ts";
 import { resolveLanguage } from "../services/registration.ts";
 import { loadingKeyboard, statsKeyboard } from "../ui/keyboards.ts";
 import { createInlineSlideshow } from "./inline-slideshow.ts";
 import { findInstagramUrl } from "./links.ts";
-import { errorText, findTikTokUrl, shouldOfferRetry, tikTokExtractionUrl } from "./tiktok.ts";
+import { errorText, findTikTokUrl, shouldOfferRetry } from "./tiktok.ts";
 
 const retrying = new Set<string>();
 
@@ -69,31 +69,50 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
   try {
     const queued = await ctx.queue.withSlot(ctx.from!.id, async () => {
       const onRetry = async (attempt: number, max: number) => editText(ctx, id, `${text(lang, "inline_download_video_text")}\n${text(lang, "inline_retry_attempt").replace("{0}", String(attempt)).replace("{1}", String(max))}`, { inline_keyboard: loadingKeyboard.inline_keyboard });
-      const extraction = instagram ? await ctx.scrap.extractInstagram(link, { attempts: 4, onRetry }) : await ctx.scrap.extractTikTok(tikTokExtractionUrl(link), { attempts: 4, onRetry });
       const identity = { userId: ctx.from!.id, fullName: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(" "), ...(ctx.from!.username ? { username: ctx.from!.username } : {}) };
-      const service = new DeliveryService(ctx.scrap, ctx.config);
-      const result = extraction.platform === "instagram" ? await service.stageInstagram(extraction, link, identity) : await service.stageTikTok(extraction, link, identity);
-      const media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
-      if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
-      if (media.length === 1) {
-        const markup = extraction.platform === "tiktok" ? statsKeyboard(extraction.likes, extraction.views) : undefined;
-        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
-      } else {
-        const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity, extraction.platform === "tiktok" ? extraction.likes : undefined, extraction.platform === "tiktok" ? extraction.views : undefined);
-        await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
-      }
-      return extraction;
+      const options = {
+        db: ctx.db, scrap: ctx.scrap, link, userId: ctx.from!.id, botId: ctx.me.id,
+        fileMode: false, deliverySurface: "inline" as const, retry: { attempts: 4, onRetry },
+      };
+      const execute = instagram ? executeInstagramMediaRequest : executeTikTokMediaRequest;
+      return execute(options, async (prepared) => {
+        let media: InlineMediaReference[];
+        let telegramFiles;
+        if (prepared.cachedFiles) {
+          media = inlineMediaFromFiles(prepared.cachedFiles);
+        } else {
+          const service = new DeliveryService(ctx.scrap, ctx.config);
+          const extraction = prepared.extraction;
+          if (!extraction) throw new Error("Extraction is required for inline storage upload");
+          const result = extraction.platform === "instagram"
+            ? await service.stageInstagram(extraction, link, identity)
+            : await service.stageTikTok(extraction, link, identity);
+          telegramFiles = telegramFilesFromResult(result);
+          media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
+        }
+        if (!media.length) throw new Error("Storage delivery returned no inline-compatible Telegram media");
+        if (media.length === 1) {
+          const markup = prepared.platform === "tiktok" ? statsKeyboard(prepared.likesDisplay, prepared.viewsDisplay) : undefined;
+          // Keep this edit inside the cache deliverer: a confirmed invalid cached
+          // file ID is caught by execute*MediaRequest, invalidated, extracted,
+          // staged, and delivered through this callback exactly once more.
+          await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), ...(markup ? { reply_markup: markup } : {}) });
+        } else {
+          const keyboard = createInlineSlideshow(ctx.api, id, media, lang, link, identity,
+            prepared.platform === "tiktok" ? prepared.likesDisplay : undefined,
+            prepared.platform === "tiktok" ? prepared.viewsDisplay : undefined,
+            prepared.cacheIdentity);
+          await ctx.api.raw.editMessageMedia({ inline_message_id: id, media: inlineMediaPayload(media[0]!, lang, link), reply_markup: keyboard });
+        }
+        return { value: media, ...(telegramFiles ? { telegramFiles } : {}) };
+      });
     });
     if (!queued.acquired) {
       if (queued.reason === "capacity") await editText(ctx, id, text(lang, "error_queue_full").replace("{0}", String(ctx.queue.count(ctx.from!.id))), retryKeyboard(lang, link, instagram, ctx.from!.id));
       return;
     }
-    const extraction = queued.value;
-    const isVideo = extraction.content_type === "video";
-    try {
-      await addVideo(ctx.db, ctx.from!.id, link, !isVideo, false, true);
-      logger.info(`Inline Download: ${ctx.from!.id} - ${isVideo ? "VIDEO" : "IMAGES"} ${link}`);
-    } catch (error) { logger.error("Can't write inline download into database", error); }
+    const completed = queued.value;
+    logger.info(`Inline Download: ${ctx.from!.id} - ${completed.prepared.contentType === "video" ? "VIDEO" : "IMAGES"} ${link} - CACHE ${completed.cacheHit ? "HIT" : "MISS"}`);
   } catch (error) {
     logger.error(`Inline delivery failed for ${link}`, error);
     const markup = shouldOfferRetry(error) ? retryKeyboard(lang, link, instagram, ctx.from!.id) : { inline_keyboard: [] };

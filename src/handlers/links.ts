@@ -1,9 +1,10 @@
 import type { Bot } from "grammy";
 import type { InputMediaDocument, InputMediaPhoto, InputMediaVideo, MessageEntity } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { addVideo } from "../db/videos.ts";
 import { logger } from "../logging.ts";
-import { DeliveryService, allMessages, fileIdFromMessage, lastBatch } from "../services/delivery.ts";
+import { deliverCachedInstagramToChat } from "../services/cached-delivery.ts";
+import { DeliveryService, allMessages, fileIdFromMessage, lastBatch, telegramFilesFromResult } from "../services/delivery.ts";
+import { executeInstagramMediaRequest } from "../services/media-cache.ts";
 import { resolveDownloadPreferences } from "../services/registration.ts";
 import { resultCaption } from "../ui/captions.ts";
 import { replyForQueueRejection } from "./queue-rejection.ts";
@@ -34,40 +35,53 @@ export function registerLinkHandlers(bot: Bot<BotContext>): void {
     const status = await beginStatus(ctx, ctx.message);
     try {
       const queued = await ctx.queue.withSlot(ctx.chat.id, async () => {
-        const extraction = await ctx.scrap.extractInstagram(link, { attempts: 4 });
         if (!status) await setReaction(ctx, ctx.message, "👨‍💻");
-        await ctx.api.sendChatAction(ctx.chat.id, extraction.content_type === "video" ? "upload_video" : "upload_photo");
-        const delivery = new DeliveryService(ctx.scrap, ctx.config);
-        let result;
-        if (group && extraction.content_type !== "video" && extraction.media.length > 10) {
-          const staged = await delivery.stageInstagram(extraction, link, identity(ctx), fileMode);
-          const stagedMessages = allMessages(staged).slice(0, 10);
-          const sent = fileMode
-            ? await ctx.api.sendMediaGroup(ctx.chat.id, stagedMessages.map((item, index): InputMediaDocument => ({ type: "document", media: requiredFileId(item, index), disable_content_type_detection: true })), { disable_notification: true, reply_parameters: { message_id: ctx.message.message_id } })
-            : await ctx.api.sendMediaGroup(ctx.chat.id, stagedMessages.map((item, index): InputMediaPhoto | InputMediaVideo => item.video
-              ? { type: "video", media: requiredFileId(item, index), supports_streaming: true }
-              : { type: "photo", media: requiredFileId(item, index) }), { disable_notification: true, reply_parameters: { message_id: ctx.message.message_id } });
-          result = { calls: [{ method: "sendMediaGroup", statusCode: 200, result: sent }] };
-        } else {
-          result = await delivery.deliverInstagram(extraction, link, ctx.chat.id, ctx.message.message_id, lang, fileMode);
-        }
-        if (extraction.content_type !== "video") {
-          const final = lastBatch(result)[0];
-          if (final) await ctx.api.sendMessage(ctx.chat.id, resultCaption(lang, link, group), { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_parameters: { message_id: final.message_id } });
-        }
+        const completed = await executeInstagramMediaRequest({
+          db: ctx.db, scrap: ctx.scrap, link, userId: ctx.chat.id, botId: ctx.me.id,
+          fileMode, deliverySurface: "chat", retry: { attempts: 4 },
+        }, async (prepared) => {
+          await ctx.api.sendChatAction(ctx.chat.id, prepared.contentType === "video" ? "upload_video" : "upload_photo");
+          const delivery = new DeliveryService(ctx.scrap, ctx.config);
+          let result;
+          let uploadedFiles;
+          if (prepared.cachedFiles) {
+            result = await deliverCachedInstagramToChat({
+              api: ctx.api, files: prepared.cachedFiles, chatId: ctx.chat.id, replyTo: ctx.message.message_id,
+              lang, sourceLink: link, group, contentType: prepared.contentType,
+            });
+          } else {
+            const extraction = prepared.extraction;
+            if (!extraction || extraction.platform !== "instagram") throw new Error("Instagram extraction is required for an upload");
+            if (group && extraction.content_type !== "video" && extraction.media.length > 10) {
+              const staged = await delivery.stageInstagram(extraction, link, identity(ctx), fileMode);
+              const stagedMessages = allMessages(staged).slice(0, 10);
+              const sent = fileMode
+                ? await ctx.api.sendMediaGroup(ctx.chat.id, stagedMessages.map((item, index): InputMediaDocument => ({ type: "document", media: requiredFileId(item, index), disable_content_type_detection: true })) as [InputMediaDocument, InputMediaDocument, ...InputMediaDocument[]], { disable_notification: true, reply_parameters: { message_id: ctx.message.message_id } })
+                : await ctx.api.sendMediaGroup(ctx.chat.id, stagedMessages.map((item, index): InputMediaPhoto | InputMediaVideo => item.video
+                  ? { type: "video", media: requiredFileId(item, index), supports_streaming: true }
+                  : { type: "photo", media: requiredFileId(item, index) }) as [InputMediaPhoto | InputMediaVideo, InputMediaPhoto | InputMediaVideo, ...(InputMediaPhoto | InputMediaVideo)[]], { disable_notification: true, reply_parameters: { message_id: ctx.message.message_id } });
+              result = { calls: [{ method: "sendMediaGroup", statusCode: 200, result: sent }] };
+              if (!fileMode) uploadedFiles = telegramFilesFromResult(staged);
+            } else {
+              result = await delivery.deliverInstagram(extraction, link, ctx.chat.id, ctx.message.message_id, lang, fileMode);
+              if (!fileMode) uploadedFiles = telegramFilesFromResult(result);
+            }
+          }
+          if (prepared.contentType !== "video" && allMessages(result).length > 1) {
+            const final = lastBatch(result)[0];
+            if (final) await ctx.api.sendMessage(ctx.chat.id, resultCaption(lang, link, group), { parse_mode: "HTML", link_preview_options: { is_disabled: true }, reply_parameters: { message_id: final.message_id } });
+          }
+          return { value: result, ...(uploadedFiles ? { telegramFiles: uploadedFiles } : {}) };
+        });
         await clearStatus(ctx, ctx.message, status);
-        return extraction;
+        return completed;
       }, { group });
       if (!queued.acquired) {
         await clearStatus(ctx, ctx.message, status);
         await replyForQueueRejection(ctx, queued.reason, lang, ctx.message.message_id, group);
         return;
       }
-      const extraction = queued.value;
-      try {
-        await addVideo(ctx.db, ctx.chat.id, link, extraction.content_type !== "video");
-        logger.info(`Instagram Download: CHAT ${ctx.chat.id} - URL ${link}`);
-      } catch (error) { logger.error("Can't write Instagram download into database", error); }
+      logger.info(`Instagram Download: CHAT ${ctx.chat.id} - URL ${link} - CACHE ${queued.value.cacheHit ? "HIT" : "MISS"}`);
     } catch (error) {
       logger.error(`Instagram handler failed for ${link}`, error);
       await clearStatus(ctx, ctx.message, status);

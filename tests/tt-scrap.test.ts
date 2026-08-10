@@ -15,6 +15,42 @@ function start(handler: (request: Request) => Response | Promise<Response>): TtS
 const message: Message = { message_id: 42, date: 1, chat: { id: 7, type: "private", first_name: "Test" }, video: { file_id: "video-file", file_unique_id: "u", width: 1, height: 1, duration: 1 } };
 
 describe("TtScrapClient", () => {
+  test("budgets coalescing waits for all retryable request phases and delivery", () => {
+    const config = testConfig("http://127.0.0.1:8000");
+    config.ttScrapRequestTimeoutMs = 90_000;
+    config.ttScrapDeliveryTimeoutMs = 620_000;
+    const client = new TtScrapClient(config);
+    expect(client.mediaRequestBudgetMs({ attempts: 4 })).toBe(1_347_000);
+  });
+
+  test("resolves TikTok links before extraction with the stable source ID", async () => {
+    let path = "";
+    const client = start((request) => {
+      path = new URL(request.url).pathname;
+      return Response.json({ platform: "tiktok", source_id: "7669880788879543583", source_url: "https://vm.tiktok.com/token", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583" });
+    });
+    const resolved = await client.resolveTikTok("https://vm.tiktok.com/token");
+    expect(path).toBe("/v1/tiktok/resolutions");
+    expect(resolved.source_id).toBe("7669880788879543583");
+  });
+
+  test("retries retryable TikTok resolution failures with the configured callback", async () => {
+    let requests = 0;
+    const retries: Array<[number, number]> = [];
+    const client = start(() => {
+      requests++;
+      if (requests === 1) return Response.json({ error: { code: "upstream_timeout", message: "timed out", request_id: "request-1" } }, { status: 504 });
+      return Response.json({ platform: "tiktok", source_id: "7669880788879543583", source_url: "https://vm.tiktok.com/token", resolved_url: "https://www.tiktok.com/@creator/video/7669880788879543583" });
+    });
+    const resolved = await client.resolveTikTok("https://vm.tiktok.com/token", {
+      attempts: 2,
+      onRetry: async (attempt, maxRetries) => { retries.push([attempt, maxRetries]); },
+    });
+    expect(resolved.source_id).toBe("7669880788879543583");
+    expect(requests).toBe(2);
+    expect(retries).toEqual([[1, 1]]);
+  });
+
   test("hydrates a raw Telegram result without wrapping or copying it", async () => {
     const client = start(async (request) => {
       expect(request.headers.get("authorization")).toBe("Bearer test-api-key-that-is-long-enough");

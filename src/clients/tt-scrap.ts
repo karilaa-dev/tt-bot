@@ -11,6 +11,7 @@ import type {
   TelegramDeliveryResult,
   TikTokDeliveryRequest,
   TikTokExtraction,
+  TikTokResolution,
 } from "./tt-scrap-types.ts";
 
 interface ErrorEnvelope { error: { code: string; message: string; request_id: string } }
@@ -25,6 +26,17 @@ export interface RetryOptions {
 export class TtScrapClient {
   constructor(private readonly config: AppConfig) {}
 
+  /** Conservative wall-clock budget for resolution, extraction, and delivery. */
+  mediaRequestBudgetMs(options: RetryOptions = {}): number {
+    const attempts = Math.max(1, options.attempts ?? 1);
+    let retryDelayMs = 0;
+    for (let attempt = 1; attempt < attempts; attempt++) {
+      retryDelayMs += Math.min(4_000, 500 * 2 ** (attempt - 1));
+    }
+    const requestPhaseMs = attempts * this.config.ttScrapRequestTimeoutMs + retryDelayMs;
+    return requestPhaseMs * 2 + this.config.ttScrapDeliveryTimeoutMs;
+  }
+
   async healthReady(): Promise<boolean> {
     try {
       const response = await fetch(`${this.config.ttScrapBaseUrl}/health/ready`, { signal: AbortSignal.timeout(5_000) });
@@ -35,11 +47,15 @@ export class TtScrapClient {
   }
 
   extractTikTok(url: string, options: RetryOptions = {}): Promise<TikTokExtraction> {
-    return this.extractWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
+    return this.requestWithRetry("/v1/tiktok/extractions", { url, refresh: false }, isTikTokExtraction, options);
+  }
+
+  resolveTikTok(url: string, options: RetryOptions = {}): Promise<TikTokResolution> {
+    return this.requestWithRetry("/v1/tiktok/resolutions", { url }, isTikTokResolution, options);
   }
 
   extractInstagram(url: string, options: RetryOptions = {}): Promise<InstagramExtraction> {
-    return this.extractWithRetry("/v1/instagram/extractions", { url, refresh: false }, isInstagramExtraction, options);
+    return this.requestWithRetry("/v1/instagram/extractions", { url, refresh: false }, isInstagramExtraction, options);
   }
 
   deliverTikTok(request: TikTokDeliveryRequest): Promise<TelegramDeliveryResult> {
@@ -50,7 +66,7 @@ export class TtScrapClient {
     return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, expectedMethod);
   }
 
-  private async extractWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {
+  private async requestWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {
     const attempts = Math.max(1, options.attempts ?? 1);
     let last: unknown;
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -58,7 +74,7 @@ export class TtScrapClient {
         return await this.post(path, body, this.config.ttScrapRequestTimeoutMs, validate);
       } catch (error) {
         last = error;
-        if (attempt >= attempts || !isRetryableExtractionError(error)) throw error;
+        if (attempt >= attempts || !isRetryableRequestError(error)) throw error;
         await options.onRetry?.(attempt, attempts - 1);
         await Bun.sleep(Math.min(4_000, 500 * 2 ** (attempt - 1)));
       }
@@ -176,7 +192,7 @@ async function parseJson(response: Response): Promise<unknown> {
   try { return await response.json(); }
   catch { throw new TtScrapError("invalid_response", "tt-scrap returned invalid JSON", response.headers.get("x-request-id") || "unknown", response.status); }
 }
-function isRetryableExtractionError(error: unknown): boolean {
+function isRetryableRequestError(error: unknown): boolean {
   return error instanceof TtScrapError && (
     ["upstream_network_error", "upstream_extraction_error", "upstream_timeout", "upstream_rate_limited"].includes(error.code)
     || [429, 502, 503, 504].includes(error.status)
@@ -202,10 +218,20 @@ function isTikTokExtraction(value: unknown): value is TikTokExtraction {
     && typeof value.expires_at === "string";
 }
 
+function isTikTokResolution(value: unknown): value is TikTokResolution {
+  return isRecord(value)
+    && value.platform === "tiktok"
+    && typeof value.source_id === "string"
+    && /^[0-9]+$/u.test(value.source_id)
+    && typeof value.source_url === "string"
+    && typeof value.resolved_url === "string";
+}
+
 function isInstagramExtraction(value: unknown): value is InstagramExtraction {
   if (!isRecord(value)) return false;
   return value.platform === "instagram"
     && typeof value.extraction_id === "string"
+    && typeof value.source_id === "string"
     && typeof value.source_url === "string"
     && ["video", "image", "carousel"].includes(String(value.content_type))
     && Array.isArray(value.media)
