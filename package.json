@@ -13,6 +13,7 @@
     "db:migrate-legacy": "bun run scripts/migrate-legacy.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "test:integration:migration": "RUN_POSTGRES_MIGRATION_INTEGRATION=1 bun test tests/integration/legacy-migration.integration.test.ts",
     "test:integration:tt-scrap": "RUN_TT_SCRAP_INTEGRATION=1 bun test tests/integration/tt-scrap.integration.test.ts",
     "api:generate": "bun run scripts/generate-tt-scrap-types.ts"
   },

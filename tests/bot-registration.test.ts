@@ -365,7 +365,7 @@ function memoryDatabase(): {
       users.set(userId, user);
       return [user];
     }
-    if (query.startsWith("INSERT INTO videos")) {
+    if (query.startsWith("SELECT record_download_history")) {
       videos.push({ userId: Number(values[0]), link: String(values[3]), surface: String(values[5]) });
       return [];
     }

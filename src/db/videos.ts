@@ -116,12 +116,11 @@ export async function recordDownload(db: Database, input: RecordDownloadInput): 
   // history failure never forces the next request to extract and upload again.
   if (input.recordHistory !== false) {
     try {
-      await db.sql`INSERT INTO videos (
-          user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit
-        ) VALUES (
-          ${input.userId}, ${details.pk_id}, ${now}, ${input.sharedLink}, ${input.mediaKind},
-          ${input.deliverySurface}, ${input.deliveryMode}, ${input.cacheHit}
-        )`;
+      await db.sql`SELECT record_download_history(
+        ${input.userId}::bigint, ${details.pk_id}::bigint, ${now}::bigint, ${input.sharedLink}::text,
+        ${input.mediaKind}::varchar, ${input.deliverySurface}::varchar,
+        ${input.deliveryMode}::varchar, ${input.cacheHit}::boolean
+      )`;
     } catch (error) {
       logger.error("Can't persist download history; reusable media details were retained", error);
     }
