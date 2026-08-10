@@ -30,6 +30,8 @@ export interface LegacyMigrationOptions {
   onProgress?: (message: string) => void;
   /** Called after live writes are mirrored and the bot may safely initialize. */
   onBotReady?: () => void;
+  /** Test hook: runs after the safety audit and before live mirroring begins. */
+  onBeforeBridge?: () => Promise<void>;
   /** Test hook: runs after snapshot verification and before the cutover lock. */
   onBeforeCutoverLock?: () => Promise<void>;
 }
@@ -173,6 +175,7 @@ async function migrate(
   const source = readObject(evidence.source_audit);
   assertLegacySourceAudit(source);
   if (options.stopAfterPhase === "audit" || options.signal?.aborted) return paused("audit", evidence);
+  await options.onBeforeBridge?.();
 
   // Install the final cache schema and a trigger-backed shadow write path before
   // the long scans. From this point onward the bot can serve against the legacy
@@ -188,7 +191,25 @@ async function migrate(
   options.onBotReady?.();
   if (options.signal?.aborted) return paused("audit", await auditEvidence(sql));
 
-  const upperPk = BigInt(source.max_pk as string);
+  // The safety audit predates the trigger by design. Capture a distinct,
+  // durable upper bound only after trigger installation: earlier rows are now
+  // covered by backfill, and every later write is covered by the trigger.
+  evidence = await auditEvidence(sql);
+  let backfillBound = readObject(evidence.backfill_bound);
+  if (!("upper_pk" in backfillBound)) {
+    const rows = await sql<Array<{ upper_pk: bigint | string }>>`SELECT COALESCE(MAX(pk_id), 0)::bigint AS upper_pk FROM videos`;
+    backfillBound = {
+      upper_pk: String(rows[0]?.upper_pk ?? 0),
+      captured_at: String(Math.floor(Date.now() / 1000)),
+      live_mirror_active: true,
+    };
+    await mergeEvidence(sql, { backfill_bound: backfillBound });
+  }
+  const upperPkValue = backfillBound.upper_pk;
+  if (typeof upperPkValue !== "string" || !/^\d+$/u.test(upperPkValue)) {
+    throw new Error("Refusing migration: backfill evidence has no valid upper primary key");
+  }
+  const upperPk = BigInt(upperPkValue);
   await mergeEvidence(sql, {
     identity_parser_self_test: { case_count: 15, verified_at: Math.floor(Date.now() / 1000) },
   });
@@ -931,11 +952,21 @@ async function verifyRebuild(sql: SQLType): Promise<VerificationEvidence> {
       (SELECT COUNT(*) FROM videos_new v LEFT JOIN users u ON u.user_id = v.user_id WHERE u.user_id IS NULL)::text AS orphaned_users,
       (SELECT COUNT(*) FROM videos_new v LEFT JOIN video_details d ON d.pk_id = v.video_details_id WHERE v.video_details_id IS NOT NULL AND d.pk_id IS NULL)::text AS orphaned_details,
       (SELECT COUNT(*) FROM (SELECT pk_id FROM videos_new GROUP BY pk_id HAVING COUNT(*) > 1) duplicates)::text AS duplicate_primary_keys,
-      (SELECT COUNT(*) FROM legacy_video_identity i LEFT JOIN video_details d ON d.platform = i.platform AND d.platform_video_id = i.platform_video_id WHERE d.pk_id IS NULL)::text AS unmapped_staged_rows,
-      (SELECT COUNT(*) FROM legacy_video_identity i LEFT JOIN videos_new v ON v.pk_id = i.legacy_pk WHERE v.video_details_id IS NULL)::text AS unlinked_staged_history_rows,
+      (SELECT COUNT(*) FROM legacy_video_identity i
+        JOIN videos source_video ON source_video.pk_id = i.legacy_pk
+        LEFT JOIN video_details d ON d.platform = i.platform AND d.platform_video_id = i.platform_video_id
+        WHERE d.pk_id IS NULL)::text AS unmapped_current_staged_rows,
+      (SELECT COUNT(*) FROM videos source_video
+        CROSS JOIN LATERAL parse_legacy_video_identity(source_video.video_link) parsed
+        LEFT JOIN videos_new shadow_video ON shadow_video.pk_id = source_video.pk_id
+        WHERE parsed.platform IS NOT NULL AND NOT parsed.conflict
+          AND shadow_video.video_details_id IS NULL)::text AS unlinked_parseable_history_rows,
       (SELECT COUNT(*) FROM legacy_video_identity)::text AS staged_rows`;
   const checks = integrity[0] ?? {};
-  for (const key of ["orphaned_users", "orphaned_details", "duplicate_primary_keys", "unmapped_staged_rows", "unlinked_staged_history_rows"]) {
+  for (const key of [
+    "orphaned_users", "orphaned_details", "duplicate_primary_keys",
+    "unmapped_current_staged_rows", "unlinked_parseable_history_rows",
+  ]) {
     if (checks[key] !== "0") throw new Error(`Verification failed: ${key}=${checks[key]}`);
   }
   return { source, destination, integrity: checks, verified_at: String(Math.floor(Date.now() / 1000)) };

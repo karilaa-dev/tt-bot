@@ -26,6 +26,15 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       liveTableBatchSize: 1,
       signal: migrationAbort.signal,
       onBotReady: markReady,
+      onBeforeBridge: async () => {
+        // This writer lands after the immutable safety audit but before the
+        // mirror trigger. The post-trigger bound must still backfill it.
+        await live!`INSERT INTO videos (
+          user_id, downloaded_at, video_link, is_images, is_processed, is_inline
+        ) VALUES (
+          1, 35, 'https://www.tiktok.com/@_/video/9000', FALSE, FALSE, FALSE
+        )`;
+      },
       onProgress: (message) => {
         // Interrupt only after a transactionally checkpointed batch so the
         // next process proves it can resume without replaying that batch.
@@ -57,6 +66,10 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       WHERE migration_id = '002_media_cache_rebuild' AND phase = 'identity'`;
     expect(BigInt(identityState[0]!.last_pk)).toBe(1n);
     expect(identityState[0]!.complete).toBe(false);
+
+    // Deleting a row after it has been staged must not leave a stale identity
+    // record that blocks otherwise-consistent cutover verification.
+    await live`DELETE FROM videos WHERE pk_id = 1`;
 
     // The trigger is durable independently of the migration process, so a
     // direct legacy writer remains mirrored between an interrupted run and its
@@ -131,6 +144,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       cache_hit: boolean;
     }>>`SELECT shared_link, video_details_id, delivery_mode, cache_hit FROM videos ORDER BY pk_id`;
     expect(history).toHaveLength(8);
+    expect(history.some((row) => row.shared_link.endsWith("/9000"))).toBe(true);
     const onlineHistory = history.find((row) => row.shared_link.endsWith("/ONLINE/"));
     expect(onlineHistory).toMatchObject({
       delivery_mode: "document",
@@ -147,7 +161,9 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
     const audit = await live<Array<{ status: string; evidence: Record<string, unknown> | string }>>`SELECT status, evidence
       FROM migration_audit WHERE migration_id = '002_media_cache_rebuild'`;
     expect(audit[0]?.status).toBe("complete");
-    expect(readObject(audit[0]?.evidence).cutover).toMatchObject({ status: "complete", online: true });
+    const evidence = readObject(audit[0]?.evidence);
+    expect(evidence.cutover).toMatchObject({ status: "complete", online: true });
+    expect(evidence.backfill_bound).toMatchObject({ upper_pk: "4", live_mirror_active: true });
     const staging = await live<Array<{ videos_new: string | null; identity: string | null; parser: string | null }>>`SELECT
       to_regclass('public.videos_new')::text AS videos_new,
       to_regclass('public.legacy_video_identity')::text AS identity,
