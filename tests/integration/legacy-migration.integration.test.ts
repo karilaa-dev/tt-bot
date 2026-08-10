@@ -59,6 +59,12 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
     )`;
     await live`UPDATE videos SET is_processed = TRUE
       WHERE video_link = 'https://vm.tiktok.com/ONLINE/'`;
+    await live`SELECT record_download_history(
+      ${1}, ${detailsId}, ${45}, ${"https://www.tiktok.com/@_/video/9999?source=MISMATCH"},
+      ${"video"}, ${"chat"}, ${"media"}, ${false}
+    )`;
+    await live`UPDATE videos SET is_processed = TRUE
+      WHERE video_link = 'https://www.tiktok.com/@_/video/9999?source=MISMATCH'`;
 
     const paused = await firstRun;
     expect(paused).toMatchObject({ status: "paused", phase: "identity" });
@@ -145,7 +151,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       delivery_mode: string | null;
       cache_hit: boolean;
     }>>`SELECT shared_link, video_details_id, delivery_mode, cache_hit FROM videos ORDER BY pk_id`;
-    expect(history).toHaveLength(8);
+    expect(history).toHaveLength(9);
     expect(history.some((row) => row.shared_link.endsWith("/9000"))).toBe(true);
     const onlineHistory = history.find((row) => row.shared_link.endsWith("/ONLINE/"));
     expect(onlineHistory).toMatchObject({
@@ -153,6 +159,8 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       cache_hit: true,
     });
     expect(BigInt(onlineHistory!.video_details_id!)).toBe(detailsId);
+    const mismatchedHistory = history.find((row) => row.shared_link.includes("source=MISMATCH"));
+    expect(BigInt(mismatchedHistory!.video_details_id!)).toBe(detailsId);
     const cutoverHistory = history.find((row) => row.shared_link.endsWith("/CUTOVER/"));
     expect(cutoverHistory).toMatchObject({
       delivery_mode: "media",

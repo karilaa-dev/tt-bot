@@ -491,12 +491,14 @@ async function createLegacyVideoSync(sql: SQLType): Promise<void> {
   await sql.unsafe(`CREATE OR REPLACE FUNCTION sync_legacy_video_to_shadow()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $function$
 DECLARE
   parsed_platform VARCHAR;
   parsed_video_id VARCHAR;
   parsed_conflict BOOLEAN;
   detail_id BIGINT;
+  preserve_existing_detail BOOLEAN := FALSE;
 BEGIN
   IF TG_OP = 'DELETE' THEN
     DELETE FROM videos_new WHERE pk_id = OLD.pk_id;
@@ -505,6 +507,9 @@ BEGIN
 
   IF TG_OP = 'UPDATE' AND OLD.pk_id <> NEW.pk_id THEN
     DELETE FROM videos_new WHERE pk_id = OLD.pk_id;
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    preserve_existing_detail := NEW.video_link IS NOT DISTINCT FROM OLD.video_link;
   END IF;
 
   SELECT platform, platform_video_id, conflict
@@ -538,7 +543,10 @@ BEGIN
   )
   ON CONFLICT (pk_id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
-    video_details_id = COALESCE(EXCLUDED.video_details_id, videos_new.video_details_id),
+    video_details_id = CASE WHEN preserve_existing_detail
+      THEN COALESCE(videos_new.video_details_id, EXCLUDED.video_details_id)
+      ELSE EXCLUDED.video_details_id
+    END,
     downloaded_at = EXCLUDED.downloaded_at,
     shared_link = EXCLUDED.shared_link,
     media_kind = EXCLUDED.media_kind,
@@ -549,6 +557,7 @@ $function$`);
   await sql.unsafe(`CREATE OR REPLACE FUNCTION prevent_legacy_video_truncate()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $function$
 BEGIN
   RAISE EXCEPTION 'TRUNCATE of legacy videos is blocked while its online shadow migration is active';

@@ -144,6 +144,7 @@ export async function createRecordDownloadHistoryFunction(sql: SQL): Promise<voi
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 AS $function$
 DECLARE
   legacy_schema BOOLEAN;
