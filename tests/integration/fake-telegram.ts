@@ -42,7 +42,6 @@ export class FakeTelegramApi {
   readonly baseUrl: string;
   private readonly server: ReturnType<typeof Bun.serve>;
   private nextMessageId = 10_000;
-  private cachedMediaFailures = 0;
 
   constructor(port: number, private readonly botId: number) {
     this.server = Bun.serve({
@@ -65,10 +64,6 @@ export class FakeTelegramApi {
     return this.calls.slice(mark);
   }
 
-  failNextCachedMedia(): void {
-    this.cachedMediaFailures++;
-  }
-
   private async handle(request: Request): Promise<Response> {
     const match = new URL(request.url).pathname.match(/^\/bot([^/]+)\/([^/]+)$/u);
     if (!match) return Response.json({ ok: false, error_code: 404, description: "Unknown test route" }, { status: 404 });
@@ -79,11 +74,6 @@ export class FakeTelegramApi {
     const payload = request.method === "POST" ? await requestPayload(request, contentType) : {};
     const messages = this.responseMessages(method, payload);
     this.calls.push({ method, token, payload, multipart, messages });
-
-    if (!multipart && this.cachedMediaFailures > 0 && ["sendVideo", "sendPhoto", "sendMediaGroup"].includes(method)) {
-      this.cachedMediaFailures--;
-      return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong file_id or file is temporarily unavailable" }, { status: 400 });
-    }
 
     if (method === "getMe") {
       return Response.json({ ok: true, result: { id: this.botId, is_bot: true, first_name: "Integration Bot", username: "integration_test_bot" } });

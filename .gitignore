@@ -15,5 +15,3 @@ dist/
 backups/
 dumps/
 *.sql.dump
-
-tests/integration/tt-scrap.fixtures.local.json
