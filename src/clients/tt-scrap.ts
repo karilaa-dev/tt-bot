@@ -63,7 +63,7 @@ export class TtScrapClient {
   }
 
   deliverInstagram(request: InstagramDeliveryRequest, expectedMethod: InstagramTelegramMethod): Promise<TelegramDeliveryResult> {
-    return this.deliver(this.config.ttScrapInstagramDeliveryPath, request, expectedMethod);
+    return this.deliver("/v1/instagram/telegram-deliveries", request, expectedMethod);
   }
 
   private async requestWithRetry<T>(path: string, body: unknown, validate: (value: unknown) => value is T, options: RetryOptions): Promise<T> {

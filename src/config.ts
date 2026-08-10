@@ -11,7 +11,6 @@ export interface AppConfig {
   ttScrapApiKey: string;
   ttScrapRequestTimeoutMs: number;
   ttScrapDeliveryTimeoutMs: number;
-  ttScrapInstagramDeliveryPath: string;
   maxUserQueueSize: number;
   maxGroupQueueSize: number;
   maxActiveJobs: number;
@@ -99,8 +98,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   if (!["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].includes(level)) {
     throw new Error("LOG_LEVEL is invalid");
   }
-  const instagramPath = Bun.env.TT_SCRAP_INSTAGRAM_DELIVERY_PATH?.trim() || "/v1/instagram/telegram-deliveries";
-  if (!instagramPath.startsWith("/") || instagramPath.includes("://")) throw new Error("TT_SCRAP_INSTAGRAM_DELIVERY_PATH must be an absolute API path");
   const databaseUrl = requireDatabase ? validateDatabaseUrl(required("DB_URL")) : Bun.env.DB_URL?.trim() ? validateDatabaseUrl(Bun.env.DB_URL.trim()) : "";
 
   return {
@@ -114,7 +111,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
     ttScrapApiKey: requireTtScrap ? required("TT_SCRAP_API_KEY") : (Bun.env.TT_SCRAP_API_KEY?.trim() || ""),
     ttScrapRequestTimeoutMs: parsePositiveInteger("TT_SCRAP_REQUEST_TIMEOUT_SECONDS", 90) * 1000,
     ttScrapDeliveryTimeoutMs: parsePositiveInteger("TT_SCRAP_DELIVERY_TIMEOUT_SECONDS", 620) * 1000,
-    ttScrapInstagramDeliveryPath: instagramPath,
     maxUserQueueSize: parsePositiveInteger("MAX_USER_QUEUE_SIZE", 3),
     maxGroupQueueSize: parsePositiveInteger("MAX_GROUP_QUEUE_SIZE", 10),
     maxActiveJobs: parsePositiveInteger("MAX_ACTIVE_JOBS", 25),

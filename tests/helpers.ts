@@ -7,7 +7,6 @@ export function testConfig(baseUrl: string): AppConfig {
     telegramApiRoot: "https://api.telegram.org", databaseUrl: "postgresql://postgres:postgres@db/test",
     ttScrapBaseUrl: baseUrl, ttScrapApiKey: "test-api-key-that-is-long-enough",
     ttScrapRequestTimeoutMs: 2_000, ttScrapDeliveryTimeoutMs: 2_000,
-    ttScrapInstagramDeliveryPath: "/v1/instagram/telegram-deliveries",
     maxUserQueueSize: 3, maxGroupQueueSize: 10, maxActiveJobs: 25, databasePoolSize: 10, logLevel: "ERROR",
   };
 }
