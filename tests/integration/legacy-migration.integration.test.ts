@@ -107,6 +107,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
     );
 
     let copyDelete: Promise<unknown> | null = null;
+    let cutoverBlockObserved: Promise<boolean> | null = null;
     let cutoverWrite: Promise<unknown> | null = null;
     const result = await runLegacyMigration(databaseUrl, {
       preflightConfirmed: true,
@@ -123,10 +124,10 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
         });
         const deletePid = await deleteStarted;
         let observedRowLock = false;
-        for (let attempt = 0; attempt < 50; attempt++) {
-          const state = await live!<Array<{ wait_event_type: string | null }>>`SELECT wait_event_type
-            FROM pg_stat_activity WHERE pid = ${deletePid}`;
-          if (state[0]?.wait_event_type === "Lock") {
+        for (let attempt = 0; attempt < 500; attempt++) {
+          const state = await live!<Array<{ blocker_count: number }>>`SELECT
+              cardinality(pg_blocking_pids(${deletePid})) AS blocker_count`;
+          if (state[0]!.blocker_count > 0) {
             observedRowLock = true;
             break;
           }
@@ -134,25 +135,39 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
         }
         expect(observedRowLock).toBe(true);
       },
-      onBeforeCutoverLock: async () => {
+      onBeforeCutoverLock: async (migrationBackendPid) => {
         let markWriterStarted!: () => void;
         const writerStarted = new Promise<void>((resolve) => { markWriterStarted = resolve; });
+        let releaseWriter!: () => void;
+        const writerRelease = new Promise<void>((resolve) => { releaseWriter = resolve; });
         cutoverWrite = live!.begin(async (tx) => {
           await tx`SELECT record_download_history(
             ${1}, ${detailsId}, ${60}, ${"https://vm.tiktok.com/CUTOVER/"},
             ${"video"}, ${"inline"}, ${"media"}, ${false}
           )`;
           markWriterStarted();
-          // Keep the shared advisory lock open long enough for cutover to queue
-          // behind this transaction, proving the lock order and post-snapshot
-          // write path rather than merely racing them probabilistically.
-          await Bun.sleep(75);
+          await writerRelease;
         });
         await writerStarted;
+        cutoverBlockObserved = (async () => {
+          let observed = false;
+          for (let attempt = 0; attempt < 500; attempt++) {
+            const state = await live!<Array<{ blocker_count: number }>>`SELECT
+                cardinality(pg_blocking_pids(${migrationBackendPid})) AS blocker_count`;
+            if (state[0]!.blocker_count > 0) {
+              observed = true;
+              break;
+            }
+            await Bun.sleep(10);
+          }
+          releaseWriter();
+          return observed;
+        })();
       },
     });
     await copyDelete;
     await cutoverWrite;
+    expect(await (cutoverBlockObserved ?? Promise.resolve(false))).toBe(true);
     expect(result).toMatchObject({ status: "complete", phase: "cutover" });
 
     // Exercise the same stable function after the physical table has changed.

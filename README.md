@@ -180,18 +180,23 @@ The repository's `railpack.json` makes Railpack start `scripts/start.ts` directl
 If the container is interrupted, redeploy with the same variable; completed batches are not repeated and the durable triggers keep the shadow table synchronized and protected from truncation. Do not run multiple migration replicas.
 On a brand-new database or one that already has the current schema, this startup mode skips the legacy rebuild and continues with normal bot initialization. An unrecognized partial `videos` schema still fails safely.
 
-If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, reset only the disposable destination copy and its downstream phase markers before re-running the command:
+If verification fails, the legacy source table is left active and unchanged. Diagnose and correct the cause before retrying. Because a completed copy phase is intentionally not repeated, remove only backfilled rows at or below the durable watermark and reset its downstream phase markers before re-running the command. Never drop or truncate `videos_new`: rows above the watermark were written by the live trigger, and it is the only table that can retain their final-only fields such as `delivery_mode` and `cache_hit`.
 
 ```sql
 BEGIN;
-DROP TABLE IF EXISTS videos_new;
+DELETE FROM videos_new
+WHERE pk_id <= (
+  SELECT (evidence->'backfill_bound'->>'upper_pk')::bigint
+  FROM migration_audit
+  WHERE migration_id = '002_media_cache_rebuild'
+);
 DELETE FROM legacy_migration_state
 WHERE migration_id = '002_media_cache_rebuild'
   AND phase IN ('copy', 'constraints', 'verification');
 COMMIT;
 ```
 
-Do not delete the source audit, identity, or details phase state: those completed phases remain reusable. Run this recovery only while the failed application is stopped and the verified backup remains available; redeployment reinstalls the sync trigger before starting the bot.
+Do not delete the source audit, bound, identity, details, or live rows above the bound: those completed phases and trigger-mirrored rows remain reusable. Run this recovery only while the failed application is stopped and the verified backup remains available; redeployment reinstalls the sync trigger before starting the bot.
 
 Review the durable evidence before removing the one-time startup flag:
 

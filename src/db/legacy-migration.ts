@@ -35,7 +35,7 @@ export interface LegacyMigrationOptions {
   /** Test hook: runs in a copy transaction after its source rows are locked. */
   onBeforeCopyBatchCommit?: () => Promise<void>;
   /** Test hook: runs after snapshot verification and before the cutover lock. */
-  onBeforeCutoverLock?: () => Promise<void>;
+  onBeforeCutoverLock?: (migrationBackendPid: number) => Promise<void>;
 }
 
 export interface LegacyMigrationResult {
@@ -998,7 +998,7 @@ async function verifyRebuild(sql: SQLType): Promise<VerificationEvidence> {
 
 async function verifyAndCutover(
   sql: SQLType,
-  onBeforeCutoverLock?: () => Promise<void>,
+  onBeforeCutoverLock?: (migrationBackendPid: number) => Promise<void>,
   signal?: AbortSignal,
 ): Promise<boolean> {
   if (signal?.aborted) return false;
@@ -1007,7 +1007,8 @@ async function verifyAndCutover(
     // repeatable-read snapshot can compare them without pausing the bot.
     const verification = await verifyRebuild(tx);
     const upperPk = BigInt(verification.source.max_pk ?? "0");
-    await onBeforeCutoverLock?.();
+    const backend = await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+    await onBeforeCutoverLock?.(backend[0]!.pid);
     if (signal?.aborted) return false;
 
     // Gate schema-aware bot calls first. Direct legacy writers do not take this
