@@ -32,6 +32,8 @@ export interface LegacyMigrationOptions {
   onBotReady?: () => void;
   /** Test hook: runs after the safety audit and before live mirroring begins. */
   onBeforeBridge?: () => Promise<void>;
+  /** Test hook: runs in a copy transaction after its source rows are locked. */
+  onBeforeCopyBatchCommit?: () => Promise<void>;
   /** Test hook: runs after snapshot verification and before the cutover lock. */
   onBeforeCutoverLock?: () => Promise<void>;
 }
@@ -249,7 +251,8 @@ async function migrate(
   }
 
   const copyComplete = await runCopyBatches(
-    sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun, options.signal,
+    sql, upperPk, batchSize, progress, options.maxBatchesPerPhaseRun,
+    options.signal, options.onBeforeCopyBatchCommit,
   );
   if (!copyComplete) return paused("copy", await auditEvidence(sql));
   if (options.stopAfterPhase === "copy" || options.signal?.aborted) {
@@ -852,6 +855,7 @@ async function runCopyBatches(
   progress: (message: string) => void,
   maxBatches?: number,
   signal?: AbortSignal,
+  onBeforeBatchCommit?: () => Promise<void>,
 ): Promise<boolean> {
   const state = await stateFor(sql, "copy");
   let lastPk = BigInt(state?.last_pk ?? 0);
@@ -866,18 +870,24 @@ async function runCopyBatches(
     if (boundary[0]?.end_pk === null || boundary[0]?.end_pk === undefined) break;
     const endPk = BigInt(boundary[0].end_pk);
     await sql.begin(async (tx) => {
-      const inserted = await tx<Array<{ count: number | string }>>`WITH copied AS (
-        INSERT INTO videos_new (pk_id, user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit)
-        SELECT v.pk_id, v.user_id, d.pk_id, v.downloaded_at, v.video_link,
-          CASE WHEN v.is_images THEN 'images' ELSE 'video' END,
-          CASE WHEN v.is_inline THEN 'inline' ELSE 'chat' END,
-          NULL, FALSE
+      const inserted = await tx<Array<{ count: number | string }>>`WITH batch_rows AS MATERIALIZED (
+        SELECT v.pk_id, v.user_id, d.pk_id AS video_details_id, v.downloaded_at, v.video_link,
+          v.is_images, v.is_inline
         FROM videos v
         LEFT JOIN legacy_video_identity i ON i.legacy_pk = v.pk_id
         LEFT JOIN video_details d ON d.platform = i.platform AND d.platform_video_id = i.platform_video_id
         WHERE v.pk_id > ${lastPk} AND v.pk_id <= ${endPk}
+        FOR NO KEY UPDATE OF v
+      ), copied AS (
+        INSERT INTO videos_new (pk_id, user_id, video_details_id, downloaded_at, shared_link, media_kind, delivery_surface, delivery_mode, cache_hit)
+        SELECT row.pk_id, row.user_id, row.video_details_id, row.downloaded_at, row.video_link,
+          CASE WHEN row.is_images THEN 'images' ELSE 'video' END,
+          CASE WHEN row.is_inline THEN 'inline' ELSE 'chat' END,
+          NULL, FALSE
+        FROM batch_rows row
         ON CONFLICT DO NOTHING RETURNING 1
       ) SELECT COUNT(*) AS count FROM copied`;
+      await onBeforeBatchCommit?.();
       counters = { ...counters, total: counters.total + Number(inserted[0]?.count ?? 0), batches: counters.batches + 1 };
       await upsertState(tx, "copy", endPk, counters);
     });

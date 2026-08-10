@@ -106,11 +106,34 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       "TRUNCATE of legacy videos is blocked while its online shadow migration is active",
     );
 
+    let copyDelete: Promise<unknown> | null = null;
     let cutoverWrite: Promise<unknown> | null = null;
     const result = await runLegacyMigration(databaseUrl, {
       preflightConfirmed: true,
       batchSize: 1,
       liveTableBatchSize: 1,
+      onBeforeCopyBatchCommit: async () => {
+        if (copyDelete) return;
+        let markDeleteStarted!: (pid: number) => void;
+        const deleteStarted = new Promise<number>((resolve) => { markDeleteStarted = resolve; });
+        copyDelete = live!.begin(async (tx) => {
+          const rows = await tx<Array<{ pid: number }>>`SELECT pg_backend_pid() AS pid`;
+          markDeleteStarted(rows[0]!.pid);
+          await tx`DELETE FROM videos WHERE pk_id = 2`;
+        });
+        const deletePid = await deleteStarted;
+        let observedRowLock = false;
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const state = await live!<Array<{ wait_event_type: string | null }>>`SELECT wait_event_type
+            FROM pg_stat_activity WHERE pid = ${deletePid}`;
+          if (state[0]?.wait_event_type === "Lock") {
+            observedRowLock = true;
+            break;
+          }
+          await Bun.sleep(10);
+        }
+        expect(observedRowLock).toBe(true);
+      },
       onBeforeCutoverLock: async () => {
         let markWriterStarted!: () => void;
         const writerStarted = new Promise<void>((resolve) => { markWriterStarted = resolve; });
@@ -128,6 +151,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
         await writerStarted;
       },
     });
+    await copyDelete;
     await cutoverWrite;
     expect(result).toMatchObject({ status: "complete", phase: "cutover" });
 
@@ -151,7 +175,7 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       delivery_mode: string | null;
       cache_hit: boolean;
     }>>`SELECT shared_link, video_details_id, delivery_mode, cache_hit FROM videos ORDER BY pk_id`;
-    expect(history).toHaveLength(9);
+    expect(history).toHaveLength(8);
     expect(history.some((row) => row.shared_link.endsWith("/9000"))).toBe(true);
     const onlineHistory = history.find((row) => row.shared_link.endsWith("/ONLINE/"));
     expect(onlineHistory).toMatchObject({
