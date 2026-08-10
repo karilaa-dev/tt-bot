@@ -81,10 +81,11 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
 
     const columns = await live<Array<{ column_name: string }>>`SELECT column_name
       FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'videos'`;
-    expect(columns.map((row) => row.column_name)).toContainAllValues([
-      "shared_link", "video_details_id", "media_kind", "delivery_surface", "delivery_mode", "cache_hit",
-    ]);
-    expect(columns.map((row) => row.column_name)).not.toContain("video_link");
+    const columnNames = columns.map((row) => row.column_name);
+    for (const expected of ["shared_link", "video_details_id", "media_kind", "delivery_surface", "delivery_mode", "cache_hit"]) {
+      expect(columnNames).toContain(expected);
+    }
+    expect(columnNames).not.toContain("video_link");
 
     const history = await live<Array<{
       shared_link: string;
