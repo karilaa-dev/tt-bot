@@ -33,7 +33,12 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
       },
     });
 
-    await ready;
+    await Promise.race([
+      ready,
+      firstRun.then((result) => {
+        throw new Error(`Migration stopped at ${result.phase} before its bot-ready callback`);
+      }),
+    ]);
     const detailRows = await live<Array<{ pk_id: bigint | string }>>`INSERT INTO video_details (
         platform, platform_video_id, content_type, canonical_link, first_downloaded_at, last_used_at
       ) VALUES ('tiktok', '9001', 'video', 'https://www.tiktok.com/@_/video/9001', 40, 40)
@@ -69,7 +74,14 @@ integrationTest("online legacy migration mirrors writes, resumes, and cuts over 
         1, 55, 'https://www.tiktok.com/@_/video/9003', FALSE, FALSE, FALSE
       )`;
     });
-    await expect(live`TRUNCATE videos`).rejects.toThrow(
+    let truncateError: unknown;
+    try {
+      await live`TRUNCATE videos`;
+    } catch (error) {
+      truncateError = error;
+    }
+    expect(truncateError).toBeInstanceOf(Error);
+    expect((truncateError as Error).message).toContain(
       "TRUNCATE of legacy videos is blocked while its online shadow migration is active",
     );
 
