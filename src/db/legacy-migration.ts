@@ -74,7 +74,10 @@ export async function runLegacyMigration(databaseUrl: string, options: LegacyMig
     throw new Error("Migration live-table batch size must be a positive integer");
   }
   const progress = options.onProgress ?? (() => undefined);
-  const sql = new SQL({ url: databaseUrl, max: 4, idleTimeout: 60, connectionTimeout: 15, maxLifetime: 0 });
+  // Final verification performs full-table aggregates that may not return any
+  // protocol data for several minutes. Keep the reserved migration session
+  // alive until the query completes so its advisory lock cannot be lost.
+  const sql = new SQL({ url: databaseUrl, max: 4, idleTimeout: 0, connectionTimeout: 15, maxLifetime: 0 });
   return withReservedMigrationConnection(sql, async (lock) => {
     try {
       const acquired = await lock<Array<{ locked: boolean }>>`SELECT pg_try_advisory_lock(hashtextextended(${ADVISORY_LOCK_KEY}, 0)) AS locked`;
