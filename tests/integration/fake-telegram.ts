@@ -92,6 +92,7 @@ export class FakeTelegramApi {
       "answerCallbackQuery",
       "answerInlineQuery",
       "deleteMessage",
+      "editMessageCaption",
       "editMessageMedia",
       "editMessageReplyMarkup",
       "editMessageText",

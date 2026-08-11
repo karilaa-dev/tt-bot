@@ -1,4 +1,4 @@
-import type { InlineKeyboard } from "grammy";
+import type { Api, InlineKeyboard } from "grammy";
 import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
 import type { TelegramFileReference } from "../db/videos.ts";
@@ -33,15 +33,24 @@ export class DeliveryService {
     });
   }
 
-  async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
+  async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, api: Pick<Api, "editMessageCaption">, fileMode = false): Promise<TelegramDeliveryResult> {
     const chatId = this.requireStorage();
     const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
-    return this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
+    const result = await this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
       ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true,
       ...technicalParameters(extraction.content_type, fileMode),
     } });
+    if (!captionSingle) {
+      const firstMessage = lastBatch(result)[0];
+      if (!firstMessage) throw new Error("Staged TikTok slideshow returned no final gallery message");
+      await api.editMessageCaption(chatId, firstMessage.message_id, {
+        caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName),
+        parse_mode: "HTML",
+      });
+    }
+    return result;
   }
 
   deliverAudio(videoId: bigint, chatId: number, replyTo: number, lang: Language, group: boolean): Promise<TelegramDeliveryResult> {

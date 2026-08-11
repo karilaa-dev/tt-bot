@@ -116,7 +116,7 @@ export function registerInlineSlideshowHandlers(bot: Bot<BotContext>): void {
             if (!extraction) throw new Error("Extraction is required to refresh inline media");
             const result = extraction.platform === "instagram"
               ? await service.stageInstagram(extraction, link, identity)
-              : await service.stageTikTok(extraction, link, identity);
+              : await service.stageTikTok(extraction, link, identity, ctx.api);
             telegramFiles = telegramFilesFromResult(result);
             media = inlineMedia(result);
           }
@@ -173,7 +173,7 @@ async function recoverInvalidSession(ctx: BotContext, id: string, old: Slideshow
       const service = new DeliveryService(ctx.scrap, ctx.config);
       const delivered = extraction.platform === "instagram"
         ? await service.stageInstagram(extraction, old.sourceLink, identity)
-        : await service.stageTikTok(extraction, old.sourceLink, identity);
+        : await service.stageTikTok(extraction, old.sourceLink, identity, ctx.api);
       telegramFiles = telegramFilesFromResult(delivered);
       media = inlineMedia(delivered);
     }

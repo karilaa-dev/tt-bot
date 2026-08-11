@@ -366,6 +366,19 @@ function expectInlineResponse(
     expect(stagedCalls).toHaveLength(0);
   }
 
+  const storageCaptionEdits = calls.filter((call) => call.method === "editMessageCaption");
+  if (staged && fixture.platform === "tiktok" && fixture.expectedMediaTypes.length > 1) {
+    expect(storageCaptionEdits).toHaveLength(1);
+    expect(storageCaptionEdits[0]?.payload).toMatchObject({
+      chat_id: STORAGE_CHAT_ID,
+      message_id: stagedCalls.at(-1)?.messages[0]?.message_id,
+      parse_mode: "HTML",
+    });
+    expect(String(storageCaptionEdits[0]?.payload.caption ?? "")).toContain(normalizedLink);
+  } else {
+    expect(storageCaptionEdits).toHaveLength(0);
+  }
+
   const edits = calls.filter((call) => call.method === "editMessageMedia");
   expect(edits).toHaveLength(1);
   expect(edits[0]?.multipart).toBe(false);

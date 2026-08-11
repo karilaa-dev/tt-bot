@@ -86,7 +86,7 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
           if (!extraction) throw new Error("Extraction is required for inline storage upload");
           const result = extraction.platform === "instagram"
             ? await service.stageInstagram(extraction, link, identity)
-            : await service.stageTikTok(extraction, link, identity);
+            : await service.stageTikTok(extraction, link, identity, ctx.api);
           telegramFiles = telegramFilesFromResult(result);
           media = allMessages(result).map(inlineMediaFromMessage).filter((value): value is InlineMediaReference => value !== null);
         }
