@@ -44,6 +44,8 @@ export class DeliveryService {
       ...technicalParameters(extraction.content_type, fileMode),
     } });
     if (!captionSingle) {
+      // Product contract: add one storage caption to the first item of the
+      // final gallery batch, rather than repeating it on every batch.
       const firstMessage = lastBatch(result)[0];
       if (!firstMessage) throw new Error("Staged TikTok slideshow returned no final gallery message");
       try {
