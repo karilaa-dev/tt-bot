@@ -5,6 +5,7 @@ import type { TelegramFileReference } from "../db/videos.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
 import type { InstagramExtraction, InstagramTelegramMethod, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
 import { text, type Language } from "../locales.ts";
+import { logger } from "../logging.ts";
 import { resultCaption, storageCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 
@@ -45,10 +46,16 @@ export class DeliveryService {
     if (!captionSingle) {
       const firstMessage = lastBatch(result)[0];
       if (!firstMessage) throw new Error("Staged TikTok slideshow returned no final gallery message");
-      await api.editMessageCaption(chatId, firstMessage.message_id, {
-        caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName),
-        parse_mode: "HTML",
-      });
+      try {
+        await api.editMessageCaption(chatId, firstMessage.message_id, {
+          caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName),
+          parse_mode: "HTML",
+        });
+      } catch (error) {
+        // The media is already staged. Preserve its reusable file IDs instead
+        // of turning a cosmetic caption failure into a duplicate re-upload.
+        logger.warn("Staged slideshow caption edit failed", error);
+      }
     }
     return result;
   }

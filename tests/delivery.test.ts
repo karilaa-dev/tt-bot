@@ -113,6 +113,24 @@ describe("DeliveryService", () => {
     expect(String(edits[0]?.options.caption)).toContain("Test User");
   });
 
+  test("keeps a successful staged slideshow when its caption edit fails", async () => {
+    const secondMessage = { ...message, message_id: 43 };
+    server = Bun.serve({ port: 0, async fetch() { return Response.json({ ok: true, result: [message, secondMessage] }); } });
+    const config = testConfig(`http://127.0.0.1:${server.port}`);
+    const service = new DeliveryService(new TtScrapClient(config), config);
+    const gallery = {
+      ...extraction,
+      media: Array.from({ length: 2 }, (_, position) => ({
+        asset_id: `image-${position}`, kind: "image" as const, position,
+        download_url: `/v1/assets/image-${position}`, filename: `${position}.jpg`,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      })),
+    };
+    const api = { editMessageCaption: async () => { throw new Error("caption edit rejected"); } } as unknown as Pick<Api, "editMessageCaption">;
+    const result = await service.stageTikTok(gallery, gallery.source_url, { userId: 7, fullName: "Test" }, api);
+    expect(result.calls[0]?.result).toEqual([message, secondMessage]);
+  });
+
   test("delivers a single Instagram video with the exact video request shape", async () => {
     let payload: Record<string, any> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: videoMessage }); } });
