@@ -367,7 +367,7 @@ function expectInlineResponse(
   }
 
   const storageCaptionEdits = calls.filter((call) => call.method === "editMessageCaption");
-  if (staged && fixture.platform === "tiktok" && fixture.expectedMediaTypes.length > 1) {
+  if (staged && fixture.expectedMediaTypes.length > 1) {
     expect(storageCaptionEdits).toHaveLength(1);
     expect(storageCaptionEdits[0]?.payload).toMatchObject({
       chat_id: STORAGE_CHAT_ID,

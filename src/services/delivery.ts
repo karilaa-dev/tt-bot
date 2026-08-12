@@ -44,20 +44,7 @@ export class DeliveryService {
       ...technicalParameters(extraction.content_type, fileMode),
     } });
     if (!captionSingle) {
-      // Product contract: add one storage caption to the first item of the
-      // final gallery batch, rather than repeating it on every batch.
-      const firstMessage = lastBatch(result)[0];
-      if (!firstMessage) throw new Error("Staged TikTok slideshow returned no final gallery message");
-      try {
-        await api.editMessageCaption(chatId, firstMessage.message_id, {
-          caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName),
-          parse_mode: "HTML",
-        });
-      } catch (error) {
-        // The media is already staged. Preserve its reusable file IDs instead
-        // of turning a cosmetic caption failure into a duplicate re-upload.
-        logger.warn("Staged slideshow caption edit failed", error);
-      }
+      await captionStagedGallery(api, chatId, result, storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), "TikTok slideshow");
     }
     return result;
   }
@@ -79,18 +66,37 @@ export class DeliveryService {
     } }, instagramMethod(extraction, fileMode));
   }
 
-  stageInstagram(extraction: InstagramExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
+  async stageInstagram(extraction: InstagramExtraction, sourceUrl: string, identity: DeliveryIdentity, api: Pick<Api, "editMessageCaption">, fileMode = false): Promise<TelegramDeliveryResult> {
+    const chatId = this.requireStorage();
     const captionSingle = extraction.media.length === 1;
-    return this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
-      chat_id: this.requireStorage(),
+    const result = await this.scrap.deliverInstagram({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
+      chat_id: chatId,
       ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true, ...technicalParameters(extraction.content_type, fileMode),
     } }, instagramMethod(extraction, fileMode));
+    if (!captionSingle) {
+      await captionStagedGallery(api, chatId, result, storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), "Instagram carousel");
+    }
+    return result;
   }
 
   private requireStorage(): number {
     if (this.config.storageChannelId === null) throw new Error("STORAGE_CHANNEL_ID is required for inline and staged delivery");
     return this.config.storageChannelId;
+  }
+}
+
+async function captionStagedGallery(api: Pick<Api, "editMessageCaption">, chatId: number, result: TelegramDeliveryResult, caption: string, label: string): Promise<void> {
+  // Product contract: add one storage caption to the first item of the final
+  // gallery batch, rather than repeating it on every batch.
+  const firstMessage = lastBatch(result)[0];
+  if (!firstMessage) throw new Error(`Staged ${label} returned no final gallery message`);
+  try {
+    await api.editMessageCaption(chatId, firstMessage.message_id, { caption, parse_mode: "HTML" });
+  } catch (error) {
+    // The media is already staged. Preserve its reusable file IDs instead of
+    // turning a cosmetic caption failure into a duplicate re-upload.
+    logger.warn(`Staged ${label} caption edit failed`, error);
   }
 }
 

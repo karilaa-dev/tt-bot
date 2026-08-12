@@ -53,7 +53,7 @@ export function registerLinkHandlers(bot: Bot<BotContext>): void {
             const extraction = prepared.extraction;
             if (!extraction || extraction.platform !== "instagram") throw new Error("Instagram extraction is required for an upload");
             if (group && extraction.content_type !== "video" && extraction.media.length > 10) {
-              const staged = await delivery.stageInstagram(extraction, link, identity(ctx), fileMode);
+              const staged = await delivery.stageInstagram(extraction, link, identity(ctx), ctx.api, fileMode);
               const stagedMessages = allMessages(staged).slice(0, 10);
               const sent = fileMode
                 ? await ctx.api.sendMediaGroup(ctx.chat.id, stagedMessages.map((item, index): InputMediaDocument => ({ type: "document", media: requiredFileId(item, index), disable_content_type_detection: true })) as [InputMediaDocument, InputMediaDocument, ...InputMediaDocument[]], { disable_notification: true, reply_parameters: { message_id: ctx.message.message_id } })

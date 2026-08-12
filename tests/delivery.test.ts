@@ -131,6 +131,40 @@ describe("DeliveryService", () => {
     expect(result.calls[0]?.result).toEqual([message, secondMessage]);
   });
 
+  test("captions the first image in the final staged Instagram gallery", async () => {
+    const finalFirst = { ...message, message_id: 62 };
+    const finalSecond = { ...message, message_id: 63 };
+    server = Bun.serve({ port: 0, async fetch() {
+      return Response.json({
+        ok: true,
+        partial: false,
+        deliveries: [
+          { method: "sendMediaGroup", status_code: 200, response: { ok: true, result: [{ ...message, message_id: 60 }, { ...message, message_id: 61 }] } },
+          { method: "sendMediaGroup", status_code: 200, response: { ok: true, result: [finalFirst, finalSecond] } },
+        ],
+      });
+    } });
+    const edits: Array<{ chatId: number | string; messageId: number; options: Record<string, unknown> }> = [];
+    const api = {
+      async editMessageCaption(chatId: number | string, messageId: number, options: Record<string, unknown>) {
+        edits.push({ chatId, messageId, options });
+        return true as const;
+      },
+    } as Pick<Api, "editMessageCaption">;
+    const gallery = instagramExtraction("carousel", Array.from({ length: 12 }, () => "image"));
+    const config = testConfig(`http://127.0.0.1:${server.port}`);
+    const service = new DeliveryService(new TtScrapClient(config), config);
+    await service.stageInstagram(gallery, gallery.source_url, { userId: 7, username: "tester", fullName: "Test User" }, api);
+    expect(edits).toHaveLength(1);
+    expect(edits[0]).toMatchObject({
+      chatId: -100123,
+      messageId: finalFirst.message_id,
+      options: { parse_mode: "HTML" },
+    });
+    expect(String(edits[0]?.options.caption)).toContain(gallery.source_url);
+    expect(String(edits[0]?.options.caption)).toContain("Test User");
+  });
+
   test("delivers a single Instagram video with the exact video request shape", async () => {
     let payload: Record<string, any> = {};
     server = Bun.serve({ port: 0, async fetch(request) { payload = await request.json() as Record<string, any>; return Response.json({ ok: true, result: videoMessage }); } });
