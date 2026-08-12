@@ -1,10 +1,11 @@
-import type { InlineKeyboard } from "grammy";
+import type { Api, InlineKeyboard } from "grammy";
 import type { InputMediaPhoto, InputMediaVideo, Message } from "grammy/types";
 import type { AppConfig } from "../config.ts";
 import type { TelegramFileReference } from "../db/videos.ts";
 import type { TtScrapClient } from "../clients/tt-scrap.ts";
 import type { InstagramExtraction, InstagramTelegramMethod, TelegramDeliveryResult, TikTokExtraction } from "../clients/tt-scrap-types.ts";
 import { text, type Language } from "../locales.ts";
+import { logger } from "../logging.ts";
 import { resultCaption, storageCaption } from "../ui/captions.ts";
 import { musicKeyboard } from "../ui/keyboards.ts";
 
@@ -33,15 +34,32 @@ export class DeliveryService {
     });
   }
 
-  async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, fileMode = false): Promise<TelegramDeliveryResult> {
+  async stageTikTok(extraction: TikTokExtraction, sourceUrl: string, identity: DeliveryIdentity, api: Pick<Api, "editMessageCaption">, fileMode = false): Promise<TelegramDeliveryResult> {
     const chatId = this.requireStorage();
     const captionSingle = extraction.content_type === "video" || extraction.media.length === 1;
-    return this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
+    const result = await this.scrap.deliverTikTok({ source: { extraction_id: extraction.extraction_id }, delivery: fileMode ? "document" : "media", telegram: {
       chat_id: chatId,
       ...(captionSingle ? { caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName), parse_mode: "HTML" as const } : {}),
       disable_notification: true,
       ...technicalParameters(extraction.content_type, fileMode),
     } });
+    if (!captionSingle) {
+      // Product contract: add one storage caption to the first item of the
+      // final gallery batch, rather than repeating it on every batch.
+      const firstMessage = lastBatch(result)[0];
+      if (!firstMessage) throw new Error("Staged TikTok slideshow returned no final gallery message");
+      try {
+        await api.editMessageCaption(chatId, firstMessage.message_id, {
+          caption: storageCaption(sourceUrl, identity.userId, identity.username, identity.fullName),
+          parse_mode: "HTML",
+        });
+      } catch (error) {
+        // The media is already staged. Preserve its reusable file IDs instead
+        // of turning a cosmetic caption failure into a duplicate re-upload.
+        logger.warn("Staged slideshow caption edit failed", error);
+      }
+    }
+    return result;
   }
 
   deliverAudio(videoId: bigint, chatId: number, replyTo: number, lang: Language, group: boolean): Promise<TelegramDeliveryResult> {

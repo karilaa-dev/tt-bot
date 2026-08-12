@@ -87,7 +87,7 @@ export function registerTikTokHandlers(bot: Bot<BotContext>): void {
             const extraction = prepared.extraction;
             if (!extraction || extraction.platform !== "tiktok") throw new Error("TikTok extraction is required for an upload");
             if (group && extraction.content_type === "slideshow" && extraction.media.length > 10) {
-              const staged = await delivery.stageTikTok(extraction, link, identity(message), fileMode);
+              const staged = await delivery.stageTikTok(extraction, link, identity(message), ctx.api, fileMode);
               const stagedMessages = allMessages(staged).slice(0, 10);
               const fileIds = stagedMessages.map((item, index) => {
                 const fileId = fileIdFromMessage(item);
