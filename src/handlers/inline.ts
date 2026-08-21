@@ -1,7 +1,8 @@
 import type { Bot } from "grammy";
 import type { InlineKeyboardMarkup, InlineQueryResultArticle } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
-import { type Language, text } from "../locales.ts";
+import type { UserRecord } from "../db/users.ts";
+import { isLanguage, type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, inlineMediaFromFiles, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult, type InlineMediaReference } from "../services/delivery.ts";
 import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../services/media-cache.ts";
@@ -12,31 +13,48 @@ import { findInstagramUrl } from "./links.ts";
 import { errorText, findTikTokUrl, shouldOfferRetry } from "./tiktok.ts";
 
 const retrying = new Set<string>();
+const INLINE_USER_LOOKUP_TIMEOUT_MS = 2_000;
+
+type InlineUserLookup =
+  | { status: "resolved"; user: UserRecord | null }
+  | { status: "deferred" };
+
+interface InlineDownloadSelection {
+  instagram: boolean;
+  verifiedLang: Language | null;
+}
 
 export function registerInlineHandlers(bot: Bot<BotContext>): void {
   bot.on("inline_query", async (ctx) => {
     const query = ctx.inlineQuery.query.trim();
-    const lang = await languageForInline(ctx, ctx.from.id);
-    if (!await ctx.getUserRecord(ctx.from.id)) {
+    const lookup = await lookupInlineUser(ctx, ctx.from.id);
+    const user = lookup.status === "resolved" ? lookup.user : null;
+    const lang = user?.lang ?? await resolveLanguage(ctx, true);
+    if (lookup.status === "resolved" && !user) {
       await ctx.answerInlineQuery([], { cache_time: 0, is_personal: true, button: { text: text(lang, "inline_start_bot"), start_parameter: "inline" } });
       return;
     }
     if (query.length < 12) return void await ctx.answerInlineQuery([], { cache_time: 0 });
     const loading = loadingKeyboard.inline_keyboard;
     let result: InlineQueryResultArticle;
-    if (findTikTokUrl(query)) result = article("tt_download", text(lang, "inline_download_video"), text(lang, "inline_download_video_description"), text(lang, "inline_download_video_text"), "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tiktok-light.png", loading);
-    else if (findInstagramUrl(query)) result = article("ig_download", text(lang, "inline_download_instagram"), text(lang, "inline_download_instagram_description"), text(lang, "inline_download_video_text"), "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/instagram.png", loading);
+    if (findTikTokUrl(query)) result = article(inlineDownloadResultId("tt", user), text(lang, "inline_download_video"), text(lang, "inline_download_video_description"), text(lang, "inline_download_video_text"), "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/tiktok-light.png", loading);
+    else if (findInstagramUrl(query)) result = article(inlineDownloadResultId("ig", user), text(lang, "inline_download_instagram"), text(lang, "inline_download_instagram_description"), text(lang, "inline_download_video_text"), "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/instagram.png", loading);
     else result = article("wrong_link", text(lang, "inline_wrong_link_title"), text(lang, "inline_wrong_link_description"), text(lang, "inline_wrong_link"), "https://em-content.zobj.net/source/apple/419/cross-mark_274c.png");
-    await ctx.answerInlineQuery([result], { cache_time: 0 });
+    await ctx.answerInlineQuery([result], { cache_time: 0, is_personal: true });
   });
 
   bot.on("chosen_inline_result", async (ctx) => {
     const id = ctx.chosenInlineResult.inline_message_id;
     if (!id) return;
-    const resultId = ctx.chosenInlineResult.result_id;
-    if (resultId !== "tt_download" && resultId !== "ig_download") return;
-    const user = await ctx.getUserRecord(ctx.from.id); if (!user) return;
-    await processInline(ctx, id, ctx.chosenInlineResult.query, user.lang, resultId === "ig_download");
+    const selection = parseInlineDownloadSelection(ctx.chosenInlineResult.result_id, ctx.from.id);
+    if (!selection) return;
+    let lang = selection.verifiedLang;
+    if (!lang) {
+      const user = await verifyDeferredInlineUser(ctx, id);
+      if (!user) return;
+      lang = user.lang;
+    }
+    await processInline(ctx, id, ctx.chosenInlineResult.query, lang, selection.instagram);
   });
 
   bot.callbackQuery(/^ir:(tt|ig):([0-9a-z]+):(.+)$/, async (ctx) => {
@@ -58,6 +76,67 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
 
   // Buttons created before ownership was encoded cannot be authorized safely.
   bot.callbackQuery(/^ir:(?:tt|ig):[^:]+$/, (ctx) => ctx.answerCallbackQuery({ text: "Retry button expired.", show_alert: true }));
+}
+
+async function lookupInlineUser(ctx: BotContext, userId: number): Promise<InlineUserLookup> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<InlineUserLookup>((resolve) => {
+    timer = setTimeout(() => resolve({ status: "deferred" }), INLINE_USER_LOOKUP_TIMEOUT_MS);
+  });
+  try {
+    const resolved = ctx.getUserRecord(userId).then((user): InlineUserLookup => ({ status: "resolved", user }));
+    const lookup = await Promise.race([resolved, timeout]);
+    if (lookup.status === "deferred") {
+      logger.warn(`Inline user lookup exceeded ${INLINE_USER_LOOKUP_TIMEOUT_MS} ms; deferring verification for user ${userId}`);
+    }
+    return lookup;
+  } catch (error) {
+    logger.warn(`Inline user lookup failed; deferring verification for user ${userId}`, error);
+    return { status: "deferred" };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function verifyDeferredInlineUser(ctx: BotContext, inlineMessageId: string): Promise<UserRecord | null> {
+  const fallbackLang = await resolveLanguage(ctx, true);
+  try {
+    const user = await ctx.getUserRecord(ctx.from!.id);
+    if (user) return user;
+    await editText(ctx, inlineMessageId, text(fallbackLang, "inline_start_bot"), startBotKeyboard(ctx, fallbackLang));
+  } catch (error) {
+    logger.error(`Deferred inline user verification failed for user ${ctx.from?.id ?? "unknown"}`, error);
+    await editText(ctx, inlineMessageId, text(fallbackLang, "error"), { inline_keyboard: [] });
+  }
+  return null;
+}
+
+function inlineDownloadResultId(platform: "tt" | "ig", user: UserRecord | null): string {
+  const prefix = `${platform}_download`;
+  return user ? `${prefix}:v:${user.lang}:${user.userId.toString(36)}` : `${prefix}:u`;
+}
+
+function parseInlineDownloadSelection(resultId: string, userId: number): InlineDownloadSelection | null {
+  const match = resultId.match(/^(tt|ig)_download:(u|v:([a-z]{2}):([0-9a-z]+))$/u);
+  if (match) {
+    const verifiedLang = match[2] !== "u" && isLanguage(match[3]) && match[4] === userId.toString(36)
+      ? match[3]
+      : null;
+    return { instagram: match[1] === "ig", verifiedLang };
+  }
+  if (resultId === "tt_download" || resultId === "ig_download") {
+    return { instagram: resultId === "ig_download", verifiedLang: null };
+  }
+  return null;
+}
+
+function startBotKeyboard(ctx: BotContext, lang: Language): InlineKeyboardMarkup {
+  const username = ctx.me.username;
+  return {
+    inline_keyboard: username
+      ? [[{ text: text(lang, "inline_start_bot"), url: `https://t.me/${username}?start=inline` }]]
+      : [],
+  };
 }
 
 async function processInline(ctx: BotContext, id: string, rawLink: string, lang: Language, instagram: boolean): Promise<void> {
