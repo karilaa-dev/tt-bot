@@ -24,6 +24,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
   const memory = memoryDatabase();
   const telegramCalls: TelegramCall[] = [];
   const scrapCalls: Array<{ path: string; payload: Record<string, unknown> }> = [];
+  const expiringInlineQueries = new Map<string, number>();
   let nextMessageId = 100;
   let invalidSingleMediaAttempts = 0;
 
@@ -37,6 +38,16 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     }
     if (method === "editMessageMedia" && payload.inline_message_id === "viewer-invalid-slideshow") {
       return Response.json({ ok: false, error_code: 400, description: "Bad Request: wrong remote file identifier specified: Wrong string length" }, { status: 400 });
+    }
+    if (method === "answerInlineQuery") {
+      const startedAt = expiringInlineQueries.get(String(payload.inline_query_id));
+      if (startedAt !== undefined && Date.now() - startedAt > 2_500) {
+        return Response.json({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request: query is too old and response timeout expired or query ID is invalid",
+        }, { status: 400 });
+      }
     }
     if (["answerCallbackQuery", "answerInlineQuery", "editMessageMedia", "sendChatAction", "setMessageReaction"].includes(method)) return Response.json({ ok: true, result: true });
     const chatId = Number(payload.chat_id ?? 0);
@@ -136,6 +147,93 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     expect(memory.users.get(101)?.link).toBe("inline");
     expect(sendMessagesFor(telegramCalls, 101)).toHaveLength(4);
+
+    const verifiedInlineMark = telegramCalls.length;
+    await bot.handleUpdate({ update_id: 900, inline_query: {
+      id: "inline-verified",
+      from: deepLinkUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      offset: "",
+    } });
+    const verifiedInlineAnswer = telegramCalls.slice(verifiedInlineMark).find((call) => call.method === "answerInlineQuery");
+    const verifiedResultId = (verifiedInlineAnswer?.payload.results as Array<{ id: string }> | undefined)?.[0]?.id;
+    expect(verifiedResultId).toBe(`tt_download:v:${deepLinkUser.id.toString(36)}`);
+    const lookupsAfterInlineVerification = memory.userLookups;
+    await bot.handleUpdate({ update_id: 901, chosen_inline_result: {
+      result_id: verifiedResultId!,
+      from: { ...deepLinkUser, language_code: "vi" },
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "verified-inline-video",
+    } });
+    expect(memory.userLookups).toBe(lookupsAfterInlineVerification);
+    const verifiedDelivery = telegramCalls.slice(verifiedInlineMark).find((call) =>
+      call.method === "editMessageMedia" && call.payload.inline_message_id === "verified-inline-video"
+    );
+    expect((verifiedDelivery?.payload.media as { caption?: string } | undefined)?.caption).toContain(">Nguồn</a>");
+
+    const deferredUser = { id: 105, is_bot: false, first_name: "Deferred", language_code: "en" };
+    const deferredRegisteredUser = { id: 106, is_bot: false, first_name: "Deferred Registered", language_code: "unsupported" };
+    memory.users.set(deferredRegisteredUser.id, {
+      user_id: deferredRegisteredUser.id,
+      registered_at: 1,
+      lang: "uk",
+      link: null,
+      file_mode: false,
+    });
+    memory.delayNextUserLookup(3_000);
+    memory.delayNextUserLookup(3_000);
+    expiringInlineQueries.set("inline-deferred", Date.now());
+    expiringInlineQueries.set("inline-deferred-registered", Date.now());
+    const deferredInlineMark = telegramCalls.length;
+    await Promise.all([
+      bot.handleUpdate({ update_id: 902, inline_query: {
+        id: "inline-deferred",
+        from: deferredUser,
+        query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+        offset: "",
+      } }),
+      bot.handleUpdate({ update_id: 904, inline_query: {
+        id: "inline-deferred-registered",
+        from: deferredRegisteredUser,
+        query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+        offset: "",
+      } }),
+    ]);
+    const deferredInlineAnswer = telegramCalls.slice(deferredInlineMark).find((call) =>
+      call.method === "answerInlineQuery" && call.payload.inline_query_id === "inline-deferred"
+    );
+    const deferredRegisteredAnswer = telegramCalls.slice(deferredInlineMark).find((call) =>
+      call.method === "answerInlineQuery" && call.payload.inline_query_id === "inline-deferred-registered"
+    );
+    const deferredResultId = (deferredInlineAnswer?.payload.results as Array<{ id: string }> | undefined)?.[0]?.id;
+    const deferredRegisteredResultId = (deferredRegisteredAnswer?.payload.results as Array<{ id: string }> | undefined)?.[0]?.id;
+    expect(deferredResultId).toBe("tt_download:u");
+    expect(deferredRegisteredResultId).toBe("tt_download:u");
+    await bot.handleUpdate({ update_id: 903, chosen_inline_result: {
+      result_id: deferredResultId!,
+      from: deferredUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "unregistered-inline-video",
+    } });
+    const registrationPrompt = telegramCalls.slice(deferredInlineMark).find((call) =>
+      call.method === "editMessageText" && call.payload.inline_message_id === "unregistered-inline-video"
+    );
+    expect(registrationPrompt?.payload.text).toBe("🤖 Press here to enable inline download.");
+    expect(registrationPrompt?.payload.reply_markup).toMatchObject({
+      inline_keyboard: [[{ url: "https://t.me/test_bot?start=inline" }]],
+    });
+    expect(memory.videos.some((video) => video.userId === deferredUser.id)).toBe(false);
+    await bot.handleUpdate({ update_id: 905, chosen_inline_result: {
+      result_id: deferredRegisteredResultId!,
+      from: deferredRegisteredUser,
+      query: "https://www.tiktok.com/@creator/video/7669880788879543583",
+      inline_message_id: "deferred-registered-inline-video",
+    } });
+    expect(memory.videos.some((video) => video.userId === deferredRegisteredUser.id && video.surface === "inline")).toBe(true);
+    const deferredRegisteredDelivery = telegramCalls.slice(deferredInlineMark).find((call) =>
+      call.method === "editMessageMedia" && call.payload.inline_message_id === "deferred-registered-inline-video"
+    );
+    expect((deferredRegisteredDelivery?.payload.media as { caption?: string } | undefined)?.caption).toContain(">Source</a>");
 
     await bot.handleUpdate({ update_id: 1000, chosen_inline_result: {
       result_id: "tt_download",
@@ -320,15 +418,22 @@ function memoryDatabase(): {
   users: Map<number, MemoryUserRow>;
   videos: Array<{ userId: number; link: string; surface: string }>;
   details: Map<string, Record<string, unknown>>;
+  delayNextUserLookup(milliseconds: number): void;
+  readonly userLookups: number;
   readonly invalidations: number;
 } {
   const users = new Map<number, MemoryUserRow>();
   const videos: Array<{ userId: number; link: string; surface: string }> = [];
   const details = new Map<string, Record<string, unknown>>();
+  const userLookupDelays: number[] = [];
+  let userLookups = 0;
   let invalidations = 0;
   const sql = async (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     const query = strings.join("?").replace(/\s+/gu, " ").trim();
     if (query.startsWith("SELECT user_id, registered_at, lang, link, file_mode FROM users")) {
+      userLookups++;
+      const delay = userLookupDelays.shift();
+      if (delay !== undefined) await Bun.sleep(delay);
       const user = users.get(Number(values[0]));
       return user ? [user] : [];
     }
@@ -383,5 +488,13 @@ function memoryDatabase(): {
     throw new Error(`Unexpected in-memory SQL query: ${query}`);
   };
   Object.assign(sql, { begin: async (operation: (transaction: typeof sql) => Promise<unknown>) => operation(sql) });
-  return { db: { sql } as unknown as Database, users, videos, details, get invalidations() { return invalidations; } };
+  return {
+    db: { sql } as unknown as Database,
+    users,
+    videos,
+    details,
+    delayNextUserLookup(milliseconds: number) { userLookupDelays.push(milliseconds); },
+    get userLookups() { return userLookups; },
+    get invalidations() { return invalidations; },
+  };
 }
