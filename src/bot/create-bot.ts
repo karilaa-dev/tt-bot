@@ -13,16 +13,23 @@ import { registerUnsupportedHandlers } from "../handlers/unsupported.ts";
 import { languageFromTelegram, text } from "../locales.ts";
 import { sendAdminDiagnostic } from "../services/admin-diagnostics.ts";
 import { ensurePrivateRegistration } from "../services/registration.ts";
+import { createSpamProtection } from "./spam-protection.ts";
+import { createTelegramResponseLimiter } from "./telegram-response-limiter.ts";
 
 export function createBot(deps: BotDependencies): Bot<BotContext> {
   const bot = new Bot<BotContext>(deps.config.botToken, {
     ContextConstructor: BotContext,
     client: { apiRoot: deps.config.telegramApiRoot, timeoutSeconds: 500 },
   });
+  bot.api.config.use(createTelegramResponseLimiter());
   bot.use(async (ctx, next) => {
     ctx.config = deps.config; ctx.db = deps.db; ctx.scrap = deps.scrap; ctx.queue = deps.queue;
     ctx.onboardingSent = false;
     ctx.userRecords = new Map();
+    await next();
+  });
+  bot.use(createSpamProtection<BotContext>());
+  bot.use(async (ctx, next) => {
     await ensurePrivateRegistration(ctx);
     await next();
   });
