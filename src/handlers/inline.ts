@@ -2,11 +2,10 @@ import type { Bot } from "grammy";
 import type { InlineKeyboardMarkup, InlineQueryResultArticle } from "grammy/types";
 import type { BotContext } from "../bot/context.ts";
 import type { UserRecord } from "../db/users.ts";
-import { isLanguage, type Language, text } from "../locales.ts";
+import { languageFromTelegram, type Language, text } from "../locales.ts";
 import { logger } from "../logging.ts";
 import { DeliveryService, allMessages, inlineMediaFromFiles, inlineMediaFromMessage, inlineMediaPayload, telegramFilesFromResult, type InlineMediaReference } from "../services/delivery.ts";
 import { executeInstagramMediaRequest, executeTikTokMediaRequest } from "../services/media-cache.ts";
-import { resolveLanguage } from "../services/registration.ts";
 import { loadingKeyboard, statsKeyboard } from "../ui/keyboards.ts";
 import { createInlineSlideshow } from "./inline-slideshow.ts";
 import { findInstagramUrl } from "./links.ts";
@@ -21,7 +20,7 @@ type InlineUserLookup =
 
 interface InlineDownloadSelection {
   instagram: boolean;
-  verifiedLang: Language | null;
+  verified: boolean;
 }
 
 export function registerInlineHandlers(bot: Bot<BotContext>): void {
@@ -29,7 +28,7 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
     const query = ctx.inlineQuery.query.trim();
     const lookup = await lookupInlineUser(ctx, ctx.from.id);
     const user = lookup.status === "resolved" ? lookup.user : null;
-    const lang = user?.lang ?? await resolveLanguage(ctx, true);
+    const lang = languageFromTelegram(ctx.from.language_code);
     if (lookup.status === "resolved" && !user) {
       await ctx.answerInlineQuery([], { cache_time: 0, is_personal: true, button: { text: text(lang, "inline_start_bot"), start_parameter: "inline" } });
       return;
@@ -48,12 +47,8 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
     if (!id) return;
     const selection = parseInlineDownloadSelection(ctx.chosenInlineResult.result_id, ctx.from.id);
     if (!selection) return;
-    let lang = selection.verifiedLang;
-    if (!lang) {
-      const user = await verifyDeferredInlineUser(ctx, id);
-      if (!user) return;
-      lang = user.lang;
-    }
+    const lang = languageFromTelegram(ctx.from.language_code);
+    if (!selection.verified && !await verifyDeferredInlineUser(ctx, id, lang)) return;
     await processInline(ctx, id, ctx.chosenInlineResult.query, lang, selection.instagram);
   });
 
@@ -67,7 +62,7 @@ export function registerInlineHandlers(bot: Bot<BotContext>): void {
     if (retrying.has(id)) return ctx.answerCallbackQuery({ text: "Retrying..." });
     retrying.add(id);
     try {
-      const lang = await languageForInline(ctx, ctx.from.id);
+      const lang = languageFromTelegram(ctx.from.language_code);
       await ctx.answerCallbackQuery();
       await editText(ctx, id, text(lang, "inline_download_video_text"), { inline_keyboard: loadingKeyboard.inline_keyboard });
       await processInline(ctx, id, link, lang, instagram);
@@ -98,34 +93,30 @@ async function lookupInlineUser(ctx: BotContext, userId: number): Promise<Inline
   }
 }
 
-async function verifyDeferredInlineUser(ctx: BotContext, inlineMessageId: string): Promise<UserRecord | null> {
-  const fallbackLang = await resolveLanguage(ctx, true);
+async function verifyDeferredInlineUser(ctx: BotContext, inlineMessageId: string, lang: Language): Promise<boolean> {
   try {
     const user = await ctx.getUserRecord(ctx.from!.id);
-    if (user) return user;
-    await editText(ctx, inlineMessageId, text(fallbackLang, "inline_start_bot"), startBotKeyboard(ctx, fallbackLang));
+    if (user) return true;
+    await editText(ctx, inlineMessageId, text(lang, "inline_start_bot"), startBotKeyboard(ctx, lang));
   } catch (error) {
     logger.error(`Deferred inline user verification failed for user ${ctx.from?.id ?? "unknown"}`, error);
-    await editText(ctx, inlineMessageId, text(fallbackLang, "error"), { inline_keyboard: [] });
+    await editText(ctx, inlineMessageId, text(lang, "error"), { inline_keyboard: [] });
   }
-  return null;
+  return false;
 }
 
 function inlineDownloadResultId(platform: "tt" | "ig", user: UserRecord | null): string {
   const prefix = `${platform}_download`;
-  return user ? `${prefix}:v:${user.lang}:${user.userId.toString(36)}` : `${prefix}:u`;
+  return user ? `${prefix}:v:${user.userId.toString(36)}` : `${prefix}:u`;
 }
 
 function parseInlineDownloadSelection(resultId: string, userId: number): InlineDownloadSelection | null {
-  const match = resultId.match(/^(tt|ig)_download:(u|v:([a-z]{2}):([0-9a-z]+))$/u);
-  if (match) {
-    const verifiedLang = match[2] !== "u" && isLanguage(match[3]) && match[4] === userId.toString(36)
-      ? match[3]
-      : null;
-    return { instagram: match[1] === "ig", verifiedLang };
-  }
+  const unverified = resultId.match(/^(tt|ig)_download:u$/u);
+  if (unverified) return { instagram: unverified[1] === "ig", verified: false };
+  const verified = resultId.match(/^(tt|ig)_download:v:(?:[a-z]{2}:)?([0-9a-z]+)$/u);
+  if (verified) return { instagram: verified[1] === "ig", verified: verified[2] === userId.toString(36) };
   if (resultId === "tt_download" || resultId === "ig_download") {
-    return { instagram: resultId === "ig_download", verifiedLang: null };
+    return { instagram: resultId === "ig_download", verified: false };
   }
   return null;
 }
@@ -200,9 +191,6 @@ async function processInline(ctx: BotContext, id: string, rawLink: string, lang:
 }
 
 
-async function languageForInline(ctx: BotContext, userId: number): Promise<Language> {
-  const user = await ctx.getUserRecord(userId); return user?.lang ?? await resolveLanguage(ctx, true);
-}
 function article(id: string, title: string, description: string, body: string, thumbnail: string, keyboard?: InlineKeyboardMarkup["inline_keyboard"]): InlineQueryResultArticle {
   return { type: "article", id, title, description, input_message_content: { message_text: body, parse_mode: "HTML" }, thumbnail_url: thumbnail, ...(keyboard ? { reply_markup: { inline_keyboard: keyboard } } : {}) };
 }

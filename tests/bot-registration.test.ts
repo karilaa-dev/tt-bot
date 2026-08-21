@@ -157,18 +157,22 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     } });
     const verifiedInlineAnswer = telegramCalls.slice(verifiedInlineMark).find((call) => call.method === "answerInlineQuery");
     const verifiedResultId = (verifiedInlineAnswer?.payload.results as Array<{ id: string }> | undefined)?.[0]?.id;
-    expect(verifiedResultId).toBe(`tt_download:v:en:${deepLinkUser.id.toString(36)}`);
+    expect(verifiedResultId).toBe(`tt_download:v:${deepLinkUser.id.toString(36)}`);
     const lookupsAfterInlineVerification = memory.userLookups;
     await bot.handleUpdate({ update_id: 901, chosen_inline_result: {
       result_id: verifiedResultId!,
-      from: deepLinkUser,
+      from: { ...deepLinkUser, language_code: "vi" },
       query: "https://www.tiktok.com/@creator/video/7669880788879543583",
       inline_message_id: "verified-inline-video",
     } });
     expect(memory.userLookups).toBe(lookupsAfterInlineVerification);
+    const verifiedDelivery = telegramCalls.slice(verifiedInlineMark).find((call) =>
+      call.method === "editMessageMedia" && call.payload.inline_message_id === "verified-inline-video"
+    );
+    expect((verifiedDelivery?.payload.media as { caption?: string } | undefined)?.caption).toContain(">Nguồn</a>");
 
     const deferredUser = { id: 105, is_bot: false, first_name: "Deferred", language_code: "en" };
-    const deferredRegisteredUser = { id: 106, is_bot: false, first_name: "Deferred Registered", language_code: "en" };
+    const deferredRegisteredUser = { id: 106, is_bot: false, first_name: "Deferred Registered", language_code: "unsupported" };
     memory.users.set(deferredRegisteredUser.id, {
       user_id: deferredRegisteredUser.id,
       registered_at: 1,
@@ -226,6 +230,10 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
       inline_message_id: "deferred-registered-inline-video",
     } });
     expect(memory.videos.some((video) => video.userId === deferredRegisteredUser.id && video.surface === "inline")).toBe(true);
+    const deferredRegisteredDelivery = telegramCalls.slice(deferredInlineMark).find((call) =>
+      call.method === "editMessageMedia" && call.payload.inline_message_id === "deferred-registered-inline-video"
+    );
+    expect((deferredRegisteredDelivery?.payload.media as { caption?: string } | undefined)?.caption).toContain(">Source</a>");
 
     await bot.handleUpdate({ update_id: 1000, chosen_inline_result: {
       result_id: "tt_download",
