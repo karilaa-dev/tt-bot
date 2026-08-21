@@ -232,9 +232,7 @@ function chatTarget(value: unknown): ChatTarget | null {
   if (typeof value === "number" && Number.isSafeInteger(value) && value !== 0) {
     return { key: `id:${value}`, group: value < 0 };
   }
-  if (typeof value === "string" && /^@[A-Za-z0-9_]+$/u.test(value)) {
-    return { key: `username:${value.toLowerCase()}`, group: true };
-  }
+  if (typeof value === "string") throw new RangeError("Telegram responses require a numeric chat_id; username targets are not supported");
   return null;
 }
 

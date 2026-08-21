@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
-import { createSpamProtection } from "../src/bot/spam-protection.ts";
+import { createPrivateSpamProtection, createSpamProtection } from "../src/bot/spam-protection.ts";
 
 interface TestContext {
   message?: {
@@ -112,6 +112,32 @@ describe("spam protection", () => {
     expect(harness.replies[0]?.text).toContain("your messages");
   });
 
+  test("identifies a sender by user ID across chats", async () => {
+    const harness = spamHarness();
+    for (let index = 0; index < 5; index++) {
+      await harness.dispatch({ chatId: -1, chatType: "group", senderId: 7, command: true });
+    }
+    await harness.dispatch({ chatId: -2, chatType: "group", senderId: 7, command: true });
+    await harness.dispatch({ chatId: -3, chatType: "group", senderId: 7, command: true });
+    await harness.dispatch({ chatId: -3, chatType: "group", senderId: 8, command: true });
+
+    expect(harness.passed).toBe(6);
+    expect(harness.replies).toHaveLength(1);
+    expect(harness.replies[0]?.text).toContain("your messages");
+  });
+
+  test("private-only protection leaves group messages untouched", async () => {
+    const harness = spamHarness(undefined, createPrivateSpamProtection());
+    for (let index = 0; index < 30; index++) await harness.dispatch(groupCommand(1));
+
+    expect(harness.passed).toBe(30);
+    expect(harness.replies).toHaveLength(0);
+
+    for (let index = 0; index < 6; index++) await harness.dispatch();
+    expect(harness.passed).toBe(35);
+    expect(harness.replies).toHaveLength(1);
+  });
+
   test("pauses a group on its twenty-first actionable message", async () => {
     const harness = spamHarness();
     for (let senderId = 1; senderId <= 20; senderId++) await harness.dispatch(groupCommand(senderId));
@@ -198,13 +224,13 @@ describe("spam protection", () => {
   });
 });
 
-function spamHarness(replyFailure?: Error): {
+function spamHarness(replyFailure?: Error, middleware = createSpamProtection()): {
   readonly passed: number;
   readonly replyAttempts: number;
   replies: Array<{ text: string; options: Record<string, unknown> }>;
   dispatch: (options?: DispatchOptions) => Promise<void>;
 } {
-  const middleware = createSpamProtection() as unknown as TestMiddleware;
+  const testMiddleware = middleware as unknown as TestMiddleware;
   const replies: Array<{ text: string; options: Record<string, unknown> }> = [];
   let passed = 0;
   let replyAttempts = 0;
@@ -236,7 +262,7 @@ function spamHarness(replyFailure?: Error): {
           return {};
         },
       };
-      await middleware(ctx, async () => { passed++; });
+      await testMiddleware(ctx, async () => { passed++; });
     },
   };
 }

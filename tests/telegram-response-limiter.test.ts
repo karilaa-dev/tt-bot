@@ -199,26 +199,24 @@ describe("Telegram response limiter", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("treats negative IDs and usernames as groups while malformed targets stay global-only", async () => {
-    for (const chatId of [-1001, "@example_group"]) {
-      const { calls, invoke } = recorder();
-      const bulk = invoke("copyMessages", { chat_id: chatId, message_ids: Array.from({ length: 20 }, (_, index) => index) });
-      const blocked = invoke("sendMessage", { chat_id: chatId });
-      await flushPromises();
-      expect(calls, String(chatId)).toHaveLength(1);
-      await advance(59_999);
-      expect(calls, String(chatId)).toHaveLength(1);
-      await advance(1);
-      expect(calls, String(chatId)).toHaveLength(2);
-      await Promise.all([bulk, blocked]);
-    }
+  test("uses negative numeric IDs for groups and rejects string targets", async () => {
+    const { calls, invoke } = recorder();
+    const bulk = invoke("copyMessages", { chat_id: -1001, message_ids: Array.from({ length: 20 }, (_, index) => index) });
+    const blocked = invoke("sendMessage", { chat_id: -1001 });
+    await flushPromises();
+    expect(calls).toHaveLength(1);
+    await advance(59_999);
+    expect(calls).toHaveLength(1);
+    await advance(1);
+    expect(calls).toHaveLength(2);
+    await Promise.all([bulk, blocked]);
 
-    const malformed = recorder();
-    await Promise.all([
-      malformed.invoke("sendMessage", { chat_id: "not-a-username" }),
-      malformed.invoke("sendMessage", { chat_id: "not-a-username" }),
-    ]);
-    expect(malformed.calls).toHaveLength(2);
+    const strings = recorder();
+    await expect(strings.invoke("sendMessage", { chat_id: "@example_group" }))
+      .rejects.toThrow("numeric chat_id");
+    await expect(strings.invoke("sendMessage", { chat_id: "12345" }))
+      .rejects.toThrow("numeric chat_id");
+    expect(strings.calls).toHaveLength(0);
   });
 
   test("does not starve a weighted request behind newer single-message calls", async () => {

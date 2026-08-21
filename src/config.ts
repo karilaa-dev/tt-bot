@@ -3,7 +3,7 @@ export type LogLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
 export interface AppConfig {
   botToken: string;
   adminIds: Set<number>;
-  joinLogs: number | string | null;
+  joinLogs: number | null;
   storageChannelId: number | null;
   telegramApiRoot: string;
   databaseUrl: string;
@@ -60,12 +60,11 @@ function parsePositiveInteger(name: string, fallback: number): number {
   return value;
 }
 
-function parseChat(name: string): number | string | null {
+function parseChat(name: string): number | null {
   const raw = Bun.env[name]?.trim();
   if (!raw || raw === "0") return null;
-  if (raw.startsWith("@")) return raw;
   const value = Number(raw);
-  if (!Number.isSafeInteger(value)) throw new Error(`${name} must be a chat ID or @username`);
+  if (!Number.isSafeInteger(value)) throw new Error(`${name} must be a numeric Telegram chat ID`);
   return value;
 }
 
@@ -93,7 +92,6 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const requireTtScrap = options.requireTtScrap ?? true;
   const admins = parseIds("ADMIN_IDS");
   const storage = parseChat("STORAGE_CHANNEL_ID");
-  if (typeof storage === "string") throw new Error("STORAGE_CHANNEL_ID must be numeric");
   const level = (Bun.env.LOG_LEVEL?.trim().toUpperCase() || "INFO") as LogLevel;
   if (!["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"].includes(level)) {
     throw new Error("LOG_LEVEL is invalid");

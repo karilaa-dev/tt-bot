@@ -27,7 +27,7 @@ interface TimeoutEvent {
 }
 
 export function createSpamProtection<C extends Context = Context>(): MiddlewareFn<C> {
-  const senders = new Map<string, SpamState>();
+  const senders = new Map<number, SpamState>();
   const groups = new Map<number, SpamState>();
   let nextSweepAt = 0;
 
@@ -49,8 +49,7 @@ export function createSpamProtection<C extends Context = Context>(): MiddlewareF
     if (groupState && groupState.blockedUntil > now) return;
 
     const senderId = ctx.from?.id;
-    const senderKey = senderId === undefined ? null : `${chat.id}:${senderId}`;
-    const senderState = senderKey === null ? null : stateFor(senders, senderKey);
+    const senderState = senderId === undefined ? null : stateFor(senders, senderId);
     prepareState(senderState, SENDER_WINDOW_MS, now);
     if (senderState && senderState.blockedUntil > now) return;
 
@@ -79,6 +78,11 @@ export function createSpamProtection<C extends Context = Context>(): MiddlewareF
     if (groupTimeout) logTimeout(groupTimeout);
     await sendTimeoutWarning(ctx, groupTimeout ?? senderTimeout!, message.message_id);
   };
+}
+
+export function createPrivateSpamProtection<C extends Context = Context>(): MiddlewareFn<C> {
+  const protect = createSpamProtection<C>();
+  return (ctx, next) => ctx.chat?.type === "private" ? protect(ctx, next) : next();
 }
 
 function isActionableMessage(ctx: Context): boolean {
