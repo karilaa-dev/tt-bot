@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import type { Database } from "../src/db/client.ts";
 import { createBot } from "../src/bot/create-bot.ts";
 import { TtScrapClient } from "../src/clients/tt-scrap.ts";
@@ -97,6 +97,12 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
       video: { file_id: "video-id", file_unique_id: "video-unique", width: 1, height: 1, duration: 1 },
     } });
   } });
+
+  let monotonicNow = 0;
+  const clock = jest.spyOn(performance, "now").mockImplementation(() => {
+    monotonicNow += 1_000;
+    return monotonicNow;
+  });
 
   try {
     const config = { ...testConfig(`http://127.0.0.1:${scrap.port}`), telegramApiRoot: `http://127.0.0.1:${telegram.port}` };
@@ -298,6 +304,7 @@ test("registers deep links, first-link users, and group chats without PostgreSQL
     expect(memory.invalidations).toBe(invalidationsBeforeViewerNavigation);
     expect(scrapCalls).toHaveLength(scrapCallsBeforeViewerNavigation);
   } finally {
+    clock.mockRestore();
     cleanupInlineSlideshows();
     telegram.stop(true);
     scrap.stop(true);

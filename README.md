@@ -14,6 +14,9 @@ Copy `.env.example` to `.env` and configure:
 - `TG_SERVER` defaults to `https://api.telegram.org`. It may be changed to a compatible custom Telegram Bot API root, but no local server is bundled.
 - `STORAGE_CHANNEL_ID` is required for inline delivery and group slideshows containing more than ten items.
 - Private chats have a three-item FIFO media queue; groups have ten. A slot remains occupied until delivery completes, one job runs at a time per chat, and at most 25 jobs run globally. The global waiting queue is unlimited.
+- Message-producing calls made directly by `tt-bot` follow [Telegram's documented limits](https://core.telegram.org/bots/faq): 30 created messages per rolling second globally, one message-producing API call per target chat per rolling second, and 20 created messages per rolling minute for negative-ID or username group targets. Calls stay FIFO within each target, but a delayed target does not block other chats. Album and bulk items count separately toward the global and group budgets while the API call consumes one target-chat turn.
+- Spam protection allows five actionable messages per sender in a rolling five-second window. The sixth pauses that sender for one minute. Another violation within one hour pauses them for five minutes; one hour without a violation resets the penalty. Groups also pause for the same durations after their 21st actionable message in a rolling minute. Every private message counts. In groups, only bot commands and recognized TikTok or Instagram links count.
+- Fresh media sent directly by `tt-scrap` is outside the response limiter. Combined traffic using the same bot token can still exceed Telegram's global, chat, or group limits.
 - `DB_POOL_SIZE` defaults to 10 PostgreSQL connections.
 
 `tt-scrap` itself must set `TELEGRAM_BOT_TOKEN` to the same value as `BOT_TOKEN` and normally `TELEGRAM_API_BASE_URL=https://api.telegram.org`.
