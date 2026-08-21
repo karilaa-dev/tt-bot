@@ -25,6 +25,7 @@ export async function runBot(options: RunBotOptions = {}): Promise<void> {
   const queue = new QueueManager(config.maxUserQueueSize, config.maxGroupQueueSize, config.maxActiveJobs);
   const bot = createBot({ config, db, scrap, queue });
   await bot.init();
+  await bot.api.deleteWebhook({ drop_pending_updates: true });
   logger.info(`${bot.botInfo.first_name} [@${bot.botInfo.username}, id:${bot.botInfo.id}]`);
   const runner = run(bot, {
     runner: {
